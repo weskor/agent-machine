@@ -185,13 +185,12 @@ func TestCleanupStaleRunLocksRemovesOnlyStaleLocks(t *testing.T) {
 	}
 }
 
-func TestCleanupStaleRunLocksMarksMirroredLeaseReleased(t *testing.T) {
+func TestCleanupStaleRunLocksRecordsUnmirroredLeaseRelease(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
 	staleWorkspace := filepath.Join(root, "CAG-64")
 	lock := runLock{IssueIdentifier: "CAG-64", Owner: "agent", Workspace: staleWorkspace, StartedAt: now.Add(-5 * time.Hour), HeartbeatAt: now.Add(-runLockStaleAfter - time.Second)}
 	writeRunLockFixture(t, staleWorkspace, lock)
-	mirrorRunLockAcquire(lock)
 
 	removed, err := cleanupStaleRunLocks(root, now)
 	if err != nil {
@@ -226,6 +225,10 @@ func TestCleanupStaleRunLocksRemovesDeadOwnerLocksOnSameHost(t *testing.T) {
 	}
 	if _, err := os.Stat(runLockPath(activeWorkspace)); err != nil {
 		t.Fatalf("expected active current-process lock kept: %v", err)
+	}
+	row := readLeaseFixture(t, root, "run:CAG-33")
+	if row.releasedAt == "" || row.releaseReason != "dead_owner" {
+		t.Fatalf("expected dead-owner release row, got %#v", row)
 	}
 }
 

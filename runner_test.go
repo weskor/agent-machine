@@ -505,11 +505,18 @@ func TestBehaviorContractPreflightPromptCoversGenericReplacementContracts(t *tes
 
 	for _, expected := range []string{
 		"refactors, replacements, and rewrites",
+		"CONTEXT.md",
+		"LANGUAGE.md",
+		"docs/adr/",
+		"docs/specs/",
 		"code, commands, dependencies, integrations, workflows, or state-machine logic",
 		"inputs/outputs, side effects, cleanup, error handling, security/ownership assumptions, state transitions, and hidden operational contracts",
+		"Behavior Contract Evidence",
+		"cite relevant specs/ADRs",
 		"behavior preserved",
 		"behavior intentionally changed",
 		"unknown behavior that needs clarification",
+		"no spec changes were needed",
 		"TDD or characterization tests",
 		"complexity/LOC budget",
 		"expected files touched",

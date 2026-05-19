@@ -10,6 +10,8 @@ import (
 
 type Config struct {
 	WorkflowPath           string
+	APIKey                 string
+	Endpoint               string
 	ProjectSlug            string
 	WorkspaceRoot          string
 	RunningState           string
@@ -107,11 +109,10 @@ func Run[Client any](args []string, deps Dependencies[Client]) error {
 		return nil
 	}
 
-	apiKey := cfg.Scalar(wf.YAML, "  api_key", "")
-	if apiKey == "" {
+	if config.APIKey == "" {
 		return errors.New("LINEAR_API_KEY is required")
 	}
-	client := deps.NewLinearClient(apiKey, cfg.Scalar(wf.YAML, "  endpoint", "https://api.linear.app/graphql"))
+	client := deps.NewLinearClient(config.APIKey, config.Endpoint)
 
 	switch parsed.mode {
 	case modeRepair:
@@ -184,6 +185,8 @@ func LoadWorkflowConfig(workflowPath string) (cfg.Workflow, Config, error) {
 
 	config := Config{
 		WorkflowPath:   workflowPath,
+		APIKey:         schema.Tracker.APIKey,
+		Endpoint:       schema.Tracker.Endpoint,
 		ProjectSlug:    schema.Tracker.ProjectSlug,
 		WorkspaceRoot:  schema.Workspace.Root,
 		RunningState:   schema.Compound.RunningState,

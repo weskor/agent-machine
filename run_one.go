@@ -178,6 +178,12 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		log("%s needs additional information; stopped without PR handoff", candidate.Identifier)
 		return true, nil
 	}
+	if prURL == "" {
+		missingPRErr := "missing PR URL"
+		writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, "", "failed", missingPRErr, config.Budget.Active(), ""))
+		log("%s failed without PR handoff: %s", candidate.Identifier, missingPRErr)
+		return true, fmt.Errorf("%s", missingPRErr)
+	}
 	if config.AfterRun != "" {
 		if err := sh.RunWithTimeout(config.AfterRun, workspace, config.Budget.CommandTimeout); err != nil {
 			status := "failed"

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -26,9 +27,18 @@ type Store struct {
 
 type Health struct {
 	OK            bool
+	Exists        bool
 	SchemaVersion int
 	JournalMode   string
 	BusyTimeoutMS int
+	Counts        Counts
+}
+
+type Counts struct {
+	IssueAttempts    int
+	PRMappings       int
+	ReviewStates     int
+	TerminalOutcomes int
 }
 
 type RunArtifactSnapshot struct {
@@ -239,7 +249,50 @@ func (s *Store) Health(ctx context.Context) (Health, error) {
 	if err := s.db.QueryRowContext(ctx, `PRAGMA busy_timeout`).Scan(&timeout); err != nil {
 		return Health{}, fmt.Errorf("state store health: busy_timeout: %w", err)
 	}
-	return Health{OK: true, SchemaVersion: version, JournalMode: journal, BusyTimeoutMS: timeout}, nil
+	counts, err := s.Counts(ctx)
+	if err != nil {
+		return Health{}, fmt.Errorf("state store health: counts: %w", err)
+	}
+	return Health{OK: true, Exists: true, SchemaVersion: version, JournalMode: journal, BusyTimeoutMS: timeout, Counts: counts}, nil
+}
+
+func InspectHealth(ctx context.Context, path string) (Health, error) {
+	if path == "" {
+		return Health{}, errors.New("inspect state store: path is required")
+	}
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return Health{Exists: false}, nil
+		}
+		return Health{}, fmt.Errorf("inspect state store: stat: %w", err)
+	}
+	dsn := (&url.URL{Scheme: "file", Path: path}).String() + "?mode=ro"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return Health{}, fmt.Errorf("inspect state store: open read-only: %w", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	if _, err := db.ExecContext(ctx, `PRAGMA busy_timeout = 5000`); err != nil {
+		return Health{}, fmt.Errorf("inspect state store: busy_timeout: %w", err)
+	}
+	s := &Store{db: db}
+	return s.Health(ctx)
+}
+
+func (s *Store) Counts(ctx context.Context) (Counts, error) {
+	var counts Counts
+	for table, dest := range map[string]*int{
+		"issue_attempts":    &counts.IssueAttempts,
+		"pr_mappings":       &counts.PRMappings,
+		"review_states":     &counts.ReviewStates,
+		"terminal_outcomes": &counts.TerminalOutcomes,
+	} {
+		if err := s.db.QueryRowContext(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s`, table)).Scan(dest); err != nil {
+			return Counts{}, fmt.Errorf("count %s: %w", table, err)
+		}
+	}
+	return counts, nil
 }
 
 func (s *Store) init(ctx context.Context) error {

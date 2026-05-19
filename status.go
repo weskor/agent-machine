@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 func printStatus(client linearClient, config runnerConfig) error {
@@ -50,7 +53,33 @@ func printStatus(client linearClient, config runnerConfig) error {
 	for _, line := range summarizeRunningReconciliation(issues, artifactIndex.byIssue, config) {
 		log("- %s", line)
 	}
+	for _, line := range summarizeStateStore(config.WorkspaceRoot) {
+		log("- %s", line)
+	}
 	return nil
+}
+
+func summarizeStateStore(workspaceRoot string) []string {
+	path := state.DefaultDBPath(workspaceRoot)
+	lines := []string{fmt.Sprintf("SQLite state path: %s", emptyAsNA(path))}
+	if path == "" {
+		return append(lines, "SQLite state health: degraded path=unconfigured action=set workspace.root")
+	}
+	health, err := state.InspectHealth(context.Background(), path)
+	if err != nil {
+		return append(lines, fmt.Sprintf("SQLite state health: degraded error=%q action=check state DB path and permissions", err.Error()))
+	}
+	if !health.Exists {
+		return append(lines, "SQLite state health: missing action=run pi-symphony once to initialize mirrored state")
+	}
+	status := "degraded"
+	if health.OK {
+		status = "healthy"
+	}
+	return append(lines,
+		fmt.Sprintf("SQLite state health: %s schema_version=%d journal_mode=%s busy_timeout_ms=%d", status, health.SchemaVersion, emptyAsNA(health.JournalMode), health.BusyTimeoutMS),
+		fmt.Sprintf("SQLite state counts: issue_attempts=%d pr_mappings=%d review_states=%d terminal_outcomes=%d", health.Counts.IssueAttempts, health.Counts.PRMappings, health.Counts.ReviewStates, health.Counts.TerminalOutcomes),
+	)
 }
 
 func openSymphonyPRs() ([]pullRequestSummary, error) {

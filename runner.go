@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	cfg "github.com/weskor/pi-symphony/internal/config"
 )
 
 // run dispatches the selected mode. The default remains one-shot for targeted
@@ -53,35 +55,35 @@ func run() error {
 	loadNearestDotEnvLocal(workflowPath)
 	configureGitHubRepositoryFromWorkflow(workflowPath)
 
-	wf, err := readWorkflow(workflowPath)
+	wf, err := cfg.ReadWorkflow(workflowPath)
 	if err != nil {
 		return err
 	}
 
-	apiKey := scalar(wf.YAML, "  api_key", "")
+	apiKey := cfg.Scalar(wf.YAML, "  api_key", "")
 	if apiKey == "" {
 		return errors.New("LINEAR_API_KEY is required")
 	}
-	workspaceYAML := section(wf.YAML, "workspace")
+	workspaceYAML := cfg.Section(wf.YAML, "workspace")
 	config := runnerConfig{
 		WorkflowPath:   workflowPath,
-		ProjectSlug:    scalar(wf.YAML, "  project_slug", ""),
-		WorkspaceRoot:  scalar(workspaceYAML, "  root", ""),
-		RunningState:   scalar(wf.YAML, "  running_state", "In Progress"),
-		HandoffState:   scalar(wf.YAML, "  handoff_state", "Human Review"),
-		DoneState:      scalar(wf.YAML, "  done_state", "Done"),
-		NeedsInfoState: scalar(wf.YAML, "  needs_info_state", "Needs Info"),
+		ProjectSlug:    cfg.Scalar(wf.YAML, "  project_slug", ""),
+		WorkspaceRoot:  cfg.Scalar(workspaceYAML, "  root", ""),
+		RunningState:   cfg.Scalar(wf.YAML, "  running_state", "In Progress"),
+		HandoffState:   cfg.Scalar(wf.YAML, "  handoff_state", "Human Review"),
+		DoneState:      cfg.Scalar(wf.YAML, "  done_state", "Done"),
+		NeedsInfoState: cfg.Scalar(wf.YAML, "  needs_info_state", "Needs Info"),
 		ReadyState:     "Ready for Agent",
-		BaseBranch:     baseBranchFromWorkflow(wf.YAML),
-		ActiveStates:   listUnder(wf.YAML, "active_states"),
+		BaseBranch:     cfg.BaseBranchFromWorkflow(wf.YAML),
+		ActiveStates:   cfg.ListUnder(wf.YAML, "active_states"),
 	}
-	piYAML := section(wf.YAML, "pi")
-	config.PiCommand = commandUnder(piYAML, "command", "pi --print --no-session --thinking low")
-	config.ReviewCommand = commandUnder(piYAML, "review_command", "")
-	config.AfterCreate = blockUnder(piYAML, "after_create")
-	config.BeforeRun = scalar(piYAML, "  before_run", "")
-	config.AfterRun = scalar(piYAML, "  after_run", "")
-	config.Budget = parseBudget(wf.YAML)
+	piYAML := cfg.Section(wf.YAML, "pi")
+	config.PiCommand = cfg.CommandUnder(piYAML, "command", "pi --print --no-session --thinking low")
+	config.ReviewCommand = cfg.CommandUnder(piYAML, "review_command", "")
+	config.AfterCreate = cfg.BlockUnder(piYAML, "after_create")
+	config.BeforeRun = cfg.Scalar(piYAML, "  before_run", "")
+	config.AfterRun = cfg.Scalar(piYAML, "  after_run", "")
+	config.Budget = cfg.ParseBudget(wf.YAML)
 	if config.Budget.GitHubTimeout > 0 {
 		defaultGitHubCommandTimeout = config.Budget.GitHubTimeout
 	}
@@ -90,7 +92,7 @@ func run() error {
 		return errors.New("WORKFLOW.md must configure tracker.project_slug and workspace.root")
 	}
 
-	client := linearClient{apiKey: apiKey, endpoint: scalar(wf.YAML, "  endpoint", "https://api.linear.app/graphql")}
+	client := linearClient{apiKey: apiKey, endpoint: cfg.Scalar(wf.YAML, "  endpoint", "https://api.linear.app/graphql")}
 	if repair {
 		return repairArtifacts(config.WorkspaceRoot)
 	}
@@ -304,7 +306,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		if err := shellWithTimeout(config.AfterCreate, workspace, config.Budget.CommandTimeout); err != nil {
 			if errors.Is(err, errCommandTimeout) {
 				_ = client.createComment(candidate.ID, renderBudgetFailureComment(err.Error()))
-				writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, "", runStarted, time.Now(), nil, nil, "", "timeout", err.Error(), config.Budget.active(), err.Error()))
+				writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, "", runStarted, time.Now(), nil, nil, "", "timeout", err.Error(), config.Budget.Active(), err.Error()))
 			}
 			return true, err
 		}
@@ -316,7 +318,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		if err := shellWithTimeout(config.BeforeRun, workspace, config.Budget.CommandTimeout); err != nil {
 			if errors.Is(err, errCommandTimeout) {
 				_ = client.createComment(candidate.ID, renderBudgetFailureComment(err.Error()))
-				writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, "", runStarted, time.Now(), nil, nil, "", "timeout", err.Error(), config.Budget.active(), err.Error()))
+				writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, "", runStarted, time.Now(), nil, nil, "", "timeout", err.Error(), config.Budget.Active(), err.Error()))
 			}
 			return true, err
 		}
@@ -349,7 +351,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	githubEnv, githubAuth, err := githubAppEnvFromEnvironment()
 	if err != nil {
 		now := time.Now()
-		writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, "github_app_error", now, now, nil, nil, "", "failed", err.Error(), config.Budget.active(), ""))
+		writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, "github_app_error", now, now, nil, nil, "", "failed", err.Error(), config.Budget.Active(), ""))
 		return true, err
 	}
 	if githubAuth != "" {
@@ -373,7 +375,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 				log("failed to comment on %s: %v", candidate.Identifier, commentErr)
 			}
 		}
-		writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, piEnded, parseUsage(piOutput), nil, firstPRURL(piOutput), status, err.Error(), config.Budget.active(), err.Error()))
+		writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, piEnded, parseUsage(piOutput), nil, firstPRURL(piOutput), status, err.Error(), config.Budget.Active(), err.Error()))
 		return true, err
 	}
 	piUsage := parseUsage(piOutput)
@@ -388,13 +390,13 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		if err := client.createComment(candidate.ID, renderBudgetFailureComment(exceeded)); err != nil {
 			log("failed to comment on %s: %v", candidate.Identifier, err)
 		}
-		writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, "budget_exceeded", exceeded, config.Budget.active(), exceeded))
+		writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, "budget_exceeded", exceeded, config.Budget.Active(), exceeded))
 		return true, fmt.Errorf("%s", exceeded)
 	}
 	if needsInfo := parseNeedsInfo(piOutput); needsInfo.NeedsInfo {
 		if id := stateID(states, config.NeedsInfoState); id != "" {
 			if err := client.updateIssueState(candidate.ID, id); err != nil {
-				writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, "needs_info_failed", err.Error(), config.Budget.active(), ""))
+				writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, "needs_info_failed", err.Error(), config.Budget.Active(), ""))
 				return true, err
 			}
 			log("moved %s to %s", candidate.Identifier, config.NeedsInfoState)
@@ -405,7 +407,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		if err := client.createComment(candidate.ID, comment); err != nil {
 			log("failed to comment on %s: %v", candidate.Identifier, err)
 		}
-		writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, "", "needs_info", strings.Join(needsInfo.Questions, "\n"), config.Budget.active(), ""))
+		writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, "", "needs_info", strings.Join(needsInfo.Questions, "\n"), config.Budget.Active(), ""))
 		log("%s needs additional information; stopped without PR handoff", candidate.Identifier)
 		return true, nil
 	}
@@ -418,14 +420,14 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 					log("failed to comment on %s: %v", candidate.Identifier, commentErr)
 				}
 			}
-			writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, status, err.Error(), config.Budget.active(), err.Error()))
+			writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, status, err.Error(), config.Budget.Active(), err.Error()))
 			return true, err
 		}
 	}
 
 	if prURL != "" {
 		if reason, err := validatePRForHandoff(config, candidate, prURL); err != nil {
-			writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, "failed", err.Error(), config.Budget.active(), ""))
+			writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, "failed", err.Error(), config.Budget.Active(), ""))
 			return true, err
 		} else if reason != "" {
 			review := &reviewResult{Status: "failed", Findings: reason}
@@ -434,7 +436,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 			}
 			if id := stateID(states, config.ReadyState); id != "" {
 				if err := client.updateIssueState(candidate.ID, id); err != nil {
-					writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, "review_failed", err.Error(), config.Budget.active(), ""))
+					writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, "review_failed", err.Error(), config.Budget.Active(), ""))
 					return true, err
 				}
 			}
@@ -442,7 +444,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 			if err := client.createComment(candidate.ID, comment); err != nil {
 				log("failed to comment on %s: %v", candidate.Identifier, err)
 			}
-			writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, "review_failed", "pr sanity check failed", config.Budget.active(), ""))
+			writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, "review_failed", "pr sanity check failed", config.Budget.Active(), ""))
 			log("PR sanity check failed for %s; moved back to %s: %s", candidate.Identifier, config.ReadyState, reason)
 			return true, nil
 		}
@@ -460,20 +462,20 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 					log("failed to comment on %s: %v", candidate.Identifier, commentErr)
 				}
 			}
-			writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, status, err.Error(), config.Budget.active(), err.Error()))
+			writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, status, err.Error(), config.Budget.Active(), err.Error()))
 			return true, err
 		}
 		if exceeded := budgetExceeded(config.Budget, piStart, piUsage, review.Usage); exceeded != "" {
 			if err := client.createComment(candidate.ID, renderBudgetFailureComment(exceeded)); err != nil {
 				log("failed to comment on %s: %v", candidate.Identifier, err)
 			}
-			writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, "budget_exceeded", exceeded, config.Budget.active(), exceeded))
+			writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, "budget_exceeded", exceeded, config.Budget.Active(), exceeded))
 			return true, fmt.Errorf("%s", exceeded)
 		}
 		if review != nil && review.Status != "passed" {
 			if id := stateID(states, config.ReadyState); id != "" {
 				if err := client.updateIssueState(candidate.ID, id); err != nil {
-					writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, "review_failed", err.Error(), config.Budget.active(), ""))
+					writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, "review_failed", err.Error(), config.Budget.Active(), ""))
 					return true, err
 				}
 			}
@@ -481,7 +483,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 			if err := client.createComment(candidate.ID, comment); err != nil {
 				log("failed to comment on %s: %v", candidate.Identifier, err)
 			}
-			writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, "review_failed", "review did not pass", config.Budget.active(), ""))
+			writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, "review_failed", "review did not pass", config.Budget.Active(), ""))
 			log("review did not pass for %s; moved back to %s", candidate.Identifier, config.ReadyState)
 			return true, nil
 		}
@@ -493,7 +495,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		}
 		if id := stateID(states, config.HandoffState); id != "" {
 			if err := client.updateIssueState(candidate.ID, id); err != nil {
-				writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, "failed", err.Error(), config.Budget.active(), ""))
+				writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, "failed", err.Error(), config.Budget.Active(), ""))
 				return true, err
 			}
 			log("moved %s to %s", candidate.Identifier, config.HandoffState)
@@ -503,7 +505,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 			log("failed to comment on %s: %v", candidate.Identifier, err)
 		}
 	}
-	writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, "success", "", config.Budget.active(), ""))
+	writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, "success", "", config.Budget.Active(), ""))
 	log("completed one Pi run for %s; inspect %s", candidate.Identifier, workspace)
 	return true, nil
 }

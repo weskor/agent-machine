@@ -28,7 +28,7 @@ func TestCorrectedPRURLNoFinding(t *testing.T) {
 func TestWriteRunRecordPersistsBudgetTerminalStatus(t *testing.T) {
 	workspace := t.TempDir()
 	now := time.Now()
-	record := runRecordFor(&issue{ID: "issue-id", Identifier: "CAG-1", Title: "title"}, workspace, "pi", "", now, now, nil, nil, "", "timeout", "command timed out", (&runBudget{PiText: "1s", PiTimeout: time.Second}).active(), "command timed out")
+	record := runRecordFor(&issue{ID: "issue-id", Identifier: "CAG-1", Title: "title"}, workspace, "pi", "", now, now, nil, nil, "", "timeout", "command timed out", (&runBudget{PiText: "1s", PiTimeout: time.Second}).Active(), "command timed out")
 	writeRunRecord(workspace, record)
 
 	data, err := os.ReadFile(filepath.Join(workspace, ".pi-symphony-run.json"))

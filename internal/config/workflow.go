@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"errors"
@@ -7,24 +7,29 @@ import (
 	"strings"
 )
 
-func readWorkflow(path string) (workflow, error) {
+type Workflow struct {
+	YAML string
+	Body string
+}
+
+func ReadWorkflow(path string) (Workflow, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return workflow{}, err
+		return Workflow{}, err
 	}
 	text := string(data)
 	if !strings.HasPrefix(text, "---\n") {
-		return workflow{}, errors.New("WORKFLOW.md must start with YAML front matter")
+		return Workflow{}, errors.New("WORKFLOW.md must start with YAML front matter")
 	}
 	end := strings.Index(text[4:], "\n---")
 	if end == -1 {
-		return workflow{}, errors.New("WORKFLOW.md front matter is not closed")
+		return Workflow{}, errors.New("WORKFLOW.md front matter is not closed")
 	}
 	end += 4
-	return workflow{YAML: strings.TrimSpace(text[4:end]), Body: strings.TrimSpace(text[end+4:])}, nil
+	return Workflow{YAML: strings.TrimSpace(text[4:end]), Body: strings.TrimSpace(text[end+4:])}, nil
 }
 
-func scalar(yaml, key, fallback string) string {
+func Scalar(yaml, key, fallback string) string {
 	re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(key) + `:\s*(.+)$`)
 	match := re.FindStringSubmatch(yaml)
 	if len(match) < 2 {
@@ -46,11 +51,11 @@ func scalar(yaml, key, fallback string) string {
 	return value
 }
 
-func baseBranchFromWorkflow(yaml string) string {
-	return scalar(section(yaml, "workspace"), "  base_branch", "develop")
+func BaseBranchFromWorkflow(yaml string) string {
+	return Scalar(Section(yaml, "workspace"), "  base_branch", "develop")
 }
 
-func section(yaml, name string) string {
+func Section(yaml, name string) string {
 	lines := strings.Split(yaml, "\n")
 	start := -1
 	for i, line := range lines {
@@ -72,7 +77,7 @@ func section(yaml, name string) string {
 	return strings.Join(out, "\n")
 }
 
-func listUnder(yaml, key string) []string {
+func ListUnder(yaml, key string) []string {
 	lines := strings.Split(yaml, "\n")
 	start := -1
 	for i, line := range lines {
@@ -95,8 +100,8 @@ func listUnder(yaml, key string) []string {
 	return values
 }
 
-func commandUnder(yaml, key, fallback string) string {
-	inline := scalar(yaml, "  "+key, "")
+func CommandUnder(yaml, key, fallback string) string {
+	inline := Scalar(yaml, "  "+key, "")
 	if inline != "" && inline != ">-" && inline != "|" {
 		return inline
 	}
@@ -121,7 +126,7 @@ func commandUnder(yaml, key, fallback string) string {
 	return strings.TrimSpace(strings.Join(parts, " "))
 }
 
-func blockUnder(yaml, key string) string {
+func BlockUnder(yaml, key string) string {
 	lines := strings.Split(yaml, "\n")
 	start := -1
 	for i, line := range lines {
@@ -133,12 +138,12 @@ func blockUnder(yaml, key string) string {
 	if start == -1 {
 		return ""
 	}
-	var out []string
+	var parts []string
 	for _, line := range lines[start:] {
 		if !strings.HasPrefix(line, "    ") {
 			break
 		}
-		out = append(out, strings.TrimPrefix(line, "    "))
+		parts = append(parts, strings.TrimPrefix(line, "    "))
 	}
-	return strings.TrimSpace(strings.Join(out, "\n"))
+	return strings.TrimSpace(strings.Join(parts, "\n"))
 }

@@ -1,6 +1,14 @@
 package main
 
-import "time"
+import (
+	"time"
+
+	"github.com/weskor/pi-symphony/internal/config"
+)
+
+type runBudget = config.Budget
+
+type workflow = config.Workflow
 
 type runRecord struct {
 	IssueIdentifier          string     `json:"issue_identifier"`
@@ -64,35 +72,6 @@ type usageCost struct {
 	CacheRead  float64 `json:"cacheRead"`
 	CacheWrite float64 `json:"cacheWrite"`
 	Total      float64 `json:"total"`
-}
-
-type runBudget struct {
-	WallClock      time.Duration `json:"-"`
-	WallClockText  string        `json:"wall_clock,omitempty"`
-	MaxTokens      float64       `json:"max_tokens,omitempty"`
-	MaxCost        float64       `json:"max_cost,omitempty"`
-	CommandTimeout time.Duration `json:"-"`
-	CommandText    string        `json:"command_timeout,omitempty"`
-	PiTimeout      time.Duration `json:"-"`
-	PiText         string        `json:"pi_timeout,omitempty"`
-	ReviewTimeout  time.Duration `json:"-"`
-	ReviewText     string        `json:"review_timeout,omitempty"`
-	MergeTimeout   time.Duration `json:"-"`
-	MergeText      string        `json:"merge_timeout,omitempty"`
-	GitHubTimeout  time.Duration `json:"-"`
-	GitHubText     string        `json:"github_timeout,omitempty"`
-}
-
-func (b runBudget) active() *runBudget {
-	if b.WallClock > 0 || b.MaxTokens > 0 || b.MaxCost > 0 || b.CommandTimeout > 0 || b.PiTimeout > 0 || b.ReviewTimeout > 0 || b.MergeTimeout > 0 || b.GitHubTimeout > 0 {
-		return &b
-	}
-	return nil
-}
-
-type workflow struct {
-	YAML string
-	Body string
 }
 
 type issue struct {

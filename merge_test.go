@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	sh "github.com/weskor/pi-symphony/internal/shell"
 )
 
 func TestIssueIdentifierFromBranch(t *testing.T) {
@@ -66,7 +68,7 @@ func TestWorkspaceLockedOrModifiedIgnoresEvidenceArtifacts(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := shell("git init && git config user.email test@example.com && git config user.name Test", workspace); err != nil {
+	if err := sh.Run("git init && git config user.email test@example.com && git config user.name Test", workspace); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-prompt.md"), []byte("active"), 0o600); err != nil {

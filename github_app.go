@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	sh "github.com/weskor/pi-symphony/internal/shell"
 )
 
 // githubAppEnvFromEnvironment mints a short-lived installation token for Pi/gh.
@@ -80,8 +82,8 @@ func commitAuthorInvariantBlockReason(pr pullRequestSummary) string {
 }
 
 func configureGitHubAppCommitIdentity(workspace string, timeout time.Duration) error {
-	return shellWithTimeout(
-		"git config user.name "+shellQuote(githubAppBotName)+" && git config user.email "+shellQuote(githubAppBotEmail),
+	return sh.RunWithTimeout(
+		"git config user.name "+sh.Quote(githubAppBotName)+" && git config user.email "+sh.Quote(githubAppBotEmail),
 		workspace,
 		timeout,
 	)

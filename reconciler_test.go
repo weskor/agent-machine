@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	sh "github.com/weskor/pi-symphony/internal/shell"
 )
 
 func TestReconcileIssueAllowsFeedbackRetryToSupersedeTerminalArtifact(t *testing.T) {
@@ -86,7 +88,7 @@ func TestReconcileIssueApprovesMergeOnlyWithCleanInvariants(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := shell("git init -q", workspace); err != nil {
+	if err := sh.Run("git init -q", workspace); err != nil {
 		t.Fatal(err)
 	}
 	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","review_status":"passed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/434"}`)
@@ -117,7 +119,7 @@ func TestReconcileIssueDistinguishesPRAuthorFromCommitAuthor(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := shell("git init -q", workspace); err != nil {
+	if err := sh.Run("git init -q", workspace); err != nil {
 		t.Fatal(err)
 	}
 	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","review_status":"passed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/434"}`)

@@ -51,6 +51,7 @@ func TestAssistantTextHandlesLargeJSONLToolResultBeforeFinalAnswer(t *testing.T)
 }
 
 func TestFirstPRURL(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "pennywise-investments/compound-web")
 	output := "opened https://github.com/pennywise-investments/compound-web/pull/123 and then https://github.com/pennywise-investments/compound-web/pull/456"
 	if got := firstPRURL(output); got != "https://github.com/pennywise-investments/compound-web/pull/123" {
 		t.Fatalf("unexpected PR URL: %q", got)
@@ -58,11 +59,31 @@ func TestFirstPRURL(t *testing.T) {
 }
 
 func TestFirstPRURLPrefersAssistantTextOverRawJSONL(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "pennywise-investments/compound-web")
 	output := `{"message":{"role":"user","content":[{"type":"text","text":"ignore old https://github.com/pennywise-investments/compound-web/pull/2"}]}}
 {"message":{"role":"assistant","content":[{"type":"text","text":"opened https://github.com/pennywise-investments/compound-web/pull/400"}]}}
 `
 
 	if got := firstPRURL(output); got != "https://github.com/pennywise-investments/compound-web/pull/400" {
 		t.Fatalf("unexpected PR URL: %q", got)
+	}
+}
+
+func TestFirstPRURLDetectsConfiguredPiSymphonyRepositoryFromJSONL(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	output := `{"message":{"role":"assistant","content":[{"type":"text","text":"opened https://github.com/weskor/pi-symphony/pull/1"}]}}
+`
+
+	if got := firstPRURL(output); got != "https://github.com/weskor/pi-symphony/pull/1" {
+		t.Fatalf("unexpected PR URL: %q", got)
+	}
+}
+
+func TestFirstPRURLRejectsDifferentRepositoryWhenConfigured(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	output := "opened https://github.com/pennywise-investments/compound-web/pull/123"
+
+	if got := firstPRURL(output); got != "" {
+		t.Fatalf("expected no PR URL, got %q", got)
 	}
 }

@@ -111,6 +111,38 @@ func TestLeaseLifecycleUpsertRenewRelease(t *testing.T) {
 	}
 }
 
+func TestUpsertCleanupStateRequiresExistingAttemptAndUpdates(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	if err := s.UpsertCleanupState(ctx, CleanupState{IssueKey: "CAG-missing", Decision: "completed"}); err == nil {
+		t.Fatal("UpsertCleanupState() succeeded without mirrored attempt; want error")
+	}
+	now := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
+	if err := s.UpsertRunArtifact(ctx, RunArtifactSnapshot{IssueKey: "CAG-65", Attempt: 1, BranchName: "symphony/CAG-65-workspace", BaseBranch: "main", Status: "success", StartedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatalf("UpsertRunArtifact() error = %v", err)
+	}
+	if err := s.UpsertCleanupState(ctx, CleanupState{IssueKey: "CAG-65", Attempt: 1, WorkspaceExists: true, Eligible: true, Decision: "completed", DeletionResult: "dry_run", ArtifactRef: "/repo/.pi-symphony-run.json", UpdatedAt: now}); err != nil {
+		t.Fatalf("UpsertCleanupState() insert error = %v", err)
+	}
+	updated := now.Add(time.Minute)
+	if err := s.UpsertCleanupState(ctx, CleanupState{IssueKey: "CAG-65", Attempt: 1, WorkspaceExists: false, Eligible: true, Decision: "completed", DeletionResult: "deleted", ArtifactRef: "/repo/.pi-symphony-run.json", UpdatedAt: updated}); err != nil {
+		t.Fatalf("UpsertCleanupState() update error = %v", err)
+	}
+
+	var workspaceExists, eligible int
+	var decision, deletionResult, artifactRef, updatedAt string
+	if err := s.db.QueryRowContext(ctx, `SELECT workspace_exists, eligible, decision, deletion_result, artifact_ref, updated_at FROM cleanup_states`).Scan(&workspaceExists, &eligible, &decision, &deletionResult, &artifactRef, &updatedAt); err != nil {
+		t.Fatal(err)
+	}
+	if workspaceExists != 0 || eligible != 1 || decision != "completed" || deletionResult != "deleted" || artifactRef != "/repo/.pi-symphony-run.json" || updatedAt != updated.Format(time.RFC3339Nano) {
+		t.Fatalf("cleanup state = exists=%d eligible=%d decision=%q result=%q artifact=%q updated=%q", workspaceExists, eligible, decision, deletionResult, artifactRef, updatedAt)
+	}
+}
+
 func TestHealthReportsWALAndBusyTimeout(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))

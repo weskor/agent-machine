@@ -78,7 +78,7 @@ func summarizeStateStore(workspaceRoot string) []string {
 	}
 	return append(lines,
 		fmt.Sprintf("SQLite state health: %s schema_version=%d journal_mode=%s busy_timeout_ms=%d", status, health.SchemaVersion, emptyAsNA(health.JournalMode), health.BusyTimeoutMS),
-		fmt.Sprintf("SQLite state counts: issue_attempts=%d pr_mappings=%d review_states=%d terminal_outcomes=%d daemon_heartbeats=%d", health.Counts.IssueAttempts, health.Counts.PRMappings, health.Counts.ReviewStates, health.Counts.TerminalOutcomes, health.Counts.DaemonHeartbeats),
+		fmt.Sprintf("SQLite state counts: issue_attempts=%d pr_mappings=%d review_states=%d terminal_outcomes=%d daemon_heartbeats=%d cleanup_states=%d", health.Counts.IssueAttempts, health.Counts.PRMappings, health.Counts.ReviewStates, health.Counts.TerminalOutcomes, health.Counts.DaemonHeartbeats, health.Counts.CleanupStates),
 	)
 }
 

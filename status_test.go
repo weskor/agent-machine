@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 func TestSummarizeArtifactsReportsUsageAndTerminalStatus(t *testing.T) {
@@ -34,6 +37,55 @@ func TestSummarizeArtifactsReportsUsageAndTerminalStatus(t *testing.T) {
 	for _, expected := range []string{"CAG-12", "class=completed", "status=success", "review=passed", "tokens=79398", "historical", "pull/402", "outcome=handoff_ready", "root=none", "next=await_approval_and_green_checks", "retry=false", "attention=false", "merge_eligible=true", "checks=unknown_post_run", "ticket_contract=implementation_prompt_required_five_section_ticket_contract"} {
 		if !strings.Contains(line, expected) {
 			t.Fatalf("expected %q in %q", expected, line)
+		}
+	}
+}
+
+func TestSummarizeStateStoreReportsHealthyDB(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	workspaceRoot := filepath.Join(root, ".symphony", "workspaces")
+	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(ctx, state.DefaultDBPath(workspaceRoot))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if err := store.UpsertRunArtifact(ctx, state.RunArtifactSnapshot{IssueKey: "CAG-62", Attempt: 1, BranchName: "symphony/CAG-62-workspace", BaseBranch: "main", Status: "success", Repository: "weskor/pi-symphony", PRNumber: 62, PRURL: "https://github.com/weskor/pi-symphony/pull/62", ReviewStatus: "passed", TerminalOutcome: "handoff_ready"}); err != nil {
+		t.Fatalf("UpsertRunArtifact() error = %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	joined := strings.Join(summarizeStateStore(workspaceRoot), "\n")
+	for _, expected := range []string{"SQLite state path: " + state.DefaultDBPath(workspaceRoot), "SQLite state health: healthy", "schema_version=1", "journal_mode=wal", "busy_timeout_ms=5000", "issue_attempts=1", "pr_mappings=1", "review_states=1", "terminal_outcomes=1"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("expected %q in %q", expected, joined)
+		}
+	}
+}
+
+func TestSummarizeStateStoreReportsMissingDB(t *testing.T) {
+	workspaceRoot := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	joined := strings.Join(summarizeStateStore(workspaceRoot), "\n")
+	for _, expected := range []string{"SQLite state path: " + state.DefaultDBPath(workspaceRoot), "SQLite state health: missing", "action=run pi-symphony once"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("expected %q in %q", expected, joined)
+		}
+	}
+}
+
+func TestSummarizeStateStoreReportsUnopenableDB(t *testing.T) {
+	workspaceRoot := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	if err := os.MkdirAll(state.DefaultDBPath(workspaceRoot), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(summarizeStateStore(workspaceRoot), "\n")
+	for _, expected := range []string{"SQLite state path: " + state.DefaultDBPath(workspaceRoot), "SQLite state health: degraded", "action=check state DB path and permissions"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("expected %q in %q", expected, joined)
 		}
 	}
 }

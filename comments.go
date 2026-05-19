@@ -26,11 +26,6 @@ type handoffSummary struct {
 	FollowUps       []string
 }
 
-type githubIssueComment struct {
-	ID   int64  `json:"id"`
-	Body string `json:"body"`
-}
-
 func renderPRHandoffComment(summary handoffSummary) string {
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "%s\n## Pi Symphony handoff\n\n", prSummaryMarker)

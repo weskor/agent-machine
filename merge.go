@@ -9,56 +9,15 @@ import (
 	"strings"
 )
 
-type pullRequestSummary struct {
-	Number            int           `json:"number"`
-	URL               string        `json:"url"`
-	BaseRefName       string        `json:"baseRefName"`
-	HeadRefName       string        `json:"headRefName"`
-	Author            prAuthor      `json:"author"`
-	Commits           []prCommit    `json:"commits,omitempty"`
-	Mergeable         string        `json:"mergeable"`
-	MergeStateStatus  string        `json:"mergeStateStatus"`
-	ReviewDecision    string        `json:"reviewDecision"`
-	StatusCheckRollup []statusCheck `json:"statusCheckRollup"`
-}
-
-type prAuthor struct {
-	Login string `json:"login"`
-}
-
-type prCommit struct {
-	OID    string         `json:"oid,omitempty"`
-	Author prCommitAuthor `json:"author"`
-}
-
-type prCommitAuthor struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
-	Login string `json:"login,omitempty"`
-}
-
-func (pr pullRequestSummary) AuthorLogin() string {
-	return strings.TrimSpace(pr.Author.Login)
-}
-
-type statusCheck struct {
-	Typename   string `json:"__typename"`
-	Conclusion string `json:"conclusion"`
-	Status     string `json:"status"`
-	State      string `json:"state"`
-	Name       string `json:"name"`
-	Context    string `json:"context"`
-}
-
-func (pr pullRequestSummary) mergeConflictReason() string {
+func mergeConflictReason(pr pullRequestSummary) string {
 	if strings.EqualFold(pr.Mergeable, "CONFLICTING") || strings.EqualFold(pr.MergeStateStatus, "DIRTY") {
 		return fmt.Sprintf("GitHub reports mergeable=%s mergeStateStatus=%s; branch %s has conflicts with the base branch.", emptyAsUnknown(pr.Mergeable), emptyAsUnknown(pr.MergeStateStatus), pr.HeadRefName)
 	}
 	return ""
 }
 
-func (pr pullRequestSummary) mergeGateBlockReason() string {
-	if reason := pr.mergeConflictReason(); reason != "" {
+func mergeGateBlockReason(pr pullRequestSummary) string {
+	if reason := mergeConflictReason(pr); reason != "" {
 		return reason
 	}
 	if !strings.EqualFold(pr.Mergeable, "MERGEABLE") {
@@ -96,7 +55,7 @@ func mergeApprovedPRs(client linearClient, config runnerConfig) error {
 		if err != nil {
 			return err
 		}
-		if reason := pr.mergeConflictReason(); reason != "" {
+		if reason := mergeConflictReason(pr); reason != "" {
 			workspace := filepath.Join(config.WorkspaceRoot, candidate.Identifier)
 			if err := os.MkdirAll(workspace, 0o755); err != nil {
 				return err

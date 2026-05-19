@@ -221,7 +221,7 @@ func TestMergeGateBlockReason(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.pr.mergeGateBlockReason()
+			got := mergeGateBlockReason(tt.pr)
 			if tt.want == "" && got != "" {
 				t.Fatalf("mergeGateBlockReason() = %q, want allowed", got)
 			}
@@ -409,7 +409,7 @@ func writeMergeableRunArtifact(t *testing.T, workspace, prURL string) {
 
 func TestRenderPRConflictFeedbackIncludesRepairInstructions(t *testing.T) {
 	pr := pullRequestSummary{Number: 414, URL: "https://github.com/example/repo/pull/414", HeadRefName: "symphony/CAG-23", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"}
-	feedback := renderPRConflictFeedback(pr, pr.mergeConflictReason())
+	feedback := renderPRConflictFeedback(pr, mergeConflictReason(pr))
 	for _, want := range []string{"mergeable=CONFLICTING", "Update this PR branch", "Rerun the validation", "symphony/CAG-23"} {
 		if !strings.Contains(feedback, want) {
 			t.Fatalf("feedback missing %q: %s", want, feedback)

@@ -9,33 +9,6 @@ import (
 	"strings"
 )
 
-type prFeedback struct {
-	Reviews []struct {
-		Author struct {
-			Login string `json:"login"`
-		} `json:"author"`
-		State       string `json:"state"`
-		Body        string `json:"body"`
-		SubmittedAt string `json:"submittedAt"`
-	} `json:"reviews"`
-	Comments []struct {
-		Author struct {
-			Login string `json:"login"`
-		} `json:"author"`
-		Body      string `json:"body"`
-		CreatedAt string `json:"createdAt"`
-	} `json:"comments"`
-	ReviewComments []struct {
-		User struct {
-			Login string `json:"login"`
-		} `json:"user"`
-		Path      string `json:"path"`
-		Line      int    `json:"line"`
-		Body      string `json:"body"`
-		CreatedAt string `json:"created_at"`
-	} `json:"review_comments"`
-}
-
 func collectPRFeedback(prNumber int) (string, error) {
 	github, ctx, cancel, err := githubClientWithTimeout(defaultGitHubCommandTimeout)
 	if err != nil {

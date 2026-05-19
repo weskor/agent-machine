@@ -101,7 +101,7 @@ func runReview(reviewCommand, workspace string, candidate *issue, prURL string, 
 	}
 
 	started := time.Now()
-	output, err := sh.CaptureEnvWithOutputTimeout(fmt.Sprintf("%s @%s", reviewCommandWithHighReasoning(reviewCommand), sh.Quote(promptPath)), workspace, env, true, timeout)
+	output, err := captureAgentOutput(fmt.Sprintf("%s @%s", reviewCommandWithHighReasoning(reviewCommand), sh.Quote(promptPath)), workspace, env, timeout, "review")
 	log("review duration: %s", time.Since(started).Round(time.Second))
 	findings := assistantText(output)
 	if findings == "" {

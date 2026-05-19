@@ -132,7 +132,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	heartbeatRunLock(workspace, time.Now())
 
 	piStart := time.Now()
-	piOutput, err := sh.CaptureEnvWithOutputTimeout(fmt.Sprintf("%s @%s", config.PiCommand, sh.Quote(promptPath)), workspace, githubEnv, true, config.Budget.PiTimeout)
+	piOutput, err := captureAgentOutput(fmt.Sprintf("%s @%s", config.PiCommand, sh.Quote(promptPath)), workspace, githubEnv, config.Budget.PiTimeout, "implementation")
 	piEnded := time.Now()
 	if err != nil {
 		status := runAttemptStatusFailed
@@ -265,7 +265,9 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		}
 	}
 	if prURL != "" {
-		summary := handoffSummary{IssueIdentifier: candidate.Identifier, IssueTitle: candidate.Title, IssueURL: candidate.URL, PRURL: prURL, PiUsage: piUsage, Review: review, Duration: time.Since(piStart), Validation: validationLines(piOutput), FollowUps: followUpLines(review)}
+		validation := validationLines(piOutput)
+		logHandoffRunSummary(candidate.Identifier, prURL, review, validation)
+		summary := handoffSummary{IssueIdentifier: candidate.Identifier, IssueTitle: candidate.Title, IssueURL: candidate.URL, PRURL: prURL, PiUsage: piUsage, Review: review, Duration: time.Since(piStart), Validation: validation, FollowUps: followUpLines(review)}
 		if err := postOrUpdatePRHandoffComment(summary); err != nil {
 			log("failed to post GitHub handoff comment for %s: %v", prURL, err)
 		}

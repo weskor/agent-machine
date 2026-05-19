@@ -17,6 +17,7 @@ polling:
   interval_ms: 30000
 workspace:
   root: /absolute/path/to/target-repo/.symphony/workspaces
+  base_branch: develop
 hooks:
   timeout_ms: 120000
   after_create: |

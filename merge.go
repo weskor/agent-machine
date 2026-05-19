@@ -196,7 +196,7 @@ func renderPRConflictFeedback(pr pullRequestSummary, reason string) string {
 
 ## Repair instructions
 
-- Update this PR branch from develop/base branch.
+- Update this PR branch from the configured base branch.
 - Resolve merge conflicts without starting unrelated work.
 - Rerun the validation expected by the Linear issue.
 - Push the same PR branch and stop for Human Review again.

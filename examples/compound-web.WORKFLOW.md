@@ -17,6 +17,7 @@ polling:
   interval_ms: 30000
 workspace:
   root: /home/wes/Workspace/pennywise/compound-web/.symphony/workspaces
+  base_branch: develop
 hooks:
   timeout_ms: 120000
   after_create: |

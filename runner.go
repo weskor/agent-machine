@@ -62,16 +62,17 @@ func run() error {
 	if apiKey == "" {
 		return errors.New("LINEAR_API_KEY is required")
 	}
+	workspaceYAML := section(wf.YAML, "workspace")
 	config := runnerConfig{
 		WorkflowPath:   workflowPath,
 		ProjectSlug:    scalar(wf.YAML, "  project_slug", ""),
-		WorkspaceRoot:  scalar(wf.YAML, "  root", ""),
+		WorkspaceRoot:  scalar(workspaceYAML, "  root", ""),
 		RunningState:   scalar(wf.YAML, "  running_state", "In Progress"),
 		HandoffState:   scalar(wf.YAML, "  handoff_state", "Human Review"),
 		DoneState:      scalar(wf.YAML, "  done_state", "Done"),
 		NeedsInfoState: scalar(wf.YAML, "  needs_info_state", "Needs Info"),
 		ReadyState:     "Ready for Agent",
-		BaseBranch:     "develop",
+		BaseBranch:     baseBranchFromWorkflow(wf.YAML),
 		ActiveStates:   listUnder(wf.YAML, "active_states"),
 	}
 	piYAML := section(wf.YAML, "pi")
@@ -339,7 +340,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	if strings.TrimSpace(feedback) != "" {
 		feedbackBlock = fmt.Sprintf("\n\nGitHub PR feedback to address before handoff:\n%s\n", feedback)
 	}
-	prompt := renderPrompt(wf.Body, *candidate, 1) + fmt.Sprintf("\n\nLinear issue description:\n%s%s\n\n%s\n\n%s\n\nPi Symphony runner constraints:\n- Follow the Linear issue description exactly; do not infer broader implementation work from the title alone.\n- If GitHub PR feedback is present, address that feedback in the existing PR branch rather than starting unrelated work.\n- If required information is missing or the ticket is ambiguous/unsafe to implement, output NEEDS_INFO followed by numbered questions instead of guessing.\n- Run exactly once; do not ask for continuation.\n- Keep context usage minimal.\n- Create or update exactly one PR from branch %s into base branch %s; never target main.\n- Before opening or updating a PR, perform a focused self-review of the final diff for scope, secrets, validation, tenant/security risk, unrelated files, and behavior-contract evidence; fix any clear findings before PR handoff.\n- Stop after a scoped diff, validation notes, and PR handoff.\n- Do not post verbose free-form GitHub PR comments unless explicitly needed; the runner posts or updates the deterministic handoff summary when it detects the PR URL.\n- The runner will move the Linear issue to %s after it detects the PR URL, or to %s when NEEDS_INFO is detected.\n", candidate.Description, feedbackBlock, ticketContractPrompt(), behaviorContractPreflightPrompt(), expectedWorkspaceBranch(candidate.Identifier), config.BaseBranch, config.HandoffState, config.NeedsInfoState)
+	prompt := renderPrompt(wf.Body, *candidate, 1) + fmt.Sprintf("\n\nLinear issue description:\n%s%s\n\n%s\n\n%s\n\nPi Symphony runner constraints:\n- Follow the Linear issue description exactly; do not infer broader implementation work from the title alone.\n- If GitHub PR feedback is present, address that feedback in the existing PR branch rather than starting unrelated work.\n- If required information is missing or the ticket is ambiguous/unsafe to implement, output NEEDS_INFO followed by numbered questions instead of guessing.\n- Run exactly once; do not ask for continuation.\n- Keep context usage minimal.\n- Create or update exactly one PR from branch %s into base branch %s; never target another base branch.\n- Before opening or updating a PR, perform a focused self-review of the final diff for scope, secrets, validation, tenant/security risk, unrelated files, and behavior-contract evidence; fix any clear findings before PR handoff.\n- Stop after a scoped diff, validation notes, and PR handoff.\n- Do not post verbose free-form GitHub PR comments unless explicitly needed; the runner posts or updates the deterministic handoff summary when it detects the PR URL.\n- The runner will move the Linear issue to %s after it detects the PR URL, or to %s when NEEDS_INFO is detected.\n", candidate.Description, feedbackBlock, ticketContractPrompt(), behaviorContractPreflightPrompt(), expectedWorkspaceBranch(candidate.Identifier), config.BaseBranch, config.HandoffState, config.NeedsInfoState)
 	promptPath := filepath.Join(workspace, ".pi-symphony-prompt.md")
 	if err := os.WriteFile(promptPath, []byte(prompt), 0o600); err != nil {
 		return true, err

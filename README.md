@@ -2,7 +2,7 @@
 
 Pi Symphony is a Pi-native runner for a conservative Linear → workspace → Pi → review → GitHub PR handoff loop.
 
-It is currently extracted from `pennywise-investments/compound-web` and should be treated as private/experimental until the external-runner soak is complete.
+It is extracted from `pennywise-investments/compound-web` and should be treated as private/experimental while the runner dogfoods its own workflow.
 
 ## Features
 
@@ -24,6 +24,8 @@ It is currently extracted from `pennywise-investments/compound-web` and should b
 
 Create a workflow file in the target repository, usually `WORKFLOW.md`. See `WORKFLOW.example.md`.
 
+This repository also has its own `WORKFLOW.md` for Pi Symphony runner work. It uses the CAG / Compound Agents team with the `Pi Symphony Runner` Linear project and targets the `main` branch.
+
 Secrets can be exported in the environment or placed in a local `.env.local` next to either the runner or the workflow file:
 
 - `LINEAR_API_KEY`
@@ -37,6 +39,8 @@ Secrets can be exported in the environment or placed in a local `.env.local` nex
 From this repository:
 
 ```bash
+go run . --status WORKFLOW.md
+go run . --continuous WORKFLOW.md
 go run . --status /path/to/target/WORKFLOW.md
 go run . --once /path/to/target/WORKFLOW.md
 go run . --continuous /path/to/target/WORKFLOW.md
@@ -53,4 +57,4 @@ go test ./...
 
 ## Current extraction status
 
-This repository is the standalone runner scaffold. `compound-web` remains the first consumer until an external-runner daemon soak succeeds.
+This repository owns the Pi Symphony runner implementation, tests, GitHub/Linear integrations, review/merge/status/cleanup behavior, and runner workflow. `compound-web` is now a consumer that keeps only its `WORKFLOW.md` and ignored `.symphony/` runtime state.

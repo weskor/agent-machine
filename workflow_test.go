@@ -71,6 +71,15 @@ func TestScalarHandlesFallbacksQuotesAndEnvironment(t *testing.T) {
 	}
 }
 
+func TestBaseBranchFromWorkflowDefaultsToDevelopAndSupportsMain(t *testing.T) {
+	if got := baseBranchFromWorkflow("workspace:\n  root: /tmp/workspaces\n"); got != "develop" {
+		t.Fatalf("default base branch = %q, want develop", got)
+	}
+	if got := baseBranchFromWorkflow("workspace:\n  root: /tmp/workspaces\n  base_branch: main\n"); got != "main" {
+		t.Fatalf("configured base branch = %q, want main", got)
+	}
+}
+
 func TestSectionReturnsIndentedYamlBlock(t *testing.T) {
 	yaml := "" +
 		"review:\n" +

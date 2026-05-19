@@ -46,6 +46,10 @@ func scalar(yaml, key, fallback string) string {
 	return value
 }
 
+func baseBranchFromWorkflow(yaml string) string {
+	return scalar(section(yaml, "workspace"), "  base_branch", "develop")
+}
+
 func section(yaml, name string) string {
 	lines := strings.Split(yaml, "\n")
 	start := -1

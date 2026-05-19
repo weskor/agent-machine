@@ -239,7 +239,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 			writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, "budget_exceeded", exceeded, config.Budget.Active(), exceeded))
 			return true, fmt.Errorf("%s", exceeded)
 		}
-		if review != nil && review.Status != "passed" {
+		if review != nil && review.Status != "passed" && !reviewFailureRoutesToHumanHandoff(review, prURL) {
 			if id := stateID(states, config.ReadyState); id != "" {
 				if err := client.updateIssueState(candidate.ID, id); err != nil {
 					writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, "review_failed", err.Error(), config.Budget.Active(), ""))
@@ -253,6 +253,9 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 			writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, "review_failed", "review did not pass", config.Budget.Active(), ""))
 			log("review did not pass for %s; moved back to %s", candidate.Identifier, config.ReadyState)
 			return true, nil
+		}
+		if reviewFailureRoutesToHumanHandoff(review, prURL) {
+			log("review failed for %s with missing evidence only; routing to %s", candidate.Identifier, config.HandoffState)
 		}
 	}
 	if prURL != "" {

@@ -38,10 +38,28 @@ func renderPRHandoffComment(summary handoffSummary) string {
 	builder.WriteString("### Validation\n")
 	writeBoundedBullets(&builder, summary.Validation, "No validation commands detected in runner output.", 5)
 
+	builder.WriteString("\n### Behavior Contract Evidence\n")
+	writeBoundedBullets(&builder, behaviorContractEvidenceNotes(summary), "No behavior-contract evidence recorded.", 5)
+
 	builder.WriteString("\n### Remaining follow-up\n")
 	writeBoundedBullets(&builder, summary.FollowUps, "No follow-up recorded.", 4)
 
 	return truncateMarkdown(builder.String(), 3800)
+}
+
+func behaviorContractEvidenceNotes(summary handoffSummary) []string {
+	return []string{
+		"References: docs/specs/harness-behavior.md and docs/agents/review-policy.md.",
+		"Specs: preserved unless explicitly changed in this PR.",
+		"Review classification: " + reviewClassificationSummary(summary.Review),
+	}
+}
+
+func reviewClassificationSummary(review *reviewResult) string {
+	if review == nil || strings.TrimSpace(review.Classification) == "" {
+		return "not recorded"
+	}
+	return review.Classification
 }
 
 func renderLinearHandoffComment(summary handoffSummary) string {

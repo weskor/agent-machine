@@ -94,17 +94,19 @@ func stripQuestionNumber(question string) string {
 
 func runRecordFor(candidate *issue, workspace, piCommand, githubAuth string, startedAt, endedAt time.Time, piUsage *usage, review *reviewResult, prURL, status, errorMessage string, budget *runBudget, budgetExceeded string) runRecord {
 	reviewStatus := ""
+	reviewClassification := ""
 	reviewFindings := ""
 	var reviewUsage *usage
 	if review != nil {
 		reviewStatus = review.Status
+		reviewClassification = review.Classification
 		reviewFindings = review.Findings
 		reviewUsage = review.Usage
 	}
 	branch, _ := currentGitBranch(workspace)
 	root := filepath.Dir(workspace)
 	feedback, _ := readPRFeedback(workspace)
-	record := runRecord{IssueIdentifier: candidate.Identifier, IssueID: candidate.ID, IssueTitle: candidate.Title, IssueURL: candidate.URL, Workspace: workspace, WorkspaceRoot: root, Branch: branch, ExpectedBranch: expectedWorkspaceBranch(candidate.Identifier), PiCommand: piCommand, GitHubAuth: githubAuth, StartedAt: startedAt, EndedAt: endedAt, DurationMS: endedAt.Sub(startedAt).Milliseconds(), PiUsage: piUsage, ReviewStatus: reviewStatus, ReviewFindings: reviewFindings, ReviewUsage: reviewUsage, PRURL: prURL, FeedbackHash: feedbackHash(feedback), Status: status, Error: errorMessage, Budget: budget, BudgetExceeded: budgetExceeded}
+	record := runRecord{IssueIdentifier: candidate.Identifier, IssueID: candidate.ID, IssueTitle: candidate.Title, IssueURL: candidate.URL, Workspace: workspace, WorkspaceRoot: root, Branch: branch, ExpectedBranch: expectedWorkspaceBranch(candidate.Identifier), PiCommand: piCommand, GitHubAuth: githubAuth, StartedAt: startedAt, EndedAt: endedAt, DurationMS: endedAt.Sub(startedAt).Milliseconds(), PiUsage: piUsage, ReviewStatus: reviewStatus, ReviewClassification: reviewClassification, ReviewFindings: reviewFindings, ReviewUsage: reviewUsage, PRURL: prURL, FeedbackHash: feedbackHash(feedback), Status: status, Error: errorMessage, Budget: budget, BudgetExceeded: budgetExceeded}
 	record.BehaviorContractEvidence = behaviorContractEvidenceForRun(record)
 	record.BehaviorContractEvidence = append(record.BehaviorContractEvidence, ticketContractEvidenceForRun(record)...)
 	return record
@@ -131,6 +133,9 @@ func behaviorContractEvidenceForRun(record runRecord) []string {
 	}
 	if record.ReviewStatus == "failed" {
 		evidence = append(evidence, "review_failed_behavior_contract_or_scope_gate")
+	}
+	if record.ReviewClassification != "" {
+		evidence = append(evidence, "review_classification_"+record.ReviewClassification)
 	}
 	if strings.HasPrefix(record.Status, "needs_info") {
 		evidence = append(evidence, "needs_info_used_for_unknown_behavior_contract")

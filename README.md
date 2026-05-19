@@ -74,6 +74,8 @@ Use `make ci` and `git diff --check` before handing off a runner change. When va
 mise exec go -- go run . --status WORKFLOW.md
 ```
 
+Architecture and behavior docs live in `CONTEXT.md`, `LANGUAGE.md`, `docs/adr/`, and `docs/specs/`. Broad refactors should cite the relevant specs/ADRs in PR handoff notes, update specs when observable behavior changes, or state that no spec changes were needed for a mechanical move.
+
 ## Symphony dogfood loop
 
 Use small, reviewable Linear tickets when evaluating the runner against itself or another target repository:

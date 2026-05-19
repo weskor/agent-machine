@@ -36,7 +36,7 @@ func parseNeedsInfo(output string) needsInfoResult {
 	var questions []string
 	for _, line := range lines {
 		clean := strings.TrimSpace(line)
-		if strings.Contains(clean, "NEEDS_INFO") {
+		if isNeedsInfoMarker(clean) {
 			found = true
 			continue
 		}
@@ -49,6 +49,10 @@ func parseNeedsInfo(output string) needsInfoResult {
 		}
 	}
 	return needsInfoResult{NeedsInfo: found, Questions: questions}
+}
+
+func isNeedsInfoMarker(line string) bool {
+	return line == "NEEDS_INFO" || strings.HasPrefix(line, "NEEDS_INFO:")
 }
 
 func isNumberedQuestion(line string) bool {

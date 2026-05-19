@@ -314,6 +314,19 @@ func TestParseNeedsInfoExtractsNumberedQuestions(t *testing.T) {
 	}
 }
 
+func TestParseNeedsInfoIgnoresIncidentalMentions(t *testing.T) {
+	output := strings.Join([]string{
+		"Implemented CAG-72 and opened PR:",
+		"https://github.com/weskor/pi-symphony/pull/20",
+		"- no-PR/no-NEEDS_INFO path now fails explicitly",
+		"- existing NEEDS_INFO behavior remains covered",
+	}, "\n")
+	result := parseNeedsInfo(output)
+	if result.NeedsInfo {
+		t.Fatalf("incidental NEEDS_INFO mention should not request info: %#v", result)
+	}
+}
+
 func TestRenderNeedsInfoCommentNumbersQuestions(t *testing.T) {
 	comment := renderNeedsInfoComment([]string{"1. Which state name should be used?", "2) Who can answer?"})
 	if !strings.Contains(comment, "move the issue back to Ready for Agent") {

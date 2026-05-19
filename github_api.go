@@ -32,6 +32,9 @@ func githubClientWithTimeout(timeout time.Duration) (githubAPI, context.Context,
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	if timeout <= 0 {
+		timeout = defaultGitHubCommandTimeout
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	return client, ctx, cancel, nil
 }

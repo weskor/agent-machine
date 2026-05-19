@@ -1,6 +1,10 @@
 package main
 
-import "context"
+import (
+	"context"
+	"testing"
+	"time"
+)
 
 type fakeGitHubAPI struct {
 	prs             []pullRequestSummary
@@ -75,4 +79,27 @@ func withFakeGitHubAppEnv(t interface{ Cleanup(func()) }, fn func() (map[string]
 
 func (f fakeGitHubAPI) PullRequestHandoffDetails(context.Context, string) (prHandoffDetails, error) {
 	return f.details, nil
+}
+
+func TestGitHubClientWithTimeoutDefaultsNonPositiveTimeout(t *testing.T) {
+	previousTimeout := defaultGitHubCommandTimeout
+	defaultGitHubCommandTimeout = time.Minute
+	t.Cleanup(func() { defaultGitHubCommandTimeout = previousTimeout })
+
+	withFakeGitHubAPI(t, fakeGitHubAPI{})
+
+	_, ctx, cancel, err := githubClientWithTimeout(0)
+	if err != nil {
+		t.Fatalf("githubClientWithTimeout returned error: %v", err)
+	}
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("context has no deadline")
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 0 || remaining > time.Minute {
+		t.Fatalf("deadline remaining = %v, want within default timeout", remaining)
+	}
 }

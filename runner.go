@@ -50,9 +50,7 @@ func run() error {
 			}
 		}
 	}
-	if workflowDir := filepath.Dir(workflowPath); workflowDir != "." && workflowDir != "" {
-		loadDotEnvLocal(filepath.Join(workflowDir, ".env.local"))
-	}
+	loadNearestDotEnvLocal(workflowPath)
 
 	wf, err := readWorkflow(workflowPath)
 	if err != nil {

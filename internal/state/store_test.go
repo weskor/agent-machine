@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -50,6 +51,33 @@ func TestOpenInitializesDeterministicSchemaAndIsIdempotent(t *testing.T) {
 		if !contains(firstIndexes, name) {
 			t.Fatalf("missing expected index %q in %v", name, firstIndexes)
 		}
+	}
+}
+
+func TestUpsertDaemonHeartbeatInsertsAndUpdatesLaneProcessRow(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+
+	firstSuccess := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
+	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "work", WorkflowPath: "/repo/WORKFLOW.md", CycleNumber: 1, LastSuccessAt: firstSuccess, UpdatedAt: firstSuccess}); err != nil {
+		t.Fatalf("UpsertDaemonHeartbeat() insert error = %v", err)
+	}
+	failedAt := firstSuccess.Add(time.Minute)
+	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "work", WorkflowPath: "/repo/WORKFLOW.md", CycleNumber: 2, LastError: "boom", RecoveryRequired: true, UpdatedAt: failedAt}); err != nil {
+		t.Fatalf("UpsertDaemonHeartbeat() update error = %v", err)
+	}
+
+	var count, cycle, recovery int
+	var lastSuccess, lastError, updatedAt string
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*), MAX(cycle_number), MAX(last_success_at), MAX(last_error), MAX(recovery_required), MAX(updated_at) FROM daemon_heartbeats WHERE process_id = 'host:123' AND lane_name = 'work'`).Scan(&count, &cycle, &lastSuccess, &lastError, &recovery, &updatedAt); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || cycle != 2 || lastSuccess != firstSuccess.Format(time.RFC3339Nano) || lastError != "boom" || recovery != 1 || updatedAt != failedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("heartbeat row = count=%d cycle=%d last_success=%q last_error=%q recovery=%d updated_at=%q", count, cycle, lastSuccess, lastError, recovery, updatedAt)
 	}
 }
 

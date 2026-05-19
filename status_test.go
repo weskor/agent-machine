@@ -55,12 +55,15 @@ func TestSummarizeStateStoreReportsHealthyDB(t *testing.T) {
 	if err := store.UpsertRunArtifact(ctx, state.RunArtifactSnapshot{IssueKey: "CAG-62", Attempt: 1, BranchName: "symphony/CAG-62-workspace", BaseBranch: "main", Status: "success", Repository: "weskor/pi-symphony", PRNumber: 62, PRURL: "https://github.com/weskor/pi-symphony/pull/62", ReviewStatus: "passed", TerminalOutcome: "handoff_ready"}); err != nil {
 		t.Fatalf("UpsertRunArtifact() error = %v", err)
 	}
+	if err := store.UpsertDaemonHeartbeat(ctx, state.DaemonHeartbeat{ProcessID: "host:123", LaneName: "merge", WorkflowPath: "/repo/WORKFLOW.md", CycleNumber: 1}); err != nil {
+		t.Fatalf("UpsertDaemonHeartbeat() error = %v", err)
+	}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
 
 	joined := strings.Join(summarizeStateStore(workspaceRoot), "\n")
-	for _, expected := range []string{"SQLite state path: " + state.DefaultDBPath(workspaceRoot), "SQLite state health: healthy", "schema_version=1", "journal_mode=wal", "busy_timeout_ms=5000", "issue_attempts=1", "pr_mappings=1", "review_states=1", "terminal_outcomes=1"} {
+	for _, expected := range []string{"SQLite state path: " + state.DefaultDBPath(workspaceRoot), "SQLite state health: healthy", "schema_version=1", "journal_mode=wal", "busy_timeout_ms=5000", "issue_attempts=1", "pr_mappings=1", "review_states=1", "terminal_outcomes=1", "daemon_heartbeats=1"} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("expected %q in %q", expected, joined)
 		}

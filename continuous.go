@@ -2,18 +2,24 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 func runContinuous(client linearClient, wf workflow, config runnerConfig, maxCycles int) error {
 	log("mode=continuous; lanes=merge,work; project=%s; states=%s", config.ProjectSlug, strings.Join(config.ActiveStates, ", "))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	recordHeartbeat := daemonHeartbeatRecorder(ctx, config)
 
 	scheduler := continuousScheduler{
-		maxCycles: maxCycles,
+		maxCycles:       maxCycles,
+		recordHeartbeat: recordHeartbeat,
 		lanes: []continuousLane{
 			{
 				name:       "merge",
@@ -50,8 +56,9 @@ type continuousLane struct {
 }
 
 type continuousScheduler struct {
-	lanes     []continuousLane
-	maxCycles int
+	lanes           []continuousLane
+	maxCycles       int
+	recordHeartbeat func(continuousHeartbeat)
 }
 
 func (s continuousScheduler) run(ctx context.Context) error {
@@ -65,7 +72,7 @@ func (s continuousScheduler) run(ctx context.Context) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := runContinuousLane(ctx, lane, s.maxCycles); err != nil {
+			if err := runContinuousLane(ctx, lane, s.maxCycles, s.recordHeartbeat); err != nil {
 				errs <- err
 				cancel()
 			}
@@ -93,7 +100,15 @@ func (s continuousScheduler) run(ctx context.Context) error {
 	}
 }
 
-func runContinuousLane(ctx context.Context, lane continuousLane, maxCycles int) error {
+type continuousHeartbeat struct {
+	LaneName    string
+	CycleNumber int
+	Success     bool
+	Err         error
+	At          time.Time
+}
+
+func runContinuousLane(ctx context.Context, lane continuousLane, maxCycles int, recordHeartbeat func(continuousHeartbeat)) error {
 	cycles := 0
 	for {
 		select {
@@ -104,10 +119,13 @@ func runContinuousLane(ctx context.Context, lane continuousLane, maxCycles int) 
 
 		log("lane=%s cycle=%d starting", lane.name, cycles+1)
 		didWork, err := lane.run()
+		cycleNumber := cycles + 1
 		if err != nil {
+			recordContinuousHeartbeat(recordHeartbeat, continuousHeartbeat{LaneName: lane.name, CycleNumber: cycleNumber, Err: err, At: time.Now().UTC()})
 			return err
 		}
 		cycles++
+		recordContinuousHeartbeat(recordHeartbeat, continuousHeartbeat{LaneName: lane.name, CycleNumber: cycles, Success: true, At: time.Now().UTC()})
 		if maxCycles > 0 && cycles >= maxCycles {
 			log("lane=%s completed %d continuous cycle(s)", lane.name, cycles)
 			return nil
@@ -128,6 +146,46 @@ func runContinuousLane(ctx context.Context, lane continuousLane, maxCycles int) 
 			}
 		}
 	}
+}
+
+func recordContinuousHeartbeat(recordHeartbeat func(continuousHeartbeat), heartbeat continuousHeartbeat) {
+	if recordHeartbeat != nil {
+		recordHeartbeat(heartbeat)
+	}
+}
+
+func daemonHeartbeatRecorder(ctx context.Context, config runnerConfig) func(continuousHeartbeat) {
+	dbPath := state.DefaultDBPath(config.WorkspaceRoot)
+	if dbPath == "" {
+		return nil
+	}
+	store, err := state.Open(ctx, dbPath)
+	if err != nil {
+		log("SQLite daemon heartbeat degraded: open path=%s error=%q", dbPath, err.Error())
+		return nil
+	}
+	processID := daemonProcessID()
+	return func(heartbeat continuousHeartbeat) {
+		lastError := ""
+		if heartbeat.Err != nil {
+			lastError = heartbeat.Err.Error()
+		}
+		var lastSuccessAt time.Time
+		if heartbeat.Success {
+			lastSuccessAt = heartbeat.At
+		}
+		if err := store.UpsertDaemonHeartbeat(ctx, state.DaemonHeartbeat{ProcessID: processID, LaneName: heartbeat.LaneName, WorkflowPath: config.WorkflowPath, CycleNumber: heartbeat.CycleNumber, LastSuccessAt: lastSuccessAt, LastError: lastError, RecoveryRequired: heartbeat.Err != nil, UpdatedAt: heartbeat.At}); err != nil {
+			log("SQLite daemon heartbeat degraded: lane=%s cycle=%d error=%q", heartbeat.LaneName, heartbeat.CycleNumber, err.Error())
+		}
+	}
+}
+
+func daemonProcessID() string {
+	hostname, err := os.Hostname()
+	if err != nil || hostname == "" {
+		hostname = "unknown-host"
+	}
+	return fmt.Sprintf("%s:%d", hostname, os.Getpid())
 }
 
 // runOne executes a single Linear issue attempt, including optional review

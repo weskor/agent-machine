@@ -51,6 +51,7 @@ func run() error {
 		}
 	}
 	loadNearestDotEnvLocal(workflowPath)
+	configureGitHubRepositoryFromWorkflow(workflowPath)
 
 	wf, err := readWorkflow(workflowPath)
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -75,27 +76,55 @@ func githubAPITokenFromEnvironment() (string, error) {
 
 func currentGitHubRepo() (string, string, error) {
 	if value := strings.TrimSpace(os.Getenv("GITHUB_REPOSITORY")); value != "" {
-		parts := strings.Split(value, "/")
-		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-			return parts[0], parts[1], nil
+		if owner, repo, ok := parseGitHubRepository(value); ok {
+			return owner, repo, nil
 		}
 	}
-	out, err := exec.Command("git", "config", "--get", "remote.origin.url").Output()
+	owner, repo, err := gitHubRepoFromDir(".")
 	if err != nil {
 		return "", "", fmt.Errorf("GitHub repository could not be determined from GITHUB_REPOSITORY or git remote origin: %w", err)
 	}
+	return owner, repo, nil
+}
+
+func configureGitHubRepositoryFromWorkflow(workflowPath string) {
+	if strings.TrimSpace(os.Getenv("GITHUB_REPOSITORY")) != "" {
+		return
+	}
+	owner, repo, err := gitHubRepoFromDir(filepath.Dir(workflowPath))
+	if err != nil {
+		return
+	}
+	_ = os.Setenv("GITHUB_REPOSITORY", owner+"/"+repo)
+}
+
+func gitHubRepoFromDir(dir string) (string, string, error) {
+	out, err := exec.Command("git", "-C", dir, "config", "--get", "remote.origin.url").Output()
+	if err != nil {
+		return "", "", err
+	}
 	remote := strings.TrimSpace(string(out))
+	if owner, repo, ok := parseGitHubRepository(remote); ok {
+		return owner, repo, nil
+	}
+	return "", "", fmt.Errorf("GitHub repository could not be parsed from remote origin %q", remote)
+}
+
+func parseGitHubRepository(value string) (string, string, bool) {
+	if parts := strings.Split(value, "/"); len(parts) == 2 && parts[0] != "" && parts[1] != "" && !strings.Contains(parts[0], ":") {
+		return parts[0], strings.TrimSuffix(parts[1], ".git"), true
+	}
 	patterns := []*regexp.Regexp{
 		regexp.MustCompile(`github\.com[:/]([^/]+)/([^/.]+)(?:\.git)?$`),
 		regexp.MustCompile(`github\.com/([^/]+)/([^/.]+)(?:\.git)?$`),
 	}
 	for _, pattern := range patterns {
-		match := pattern.FindStringSubmatch(remote)
+		match := pattern.FindStringSubmatch(value)
 		if len(match) == 3 {
-			return match[1], match[2], nil
+			return match[1], match[2], true
 		}
 	}
-	return "", "", fmt.Errorf("GitHub repository could not be parsed from remote origin %q", remote)
+	return "", "", false
 }
 
 func githubClientWithTimeout(timeout time.Duration) (githubAPI, context.Context, context.CancelFunc, error) {

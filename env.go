@@ -25,6 +25,12 @@ func loadDotEnvLocal(path string) {
 		if key == "GITHUB_APP_PRIVATE_KEY_PATH" && value != "" && !filepath.IsAbs(value) {
 			value = filepath.Clean(filepath.Join(baseDir, value))
 		}
+		if key == "GITHUB_APP_PRIVATE_KEY_PATH" {
+			if existing := os.Getenv(key); existing == "" || !filepath.IsAbs(existing) {
+				_ = os.Setenv(key, value)
+			}
+			continue
+		}
 		if key != "" && os.Getenv(key) == "" {
 			_ = os.Setenv(key, value)
 		}

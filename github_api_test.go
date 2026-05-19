@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -81,6 +84,27 @@ func withFakeGitHubAppEnv(t interface{ Cleanup(func()) }, fn func() (map[string]
 	previous := githubAppEnvFromEnvironmentForAPI
 	githubAppEnvFromEnvironmentForAPI = fn
 	t.Cleanup(func() { githubAppEnvFromEnvironmentForAPI = previous })
+}
+
+func TestConfigureGitHubRepositoryFromWorkflowUsesWorkflowRepoRemote(t *testing.T) {
+	repo := t.TempDir()
+	workflowDir := filepath.Join(repo, ".symphony", "workspaces", "CAG-1")
+	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := exec.Command("git", "-C", repo, "remote", "add", "origin", "git@github.com:pennywise-investments/compound-web.git").Run(); err != nil {
+		t.Fatalf("git remote add: %v", err)
+	}
+
+	t.Setenv("GITHUB_REPOSITORY", "")
+	configureGitHubRepositoryFromWorkflow(filepath.Join(workflowDir, "WORKFLOW.md"))
+
+	if got := os.Getenv("GITHUB_REPOSITORY"); got != "pennywise-investments/compound-web" {
+		t.Fatalf("GITHUB_REPOSITORY = %q, want pennywise-investments/compound-web", got)
+	}
 }
 
 func TestGitHubAPITokenFromEnvironmentPrefersExplicitGHToken(t *testing.T) {

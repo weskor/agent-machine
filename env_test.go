@@ -23,7 +23,7 @@ func TestLoadNearestDotEnvLocalResolvesGitHubAppKeyRelativeToEnvFile(t *testing.
 		t.Fatal(err)
 	}
 
-	t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "")
+	t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "../../stale-relative-key.pem")
 	t.Setenv("LINEAR_API_KEY", "")
 
 	loadNearestDotEnvLocal(workflowPath)

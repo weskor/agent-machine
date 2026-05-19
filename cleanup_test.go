@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	sh "github.com/weskor/pi-symphony/internal/shell"
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 func TestCleanupDecisionDeletesDoneIssueWorkspace(t *testing.T) {
@@ -47,6 +51,51 @@ func TestCleanupWorkspacesSkipsHiddenLockDirectory(t *testing.T) {
 
 	if err := cleanupWorkspaces(root, cleanupOptions{DoneIssues: map[string]bool{"CAG-1": true}}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCleanupWorkspacesMirrorsDeletedState(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-65")
+	writeCleanRunArtifact(t, workspace, "success")
+	seedCleanupAttempt(t, root, workspace, "CAG-65", "success")
+
+	if err := cleanupWorkspaces(root, cleanupOptions{Apply: true, DoneIssues: map[string]bool{"CAG-65": true}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(workspace); !os.IsNotExist(err) {
+		t.Fatalf("workspace still exists after cleanup: %v", err)
+	}
+
+	row := readCleanupState(t, root, "CAG-65")
+	if row.workspaceExists != 0 || row.eligible != 1 || row.decision != "completed" || row.deletionResult != "deleted" || row.blockedReason != "" {
+		t.Fatalf("unexpected cleanup mirror row: %+v", row)
+	}
+	if row.artifactRef != filepath.Join(workspace, ".pi-symphony-run.json") {
+		t.Fatalf("artifact_ref = %q", row.artifactRef)
+	}
+}
+
+func TestCleanupWorkspacesMirrorsDryRunAndKeptState(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	dryRunWorkspace := filepath.Join(root, "CAG-66")
+	keptWorkspace := filepath.Join(root, "CAG-67")
+	writeCleanRunArtifact(t, dryRunWorkspace, "success")
+	writeCleanRunArtifact(t, keptWorkspace, "success")
+	seedCleanupAttempt(t, root, dryRunWorkspace, "CAG-66", "success")
+	seedCleanupAttempt(t, root, keptWorkspace, "CAG-67", "success")
+
+	if err := cleanupWorkspaces(root, cleanupOptions{DoneIssues: map[string]bool{"CAG-66": true}}); err != nil {
+		t.Fatal(err)
+	}
+
+	dryRun := readCleanupState(t, root, "CAG-66")
+	if dryRun.workspaceExists != 1 || dryRun.eligible != 1 || dryRun.decision != "completed" || dryRun.deletionResult != "dry_run" || dryRun.blockedReason != "" {
+		t.Fatalf("unexpected dry-run cleanup mirror row: %+v", dryRun)
+	}
+	kept := readCleanupState(t, root, "CAG-67")
+	if kept.workspaceExists != 1 || kept.eligible != 0 || kept.decision != "not-done" || kept.deletionResult != "kept" || !strings.Contains(kept.blockedReason, "not Done") {
+		t.Fatalf("unexpected kept cleanup mirror row: %+v", kept)
 	}
 }
 
@@ -207,4 +256,41 @@ func writeCleanRunArtifact(t *testing.T, workspace, status string) {
 
 func runArtifactJSON(workspace, status string) string {
 	return `{"issue_identifier":"` + filepath.Base(workspace) + `","issue_id":"issue-id","issue_title":"Title","issue_url":"https://linear.app/acme/issue/` + filepath.Base(workspace) + `/title","workspace":"` + filepath.ToSlash(workspace) + `","branch":"symphony/` + filepath.Base(workspace) + `","status":"` + status + `","ended_at":"2026-05-01T00:00:00Z"}`
+}
+
+func seedCleanupAttempt(t *testing.T, workspaceRoot, workspace, issueKey, status string) {
+	t.Helper()
+	ctx := context.Background()
+	store, err := state.Open(ctx, state.DefaultDBPath(workspaceRoot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	if err := store.UpsertRunArtifact(ctx, state.RunArtifactSnapshot{IssueKey: issueKey, Attempt: 1, WorkspacePath: workspace, BranchName: "symphony/" + issueKey, BaseBranch: "main", Status: status, StartedAt: now, UpdatedAt: now, RunArtifactRef: filepath.Join(workspace, ".pi-symphony-run.json")}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type cleanupStateFixture struct {
+	workspaceExists int
+	eligible        int
+	decision        string
+	deletionResult  string
+	artifactRef     string
+	blockedReason   string
+}
+
+func readCleanupState(t *testing.T, workspaceRoot, issueKey string) cleanupStateFixture {
+	t.Helper()
+	db, err := sql.Open("sqlite", state.DefaultDBPath(workspaceRoot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var row cleanupStateFixture
+	if err := db.QueryRow(`SELECT c.workspace_exists, c.eligible, c.decision, c.deletion_result, c.artifact_ref, c.blocked_reason FROM cleanup_states c JOIN issue_attempts a ON a.id = c.attempt_id WHERE a.issue_key = ?`, issueKey).Scan(&row.workspaceExists, &row.eligible, &row.decision, &row.deletionResult, &row.artifactRef, &row.blockedReason); err != nil {
+		t.Fatal(err)
+	}
+	return row
 }

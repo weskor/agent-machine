@@ -1,14 +1,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	sh "github.com/weskor/pi-symphony/internal/shell"
+	orchstate "github.com/weskor/pi-symphony/internal/state"
 )
 
 type cleanupOptions struct {
@@ -48,21 +51,26 @@ func cleanupWorkspaces(workspaceRoot string, options cleanupOptions) error {
 		categories[decision.Category]++
 		if !decision.Delete {
 			kept++
+			mirrorCleanupState(safeRoot, decision, false, "kept", true)
 			log("keep %s [%s]: %s", workspace, decision.Category, decision.Reason)
 			continue
 		}
 		eligible++
 		if !options.Apply {
+			mirrorCleanupState(safeRoot, decision, true, "dry_run", true)
 			log("would delete %s [%s]: %s", workspace, decision.Category, decision.Reason)
 			continue
 		}
 		if err := assertSafeDeletePath(safeRoot, workspace); err != nil {
+			mirrorCleanupState(safeRoot, decision, true, "failed", true)
 			return err
 		}
 		if err := os.RemoveAll(workspace); err != nil {
+			mirrorCleanupState(safeRoot, decision, true, "failed", true)
 			return err
 		}
 		removed++
+		mirrorCleanupState(safeRoot, decision, true, "deleted", false)
 		log("deleted %s [%s]: %s", workspace, decision.Category, decision.Reason)
 	}
 	if options.Apply {
@@ -96,9 +104,11 @@ func removeDoneWorkspace(workspaceRoot, identifier string) error {
 }
 
 type cleanupResult struct {
-	Delete   bool
-	Reason   string
-	Category string
+	Delete          bool
+	Reason          string
+	Category        string
+	IssueIdentifier string
+	ArtifactRef     string
 }
 
 func cleanupDecision(workspace string, doneIssues map[string]bool) (cleanupResult, error) {
@@ -131,20 +141,68 @@ func cleanupDecisionForRoot(workspaceRoot, workspace string, doneIssues map[stri
 	if err := json.Unmarshal(data, &record); err != nil {
 		return cleanupResult{}, err
 	}
+	base := cleanupResult{IssueIdentifier: record.IssueIdentifier, ArtifactRef: recordPath}
 	if reason := insufficientArtifactReason(record, workspace); reason != "" {
-		return cleanupResult{Category: "insufficient-artifact", Reason: reason}, nil
+		base.Category = "insufficient-artifact"
+		base.Reason = reason
+		return base, nil
 	}
 	category := cleanupCategoryForTerminalStatus(record.Status)
 	if !terminalRunStatus(record.Status) {
-		return cleanupResult{Category: "non-terminal", Reason: fmt.Sprintf("run artifact status %s is not terminal", record.Status)}, nil
+		base.Category = "non-terminal"
+		base.Reason = fmt.Sprintf("run artifact status %s is not terminal", record.Status)
+		return base, nil
 	}
 	if doneIssues[identifier] && identifier != record.IssueIdentifier {
-		return cleanupResult{Delete: true, Category: category, Reason: fmt.Sprintf("workspace directory %s is Done and artifact status is %s", identifier, record.Status)}, nil
+		base.Delete = true
+		base.Category = category
+		base.Reason = fmt.Sprintf("workspace directory %s is Done and artifact status is %s", identifier, record.Status)
+		return base, nil
 	}
 	if doneIssues[record.IssueIdentifier] {
-		return cleanupResult{Delete: true, Category: category, Reason: fmt.Sprintf("Linear issue %s is Done and artifact status is %s", record.IssueIdentifier, record.Status)}, nil
+		base.Delete = true
+		base.Category = category
+		base.Reason = fmt.Sprintf("Linear issue %s is Done and artifact status is %s", record.IssueIdentifier, record.Status)
+		return base, nil
 	}
-	return cleanupResult{Category: "not-done", Reason: fmt.Sprintf("Linear issue %s is not Done", record.IssueIdentifier)}, nil
+	base.Category = "not-done"
+	base.Reason = fmt.Sprintf("Linear issue %s is not Done", record.IssueIdentifier)
+	return base, nil
+}
+
+func mirrorCleanupState(workspaceRoot string, decision cleanupResult, eligible bool, deletionResult string, workspaceExists bool) {
+	if strings.TrimSpace(decision.IssueIdentifier) == "" {
+		return
+	}
+	dbPath := orchstate.DefaultDBPath(workspaceRoot)
+	if dbPath == "" {
+		log("skipping sqlite cleanup mirror: state db path is empty")
+		return
+	}
+	ctx := context.Background()
+	store, err := orchstate.Open(ctx, dbPath)
+	if err != nil {
+		log("skipping sqlite cleanup mirror: %v", err)
+		return
+	}
+	defer store.Close()
+	blockedReason := ""
+	if !eligible || deletionResult == "failed" {
+		blockedReason = decision.Reason
+	}
+	if err := store.UpsertCleanupState(ctx, orchstate.CleanupState{
+		IssueKey:        decision.IssueIdentifier,
+		Attempt:         1,
+		WorkspaceExists: workspaceExists,
+		Eligible:        eligible,
+		Decision:        decision.Category,
+		DeletionResult:  deletionResult,
+		ArtifactRef:     decision.ArtifactRef,
+		BlockedReason:   blockedReason,
+		UpdatedAt:       time.Now(),
+	}); err != nil {
+		log("skipping sqlite cleanup mirror: %v", err)
+	}
 }
 
 func cleanupCategoryForTerminalStatus(status string) string {

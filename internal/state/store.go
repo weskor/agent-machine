@@ -40,6 +40,7 @@ type Counts struct {
 	ReviewStates     int
 	TerminalOutcomes int
 	DaemonHeartbeats int
+	CleanupStates    int
 }
 
 type DaemonHeartbeat struct {
@@ -62,6 +63,18 @@ type Lease struct {
 	RenewedAt     time.Time
 	ReleasedAt    time.Time
 	ReleaseReason string
+}
+
+type CleanupState struct {
+	IssueKey        string
+	Attempt         int
+	WorkspaceExists bool
+	Eligible        bool
+	Decision        string
+	DeletionResult  string
+	ArtifactRef     string
+	BlockedReason   string
+	UpdatedAt       time.Time
 }
 
 type RunArtifactSnapshot struct {
@@ -231,6 +244,30 @@ func (s *Store) UpsertDaemonHeartbeat(ctx context.Context, heartbeat DaemonHeart
 	_, err = s.db.ExecContext(ctx, `INSERT INTO daemon_heartbeats(process_id, lane_name, workflow_path, cycle_number, last_success_at, last_error, recovery_required, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, heartbeat.ProcessID, heartbeat.LaneName, heartbeat.WorkflowPath, heartbeat.CycleNumber, lastSuccessAt, heartbeat.LastError, recoveryRequired, now)
 	if err != nil {
 		return fmt.Errorf("insert daemon heartbeat: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) UpsertCleanupState(ctx context.Context, cleanup CleanupState) error {
+	if cleanup.IssueKey == "" {
+		return errors.New("upsert cleanup state: issue key is required")
+	}
+	if cleanup.Attempt <= 0 {
+		cleanup.Attempt = 1
+	}
+	now := cleanup.UpdatedAt.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	var attemptID int64
+	if err := s.db.QueryRowContext(ctx, `SELECT id FROM issue_attempts WHERE issue_key = ? AND attempt = ?`, cleanup.IssueKey, cleanup.Attempt).Scan(&attemptID); err != nil {
+		return fmt.Errorf("read cleanup attempt id: %w", err)
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO cleanup_states(attempt_id, workspace_exists, eligible, decision, deletion_result, artifact_ref, blocked_reason, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(attempt_id) DO UPDATE SET workspace_exists=excluded.workspace_exists, eligible=excluded.eligible, decision=excluded.decision, deletion_result=excluded.deletion_result, artifact_ref=excluded.artifact_ref, blocked_reason=excluded.blocked_reason, updated_at=excluded.updated_at`, attemptID, boolInt(cleanup.WorkspaceExists), boolInt(cleanup.Eligible), cleanup.Decision, cleanup.DeletionResult, cleanup.ArtifactRef, cleanup.BlockedReason, now.Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("upsert cleanup state: %w", err)
 	}
 	return nil
 }
@@ -410,6 +447,7 @@ func (s *Store) Counts(ctx context.Context) (Counts, error) {
 		"review_states":     &counts.ReviewStates,
 		"terminal_outcomes": &counts.TerminalOutcomes,
 		"daemon_heartbeats": &counts.DaemonHeartbeats,
+		"cleanup_states":    &counts.CleanupStates,
 	} {
 		if err := s.db.QueryRowContext(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s`, table)).Scan(dest); err != nil {
 			return Counts{}, fmt.Errorf("count %s: %w", table, err)

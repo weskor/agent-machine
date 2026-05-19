@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	sh "github.com/weskor/pi-symphony/internal/shell"
 )
 
 type cleanupOptions struct {
@@ -297,7 +299,7 @@ func assertSafeDeletePath(root, workspace string) error {
 }
 
 func currentGitBranch(workspace string) (string, error) {
-	output, err := shellCaptureQuiet("git branch --show-current", workspace)
+	output, err := sh.CaptureQuiet("git branch --show-current", workspace)
 	if err != nil {
 		return "", err
 	}
@@ -305,7 +307,7 @@ func currentGitBranch(workspace string) (string, error) {
 }
 
 func workspaceHasChanges(workspace string) (bool, error) {
-	output, err := shellCaptureQuiet("git status --porcelain", workspace)
+	output, err := sh.CaptureQuiet("git status --porcelain", workspace)
 	if err != nil {
 		return false, err
 	}

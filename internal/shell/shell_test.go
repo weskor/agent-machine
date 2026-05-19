@@ -1,4 +1,4 @@
-package main
+package shell
 
 import (
 	"errors"
@@ -8,7 +8,7 @@ import (
 )
 
 func TestCommandEnvDisablesPagers(t *testing.T) {
-	env := strings.Join(commandEnv(nil), "\n")
+	env := strings.Join(CommandEnv(nil), "\n")
 
 	for _, want := range []string{
 		"GIT_PAGER=cat",
@@ -18,24 +18,24 @@ func TestCommandEnvDisablesPagers(t *testing.T) {
 		"CI=1",
 	} {
 		if !strings.Contains(env, want) {
-			t.Fatalf("commandEnv missing %s in %q", want, env)
+			t.Fatalf("CommandEnv missing %s in %q", want, env)
 		}
 	}
 }
 
 func TestShellCaptureTimeout(t *testing.T) {
-	_, err := shellCaptureEnvWithOutputTimeout("sleep 1", "", nil, false, 10*time.Millisecond)
-	if !errors.Is(err, errCommandTimeout) {
+	_, err := CaptureEnvWithOutputTimeout("sleep 1", "", nil, false, 10*time.Millisecond)
+	if !errors.Is(err, ErrCommandTimeout) {
 		t.Fatalf("expected timeout error, got %v", err)
 	}
 }
 
 func TestCommandEnvAllowsExtraOverrides(t *testing.T) {
-	env := commandEnv(map[string]string{"PAGER": "custom", "EXTRA": "value"})
+	env := CommandEnv(map[string]string{"PAGER": "custom", "EXTRA": "value"})
 	joined := strings.Join(env, "\n")
 
 	if !strings.Contains(joined, "EXTRA=value") {
-		t.Fatalf("commandEnv missing extra env in %q", joined)
+		t.Fatalf("CommandEnv missing extra env in %q", joined)
 	}
 	lastPager := ""
 	for _, item := range env {

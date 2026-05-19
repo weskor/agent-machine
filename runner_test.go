@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	sh "github.com/weskor/pi-symphony/internal/shell"
 )
 
 func init() {
@@ -328,7 +330,7 @@ func TestEnsureIsolatedWorkspaceSwitchesFromBaseBranch(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := shell("git init -q && git checkout -q -b develop", workspace); err != nil {
+	if err := sh.Run("git init -q && git checkout -q -b develop", workspace); err != nil {
 		t.Fatal(err)
 	}
 	if err := ensureIsolatedWorkspace(root, workspace, "CAG-31"); err != nil {
@@ -345,7 +347,7 @@ func TestEnsureIsolatedWorkspaceSwitchesFromBaseBranch(t *testing.T) {
 
 func TestEnsureIsolatedWorkspaceRefusesSharedCheckout(t *testing.T) {
 	parent := t.TempDir()
-	if err := shell("git init -q", parent); err != nil {
+	if err := sh.Run("git init -q", parent); err != nil {
 		t.Fatal(err)
 	}
 	root := filepath.Join(parent, ".symphony", "workspaces")
@@ -364,7 +366,7 @@ func TestEnsureIsolatedWorkspaceRefusesOtherSymphonyBranch(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := shell("git init -q && git checkout -q -b symphony/CAG-99-workspace", workspace); err != nil {
+	if err := sh.Run("git init -q && git checkout -q -b symphony/CAG-99-workspace", workspace); err != nil {
 		t.Fatal(err)
 	}
 	if err := ensureIsolatedWorkspace(root, workspace, "CAG-33"); err == nil || !strings.Contains(err.Error(), "unexpected Symphony branch") {
@@ -378,7 +380,7 @@ func TestRunRecordCapturesWorkspaceIsolationFields(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := shell("git init -q && git checkout -q -b symphony/CAG-34-workspace", workspace); err != nil {
+	if err := sh.Run("git init -q && git checkout -q -b symphony/CAG-34-workspace", workspace); err != nil {
 		t.Fatal(err)
 	}
 	issue := testIssue("CAG-34", "In Progress")

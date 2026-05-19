@@ -13,6 +13,7 @@ import (
 	"time"
 
 	cfg "github.com/weskor/pi-symphony/internal/config"
+	sh "github.com/weskor/pi-symphony/internal/shell"
 )
 
 // run dispatches the selected mode. The default remains one-shot for targeted
@@ -303,8 +304,8 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		return true, err
 	}
 	if isEmptyIgnoringRunLock(workspace) && strings.TrimSpace(config.AfterCreate) != "" {
-		if err := shellWithTimeout(config.AfterCreate, workspace, config.Budget.CommandTimeout); err != nil {
-			if errors.Is(err, errCommandTimeout) {
+		if err := sh.RunWithTimeout(config.AfterCreate, workspace, config.Budget.CommandTimeout); err != nil {
+			if errors.Is(err, sh.ErrCommandTimeout) {
 				_ = client.createComment(candidate.ID, renderBudgetFailureComment(err.Error()))
 				writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, "", runStarted, time.Now(), nil, nil, "", "timeout", err.Error(), config.Budget.Active(), err.Error()))
 			}
@@ -315,8 +316,8 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		return true, err
 	}
 	if config.BeforeRun != "" {
-		if err := shellWithTimeout(config.BeforeRun, workspace, config.Budget.CommandTimeout); err != nil {
-			if errors.Is(err, errCommandTimeout) {
+		if err := sh.RunWithTimeout(config.BeforeRun, workspace, config.Budget.CommandTimeout); err != nil {
+			if errors.Is(err, sh.ErrCommandTimeout) {
 				_ = client.createComment(candidate.ID, renderBudgetFailureComment(err.Error()))
 				writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, "", runStarted, time.Now(), nil, nil, "", "timeout", err.Error(), config.Budget.Active(), err.Error()))
 			}
@@ -365,11 +366,11 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	heartbeatRunLock(workspace, time.Now())
 
 	piStart := time.Now()
-	piOutput, err := shellCaptureEnvWithOutputTimeout(fmt.Sprintf("%s @%s", config.PiCommand, shellQuote(promptPath)), workspace, githubEnv, true, config.Budget.PiTimeout)
+	piOutput, err := sh.CaptureEnvWithOutputTimeout(fmt.Sprintf("%s @%s", config.PiCommand, sh.Quote(promptPath)), workspace, githubEnv, true, config.Budget.PiTimeout)
 	piEnded := time.Now()
 	if err != nil {
 		status := "failed"
-		if errors.Is(err, errCommandTimeout) {
+		if errors.Is(err, sh.ErrCommandTimeout) {
 			status = "timeout"
 			if commentErr := client.createComment(candidate.ID, renderBudgetFailureComment(err.Error())); commentErr != nil {
 				log("failed to comment on %s: %v", candidate.Identifier, commentErr)
@@ -412,9 +413,9 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		return true, nil
 	}
 	if config.AfterRun != "" {
-		if err := shellWithTimeout(config.AfterRun, workspace, config.Budget.CommandTimeout); err != nil {
+		if err := sh.RunWithTimeout(config.AfterRun, workspace, config.Budget.CommandTimeout); err != nil {
 			status := "failed"
-			if errors.Is(err, errCommandTimeout) {
+			if errors.Is(err, sh.ErrCommandTimeout) {
 				status = "timeout"
 				if commentErr := client.createComment(candidate.ID, renderBudgetFailureComment(err.Error())); commentErr != nil {
 					log("failed to comment on %s: %v", candidate.Identifier, commentErr)
@@ -456,7 +457,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		review = reviewResult
 		if err != nil {
 			status := "review_failed"
-			if errors.Is(err, errCommandTimeout) {
+			if errors.Is(err, sh.ErrCommandTimeout) {
 				status = "timeout"
 				if commentErr := client.createComment(candidate.ID, renderBudgetFailureComment(err.Error())); commentErr != nil {
 					log("failed to comment on %s: %v", candidate.Identifier, commentErr)
@@ -890,14 +891,14 @@ func prHandoffBlockReason(config runnerConfig, candidate *issue, details prHando
 
 func closeInvalidPR(prURL, reason string) error {
 	comment := fmt.Sprintf("Closing because the Pi Symphony runner PR sanity check failed before handoff.\n\nReason: %s\n\nDo not merge this PR as-is; retry the Linear issue only after fixing branch/base/scope controls.", reason)
-	return shellWithTimeout(fmt.Sprintf("gh pr close %s --comment %s", shellQuote(prURL), shellQuote(comment)), "", defaultGitHubCommandTimeout)
+	return sh.RunWithTimeout(fmt.Sprintf("gh pr close %s --comment %s", sh.Quote(prURL), sh.Quote(comment)), "", defaultGitHubCommandTimeout)
 }
 
 func ensureIsolatedWorkspace(workspaceRoot, workspace, identifier string) error {
 	if err := assertSafeDeletePath(workspaceRoot, workspace); err != nil {
 		return err
 	}
-	topLevel, err := shellCaptureQuiet("git rev-parse --show-toplevel", workspace)
+	topLevel, err := sh.CaptureQuiet("git rev-parse --show-toplevel", workspace)
 	if err != nil {
 		return fmt.Errorf("workspace %s is not a git checkout: %w", workspace, err)
 	}
@@ -923,7 +924,7 @@ func ensureIsolatedWorkspace(workspaceRoot, workspace, identifier string) error 
 	if current != "" && strings.HasPrefix(current, "symphony/") {
 		return fmt.Errorf("workspace %s is on unexpected Symphony branch %q; expected %q", workspace, current, branch)
 	}
-	if err := shell("git switch -C "+shellQuote(branch), workspace); err != nil {
+	if err := sh.Run("git switch -C "+sh.Quote(branch), workspace); err != nil {
 		return err
 	}
 	return nil

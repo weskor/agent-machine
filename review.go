@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	sh "github.com/weskor/pi-symphony/internal/shell"
 )
 
 const reviewPassMarker = "REVIEW_PASS"
@@ -81,7 +83,7 @@ func runReview(reviewCommand, workspace string, candidate *issue, prURL string, 
 	}
 
 	started := time.Now()
-	output, err := shellCaptureEnvWithOutputTimeout(fmt.Sprintf("%s @%s", reviewCommandWithHighReasoning(reviewCommand), shellQuote(promptPath)), workspace, env, true, timeout)
+	output, err := sh.CaptureEnvWithOutputTimeout(fmt.Sprintf("%s @%s", reviewCommandWithHighReasoning(reviewCommand), sh.Quote(promptPath)), workspace, env, true, timeout)
 	log("review duration: %s", time.Since(started).Round(time.Second))
 	findings := assistantText(output)
 	if findings == "" {

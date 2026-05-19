@@ -6,11 +6,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	sh "github.com/weskor/pi-symphony/internal/shell"
 )
 
 func TestConfigureGitHubAppCommitIdentity(t *testing.T) {
 	workspace := t.TempDir()
-	if err := shell("git init -q", workspace); err != nil {
+	if err := sh.Run("git init -q", workspace); err != nil {
 		t.Fatalf("init git repo: %v", err)
 	}
 
@@ -20,11 +22,11 @@ func TestConfigureGitHubAppCommitIdentity(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "file.txt"), []byte("ok\n"), 0o600); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
-	if err := shell("git add file.txt && git commit -q -m test", workspace); err != nil {
+	if err := sh.Run("git add file.txt && git commit -q -m test", workspace); err != nil {
 		t.Fatalf("commit with configured identity: %v", err)
 	}
 
-	got, err := shellCaptureQuiet("git log -1 --format='%an <%ae>|%cn <%ce>'", workspace)
+	got, err := sh.CaptureQuiet("git log -1 --format='%an <%ae>|%cn <%ce>'", workspace)
 	if err != nil {
 		t.Fatalf("read commit identity: %v", err)
 	}

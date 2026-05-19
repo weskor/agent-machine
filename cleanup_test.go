@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	sh "github.com/weskor/pi-symphony/internal/shell"
 )
 
 func TestCleanupDecisionDeletesDoneIssueWorkspace(t *testing.T) {
@@ -71,7 +73,7 @@ func TestCleanupDecisionKeepsMissingAndInsufficientArtifacts(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := shell("git init -q", workspace); err != nil {
+	if err := sh.Run("git init -q", workspace); err != nil {
 		t.Fatal(err)
 	}
 
@@ -195,7 +197,7 @@ func writeCleanRunArtifact(t *testing.T, workspace, status string) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := shell("git init -q", workspace); err != nil {
+	if err := sh.Run("git init -q", workspace); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(runArtifactJSON(workspace, status)), 0o600); err != nil {

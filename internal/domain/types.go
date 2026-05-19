@@ -112,20 +112,22 @@ type WorkflowState struct {
 }
 
 type RunnerConfig struct {
-	WorkflowPath   string
-	ProjectSlug    string
-	WorkspaceRoot  string
-	RunningState   string
-	HandoffState   string
-	DoneState      string
-	NeedsInfoState string
-	ReadyState     string
-	BaseBranch     string
-	ActiveStates   []string
-	PiCommand      string
-	ReviewCommand  string
-	AfterCreate    string
-	BeforeRun      string
-	AfterRun       string
-	Budget         Budget
+	WorkflowPath           string
+	ProjectSlug            string
+	WorkspaceRoot          string
+	RunningState           string
+	HandoffState           string
+	DoneState              string
+	NeedsInfoState         string
+	ReadyState             string
+	BaseBranch             string
+	ActiveStates           []string
+	PiCommand              string
+	ReviewCommand          string
+	AfterCreate            string
+	BeforeRun              string
+	AfterRun               string
+	Budget                 Budget
+	GitHubAppSlug          string
+	GitHubPRAuthorOverride string
 }

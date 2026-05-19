@@ -667,6 +667,7 @@ func testRunnerConfig(workspaceRoot string) runnerConfig {
 		ReadyState:     "Ready for Agent",
 		NeedsInfoState: "Needs Info",
 		ActiveStates:   []string{"Ready for Agent", "In Progress"},
+		GitHubAppSlug:  "compound-symphony-bot",
 	}
 }
 

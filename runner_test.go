@@ -500,6 +500,77 @@ func TestRunOneMovesNeedsInfoAndCommentsWithoutPRHandoff(t *testing.T) {
 	}
 }
 
+func TestRunOneFailsWhenPiFinishesWithoutPRURLOrNeedsInfo(t *testing.T) {
+	t.Setenv("GITHUB_APP_ID", "")
+	t.Setenv("GITHUB_APP_INSTALLATION_ID", "")
+	t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "")
+	root := t.TempDir()
+	var updatedStates []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		switch {
+		case strings.Contains(request.Query, "issues(first"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issues": map[string]any{"nodes": []issue{testIssue("CAG-10", "Ready for Agent")}}}})
+		case strings.Contains(request.Query, "workflowStates"):
+			states := []workflowState{{ID: "running-id", Name: "In Progress"}, {ID: "needs-id", Name: "Needs Info"}, {ID: "handoff-id", Name: "Human Review"}}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"workflowStates": map[string]any{"nodes": states}}})
+		case strings.Contains(request.Query, "issueUpdate"):
+			updatedStates = append(updatedStates, request.Variables["stateId"].(string))
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issueUpdate": map[string]any{"success": true}}})
+		default:
+			t.Fatalf("unexpected Linear query: %s", request.Query)
+		}
+	}))
+	defer server.Close()
+
+	client := linearClient{apiKey: "test-key", endpoint: server.URL}
+	config := testRunnerConfig(root)
+	config.RunningState = "In Progress"
+	config.HandoffState = "Human Review"
+	config.AfterCreate = "git init -q && git checkout -q -b develop"
+	config.PiCommand = "printf 'completed scoped diff and validation, but no handoff URL\n'"
+	wf := workflow{Body: "# Test workflow"}
+
+	didWork, err := runOne(client, wf, config)
+	if err == nil || !strings.Contains(err.Error(), "missing PR URL") {
+		t.Fatalf("expected missing PR URL error, got %v", err)
+	}
+	if !didWork {
+		t.Fatal("expected runOne to process an issue")
+	}
+	if !reflect.DeepEqual(updatedStates, []string{"running-id"}) {
+		t.Fatalf("updated states = %#v", updatedStates)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "CAG-10", ".pi-symphony-run.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record runRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.Status == "success" || record.Status != "failed" || record.PRURL != "" || !strings.Contains(record.Error, "missing PR URL") {
+		t.Fatalf("unexpected run record: %#v", record)
+	}
+	evaluationData, err := os.ReadFile(filepath.Join(root, "CAG-10", ".pi-symphony-evaluation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var evaluation evaluationArtifact
+	if err := json.Unmarshal(evaluationData, &evaluation); err != nil {
+		t.Fatal(err)
+	}
+	if evaluation.FinalStatus == "success" || evaluation.Outcome != "operational_failure" || !containsString(evaluation.BlockedBy, "missing_pr_url") {
+		t.Fatalf("unexpected evaluation: %#v", evaluation)
+	}
+}
+
 func TestBehaviorContractPreflightPromptCoversGenericReplacementContracts(t *testing.T) {
 	prompt := behaviorContractPreflightPrompt()
 

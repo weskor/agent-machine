@@ -1,13 +1,18 @@
 package main
 
 import (
+	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	sh "github.com/weskor/pi-symphony/internal/shell"
+	orchstate "github.com/weskor/pi-symphony/internal/state"
 )
 
 func closeInvalidPR(prURL, reason string) error {
@@ -64,6 +69,94 @@ func writeRunRecord(workspace string, record runRecord) {
 	}
 	log("wrote run record: %s", path)
 	writeEvaluationArtifact(workspace, record)
+	mirrorRunRecordToState(workspace, record)
+}
+
+func mirrorRunRecordToState(workspace string, record runRecord) {
+	dbPath := orchstate.DefaultDBPath(record.WorkspaceRoot)
+	if dbPath == "" {
+		return
+	}
+	ctx := context.Background()
+	store, err := orchstate.Open(ctx, dbPath)
+	if err != nil {
+		log("failed to mirror run record into SQLite state at %s: %v", dbPath, err)
+		return
+	}
+	defer store.Close()
+	evaluation := evaluationForRun(workspace, record)
+	repo, prNumber := parseGitHubPR(record.PRURL)
+	reviewHash := ""
+	if strings.TrimSpace(record.ReviewFindings) != "" {
+		sum := sha256.Sum256([]byte(record.ReviewFindings))
+		reviewHash = fmt.Sprintf("%x", sum[:])
+	}
+	retryReason := ""
+	retryNextState := ""
+	if evaluation.ShouldRetry {
+		retryReason = evaluation.RootCause
+		if retryReason == "" {
+			retryReason = evaluation.Outcome
+		}
+		retryNextState = evaluation.NextAction
+	}
+	terminalOutcome := ""
+	if terminalRunStatus(record.Status) {
+		terminalOutcome = evaluation.Outcome
+	}
+	if err := store.UpsertRunArtifact(ctx, orchstate.RunArtifactSnapshot{
+		IssueKey:             record.IssueIdentifier,
+		IssueID:              record.IssueID,
+		Attempt:              1,
+		WorkspacePath:        record.Workspace,
+		BranchName:           firstNonEmpty(record.Branch, record.ExpectedBranch),
+		BaseBranch:           "main",
+		Status:               record.Status,
+		StartedAt:            record.StartedAt,
+		UpdatedAt:            record.EndedAt,
+		Repository:           repo,
+		PRNumber:             prNumber,
+		PRURL:                record.PRURL,
+		ReviewStatus:         record.ReviewStatus,
+		ReviewPassed:         record.ReviewStatus == "passed",
+		ReviewClassification: record.ReviewClassification,
+		ReviewOutputRef:      filepath.Join(workspace, evaluationArtifactName),
+		ReviewOutputHash:     reviewHash,
+		MergeEligible:        evaluation.MergeEligible,
+		FeedbackHash:         record.FeedbackHash,
+		FeedbackNextAction:   evaluation.NextAction,
+		RetryCount:           evaluation.FeedbackRetryCount,
+		RetryBudgetState:     record.BudgetExceeded,
+		RetryReason:          retryReason,
+		RetryInputHash:       record.FeedbackHash,
+		RetryNextState:       retryNextState,
+		TerminalOutcome:      terminalOutcome,
+		TerminalReason:       evaluation.RootCause,
+		RunArtifactRef:       filepath.Join(workspace, ".pi-symphony-run.json"),
+		EvaluationRef:        filepath.Join(workspace, evaluationArtifactName),
+	}); err != nil {
+		log("failed to mirror run record into SQLite state at %s: %v", dbPath, err)
+	}
+}
+
+var githubPRPattern = regexp.MustCompile(`^https://github\.com/([^/]+/[^/]+)/pull/(\d+)`)
+
+func parseGitHubPR(prURL string) (string, int) {
+	matches := githubPRPattern.FindStringSubmatch(strings.TrimSpace(prURL))
+	if len(matches) != 3 {
+		return "", 0
+	}
+	n, _ := strconv.Atoi(matches[2])
+	return matches[1], n
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func stateID(states []workflowState, name string) string {

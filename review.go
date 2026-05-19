@@ -110,7 +110,7 @@ func runReview(reviewCommand, workspace string, candidate *issue, prURL string, 
 	status := reviewStatus(findings)
 	result := &reviewResult{Status: status, Classification: reviewClassification(status, findings), Findings: strings.TrimSpace(findings), Usage: parseUsage(output)}
 	if result.Usage != nil {
-		log("review usage: input=%.0f output=%.0f cacheRead=%.0f total=%.0f cost=$%.4f", result.Usage.Input, result.Usage.Output, result.Usage.CacheRead, result.Usage.TotalTokens, result.Usage.totalCost())
+		log("review usage: input=%.0f output=%.0f cacheRead=%.0f total=%.0f cost=$%.4f", result.Usage.Input, result.Usage.Output, result.Usage.CacheRead, result.Usage.TotalTokens, result.Usage.TotalCost())
 	}
 	if err != nil {
 		result.Status = "error"

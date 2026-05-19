@@ -147,7 +147,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	}
 	piUsage := parseUsage(piOutput)
 	if piUsage != nil {
-		log("pi usage: input=%.0f output=%.0f cacheRead=%.0f total=%.0f cost=$%.4f", piUsage.Input, piUsage.Output, piUsage.CacheRead, piUsage.TotalTokens, piUsage.totalCost())
+		log("pi usage: input=%.0f output=%.0f cacheRead=%.0f total=%.0f cost=$%.4f", piUsage.Input, piUsage.Output, piUsage.CacheRead, piUsage.TotalTokens, piUsage.TotalCost())
 	} else {
 		log("pi usage: unavailable")
 	}

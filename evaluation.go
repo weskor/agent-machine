@@ -74,15 +74,15 @@ func evaluationForRun(workspace string, record runRecord) evaluationArtifact {
 	}
 	if record.PiUsage != nil {
 		evaluation.ImplementationTotalTokens = record.PiUsage.TotalTokens
-		evaluation.ImplementationTotalCost = record.PiUsage.totalCost()
+		evaluation.ImplementationTotalCost = record.PiUsage.TotalCost()
 		evaluation.TotalTokens += record.PiUsage.TotalTokens
-		evaluation.TotalCost += record.PiUsage.totalCost()
+		evaluation.TotalCost += record.PiUsage.TotalCost()
 	}
 	if record.ReviewUsage != nil {
 		evaluation.ReviewTotalTokens = record.ReviewUsage.TotalTokens
-		evaluation.ReviewTotalCost = record.ReviewUsage.totalCost()
+		evaluation.ReviewTotalCost = record.ReviewUsage.TotalCost()
 		evaluation.TotalTokens += record.ReviewUsage.TotalTokens
-		evaluation.TotalCost += record.ReviewUsage.totalCost()
+		evaluation.TotalCost += record.ReviewUsage.TotalCost()
 	}
 	if record.ReviewStatus != "" {
 		passed := record.ReviewStatus == "passed"

@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"os"
@@ -14,9 +14,9 @@ func TestReadWorkflowSplitsFrontMatterAndBody(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wf, err := readWorkflow(path)
+	wf, err := ReadWorkflow(path)
 	if err != nil {
-		t.Fatalf("readWorkflow returned error: %v", err)
+		t.Fatalf("ReadWorkflow returned error: %v", err)
 	}
 	if wf.YAML != "title: Test workflow\nstate: ready" {
 		t.Fatalf("unexpected YAML: %q", wf.YAML)
@@ -32,7 +32,7 @@ func TestReadWorkflowRequiresFrontMatter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := readWorkflow(path); err == nil {
+	if _, err := ReadWorkflow(path); err == nil {
 		t.Fatal("expected missing front matter to return an error")
 	}
 }
@@ -64,18 +64,18 @@ func TestScalarHandlesFallbacksQuotesAndEnvironment(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := scalar(yaml, tt.key, tt.fallback); got != tt.want {
-				t.Fatalf("scalar(%q) = %q, want %q", tt.key, got, tt.want)
+			if got := Scalar(yaml, tt.key, tt.fallback); got != tt.want {
+				t.Fatalf("Scalar(%q) = %q, want %q", tt.key, got, tt.want)
 			}
 		})
 	}
 }
 
 func TestBaseBranchFromWorkflowDefaultsToDevelopAndSupportsMain(t *testing.T) {
-	if got := baseBranchFromWorkflow("workspace:\n  root: /tmp/workspaces\n"); got != "develop" {
+	if got := BaseBranchFromWorkflow("workspace:\n  root: /tmp/workspaces\n"); got != "develop" {
 		t.Fatalf("default base branch = %q, want develop", got)
 	}
-	if got := baseBranchFromWorkflow("workspace:\n  root: /tmp/workspaces\n  base_branch: main\n"); got != "main" {
+	if got := BaseBranchFromWorkflow("workspace:\n  root: /tmp/workspaces\n  base_branch: main\n"); got != "main" {
 		t.Fatalf("configured base branch = %q, want main", got)
 	}
 }
@@ -89,10 +89,10 @@ func TestSectionReturnsIndentedYamlBlock(t *testing.T) {
 		"next: value\n"
 
 	want := "  prompt: |\n    Check the diff.\n  command: bun run check"
-	if got := section(yaml, "review"); got != want {
-		t.Fatalf("section returned %q, want %q", got, want)
+	if got := Section(yaml, "review"); got != want {
+		t.Fatalf("Section returned %q, want %q", got, want)
 	}
-	if got := section(yaml, "missing"); got != "" {
+	if got := Section(yaml, "missing"); got != "" {
 		t.Fatalf("missing section returned %q, want empty string", got)
 	}
 }
@@ -106,10 +106,10 @@ func TestListUnderReturnsQuotedItemsUntilSectionEnds(t *testing.T) {
 		"    - ignored\n"
 
 	want := []string{"first item", "second item"}
-	if got := listUnder(yaml, "tasks"); !reflect.DeepEqual(got, want) {
-		t.Fatalf("listUnder returned %#v, want %#v", got, want)
+	if got := ListUnder(yaml, "tasks"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ListUnder returned %#v, want %#v", got, want)
 	}
-	if got := listUnder(yaml, "missing"); got != nil {
+	if got := ListUnder(yaml, "missing"); got != nil {
 		t.Fatalf("missing list returned %#v, want nil", got)
 	}
 }
@@ -124,16 +124,16 @@ func TestCommandUnderSupportsInlineAndFoldedCommands(t *testing.T) {
 		"  literal: |\n" +
 		"    git diff --check\n"
 
-	if got := commandUnder(yaml, "inline", "fallback"); got != "bun run check" {
+	if got := CommandUnder(yaml, "inline", "fallback"); got != "bun run check" {
 		t.Fatalf("inline command = %q, want bun run check", got)
 	}
-	if got := commandUnder(yaml, "folded", "fallback"); got != "bun run symphony:pi:test -- --run TestWorkflow" {
+	if got := CommandUnder(yaml, "folded", "fallback"); got != "bun run symphony:pi:test -- --run TestWorkflow" {
 		t.Fatalf("folded command = %q", got)
 	}
-	if got := commandUnder(yaml, "literal", "fallback"); got != "git diff --check" {
+	if got := CommandUnder(yaml, "literal", "fallback"); got != "git diff --check" {
 		t.Fatalf("literal command = %q", got)
 	}
-	if got := commandUnder(yaml, "missing", "fallback"); got != "fallback" {
+	if got := CommandUnder(yaml, "missing", "fallback"); got != "fallback" {
 		t.Fatalf("missing command = %q, want fallback", got)
 	}
 }
@@ -146,10 +146,10 @@ func TestBlockUnderReturnsDedentedLiteralBlock(t *testing.T) {
 		"next: value\n"
 
 	want := "First line.\nSecond line."
-	if got := blockUnder(yaml, "prompt"); got != want {
-		t.Fatalf("blockUnder returned %q, want %q", got, want)
+	if got := BlockUnder(yaml, "prompt"); got != want {
+		t.Fatalf("BlockUnder returned %q, want %q", got, want)
 	}
-	if got := blockUnder(yaml, "missing"); got != "" {
+	if got := BlockUnder(yaml, "missing"); got != "" {
 		t.Fatalf("missing block returned %q, want empty string", got)
 	}
 }

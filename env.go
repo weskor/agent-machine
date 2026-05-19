@@ -25,15 +25,22 @@ func loadDotEnvLocal(path string) {
 		if key == "GITHUB_APP_PRIVATE_KEY_PATH" && value != "" && !filepath.IsAbs(value) {
 			value = filepath.Clean(filepath.Join(baseDir, value))
 		}
-		if key == "GITHUB_APP_PRIVATE_KEY_PATH" {
-			if existing := os.Getenv(key); existing == "" || !filepath.IsAbs(existing) {
-				_ = os.Setenv(key, value)
-			}
+		if isWorkflowLocalGitHubAppKey(key) {
+			_ = os.Setenv(key, value)
 			continue
 		}
 		if key != "" && os.Getenv(key) == "" {
 			_ = os.Setenv(key, value)
 		}
+	}
+}
+
+func isWorkflowLocalGitHubAppKey(key string) bool {
+	switch key {
+	case "GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_PRIVATE_KEY_PATH":
+		return true
+	default:
+		return false
 	}
 }
 

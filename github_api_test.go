@@ -99,7 +99,7 @@ func TestConfigureGitHubRepositoryFromWorkflowUsesWorkflowRepoRemote(t *testing.
 		t.Fatalf("git remote add: %v", err)
 	}
 
-	t.Setenv("GITHUB_REPOSITORY", "")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
 	configureGitHubRepositoryFromWorkflow(filepath.Join(workflowDir, "WORKFLOW.md"))
 
 	if got := os.Getenv("GITHUB_REPOSITORY"); got != "pennywise-investments/compound-web" {

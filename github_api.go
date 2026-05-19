@@ -88,9 +88,6 @@ func currentGitHubRepo() (string, string, error) {
 }
 
 func configureGitHubRepositoryFromWorkflow(workflowPath string) {
-	if strings.TrimSpace(os.Getenv("GITHUB_REPOSITORY")) != "" {
-		return
-	}
 	owner, repo, err := gitHubRepoFromDir(filepath.Dir(workflowPath))
 	if err != nil {
 		return

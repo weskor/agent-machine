@@ -26,6 +26,8 @@ Create a workflow file in the target repository, usually `WORKFLOW.md`. See `WOR
 
 This repository also has its own `WORKFLOW.md` for Pi Symphony runner work. It uses the CAG / Compound Agents team with the `Pi Symphony Runner` Linear project and targets the `main` branch.
 
+Local GitHub App credentials are resolved from the nearest `.env.local` next to the target `WORKFLOW.md`; those `GITHUB_APP_*` values and the workflow repository remote take precedence over stale parent-shell values.
+
 Secrets can be exported in the environment or placed in a local `.env.local` next to either the runner or the workflow file:
 
 - `LINEAR_API_KEY`

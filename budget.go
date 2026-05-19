@@ -15,7 +15,7 @@ func budgetExceeded(b runBudget, started time.Time, usages ...*usage) string {
 			continue
 		}
 		tokens += usage.TotalTokens
-		cost += usage.totalCost()
+		cost += usage.TotalCost()
 	}
 	if b.MaxTokens > 0 && tokens > b.MaxTokens {
 		return fmt.Sprintf("token budget exceeded (%.0f > %.0f)", tokens, b.MaxTokens)

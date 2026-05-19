@@ -34,13 +34,6 @@ func parseUsage(output string) *usage {
 	return last
 }
 
-func (u usage) totalCost() float64 {
-	if u.Cost == nil {
-		return 0
-	}
-	return u.Cost.Total
-}
-
 func firstPRURL(output string) string {
 	owner, repo, err := currentGitHubRepo()
 	repoKnown := err == nil
@@ -69,7 +62,7 @@ func usageSummary(u *usage) string {
 	if u == nil {
 		return "unavailable"
 	}
-	return fmt.Sprintf("%.0f total tokens, estimated cost $%.4f", u.TotalTokens, u.totalCost())
+	return fmt.Sprintf("%.0f total tokens, estimated cost $%.4f", u.TotalTokens, u.TotalCost())
 }
 
 func assistantText(output string) string {

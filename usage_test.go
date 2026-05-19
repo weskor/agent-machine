@@ -18,8 +18,8 @@ func TestParseUsageReturnsLastTokenUsageEvent(t *testing.T) {
 	if got.TotalTokens != 31 || got.Input != 20 || got.Output != 4 || got.CacheRead != 6 || got.CacheWrite != 1 {
 		t.Fatalf("unexpected usage: %+v", got)
 	}
-	if got.totalCost() != 0.44 {
-		t.Fatalf("unexpected cost: %v", got.totalCost())
+	if got.TotalCost() != 0.44 {
+		t.Fatalf("unexpected cost: %v", got.TotalCost())
 	}
 }
 

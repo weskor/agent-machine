@@ -166,15 +166,7 @@ func daemonHeartbeatRecorder(ctx context.Context, config runnerConfig) func(cont
 	}
 	processID := daemonProcessID()
 	return func(heartbeat continuousHeartbeat) {
-		lastError := ""
-		if heartbeat.Err != nil {
-			lastError = heartbeat.Err.Error()
-		}
-		var lastSuccessAt time.Time
-		if heartbeat.Success {
-			lastSuccessAt = heartbeat.At
-		}
-		if err := store.UpsertDaemonHeartbeat(ctx, state.DaemonHeartbeat{ProcessID: processID, LaneName: heartbeat.LaneName, WorkflowPath: config.WorkflowPath, CycleNumber: heartbeat.CycleNumber, LastSuccessAt: lastSuccessAt, LastError: lastError, RecoveryRequired: heartbeat.Err != nil, UpdatedAt: heartbeat.At}); err != nil {
+		if err := store.UpsertDaemonHeartbeat(ctx, stateProjection{}.DaemonHeartbeat(processID, config, heartbeat)); err != nil {
 			log("SQLite daemon heartbeat degraded: lane=%s cycle=%d error=%q", heartbeat.LaneName, heartbeat.CycleNumber, err.Error())
 		}
 	}

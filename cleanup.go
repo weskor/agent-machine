@@ -186,21 +186,7 @@ func mirrorCleanupState(workspaceRoot string, decision cleanupResult, eligible b
 		return
 	}
 	defer store.Close()
-	blockedReason := ""
-	if !eligible || deletionResult == "failed" {
-		blockedReason = decision.Reason
-	}
-	if err := store.UpsertCleanupState(ctx, orchstate.CleanupState{
-		IssueKey:        decision.IssueIdentifier,
-		Attempt:         1,
-		WorkspaceExists: workspaceExists,
-		Eligible:        eligible,
-		Decision:        decision.Category,
-		DeletionResult:  deletionResult,
-		ArtifactRef:     decision.ArtifactRef,
-		BlockedReason:   blockedReason,
-		UpdatedAt:       time.Now(),
-	}); err != nil {
+	if err := store.UpsertCleanupState(ctx, stateProjection{}.Cleanup(decision, eligible, deletionResult, workspaceExists, time.Now())); err != nil {
 		log("skipping sqlite cleanup mirror: %v", err)
 	}
 }

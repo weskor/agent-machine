@@ -57,6 +57,9 @@ func TestWriteRunRecordMirrorsSQLiteStateIdempotently(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(workspace, "WORKFLOW.md"), []byte("---\nworkspace:\n  base_branch: integration\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now().UTC()
 	record := runRecord{
 		IssueIdentifier:      "CAG-61",
@@ -94,9 +97,12 @@ func TestWriteRunRecordMirrorsSQLiteStateIdempotently(t *testing.T) {
 	assertCount(t, db, "review_states", 1)
 	assertCount(t, db, "feedback_states", 1)
 	assertCount(t, db, "terminal_outcomes", 1)
-	var prURL, reviewStatus, feedbackHash, outcome string
+	var prURL, baseBranch, reviewStatus, feedbackHash, outcome string
 	if err := db.QueryRow(`SELECT pr_url FROM pr_mappings`).Scan(&prURL); err != nil || prURL != record.PRURL {
 		t.Fatalf("pr mapping = %q, %v", prURL, err)
+	}
+	if err := db.QueryRow(`SELECT base_branch FROM pr_mappings`).Scan(&baseBranch); err != nil || baseBranch != "integration" {
+		t.Fatalf("base branch = %q, %v", baseBranch, err)
 	}
 	if err := db.QueryRow(`SELECT command_status FROM review_states`).Scan(&reviewStatus); err != nil || reviewStatus != "passed" {
 		t.Fatalf("review status = %q, %v", reviewStatus, err)

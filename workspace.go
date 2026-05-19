@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	cfg "github.com/weskor/pi-symphony/internal/config"
 	sh "github.com/weskor/pi-symphony/internal/shell"
 	orchstate "github.com/weskor/pi-symphony/internal/state"
 )
@@ -110,7 +111,7 @@ func mirrorRunRecordToState(workspace string, record runRecord) {
 		Attempt:              1,
 		WorkspacePath:        record.Workspace,
 		BranchName:           firstNonEmpty(record.Branch, record.ExpectedBranch),
-		BaseBranch:           "main",
+		BaseBranch:           baseBranchForWorkspace(workspace),
 		Status:               record.Status,
 		StartedAt:            record.StartedAt,
 		UpdatedAt:            record.EndedAt,
@@ -137,6 +138,18 @@ func mirrorRunRecordToState(workspace string, record runRecord) {
 	}); err != nil {
 		log("failed to mirror run record into SQLite state at %s: %v", dbPath, err)
 	}
+}
+
+func baseBranchForWorkspace(workspace string) string {
+	wf, err := cfg.ReadWorkflow(filepath.Join(workspace, "WORKFLOW.md"))
+	if err != nil {
+		return "main"
+	}
+	base := cfg.BaseBranchFromWorkflow(wf.YAML)
+	if strings.TrimSpace(base) == "" {
+		return "main"
+	}
+	return base
 }
 
 var githubPRPattern = regexp.MustCompile(`^https://github\.com/([^/]+/[^/]+)/pull/(\d+)`)

@@ -1,11 +1,14 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 func TestCorrectedPRURLFromReviewFindings(t *testing.T) {
@@ -44,6 +47,97 @@ func TestWriteRunRecordPersistsBudgetTerminalStatus(t *testing.T) {
 	}
 	if !terminalRunStatus(persisted.Status) {
 		t.Fatalf("expected timeout to be terminal")
+	}
+}
+
+func TestWriteRunRecordMirrorsSQLiteStateIdempotently(t *testing.T) {
+	root := t.TempDir()
+	workspaceRoot := filepath.Join(root, ".symphony", "workspaces")
+	workspace := filepath.Join(workspaceRoot, "CAG-61")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "WORKFLOW.md"), []byte("---\nworkspace:\n  base_branch: integration\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	record := runRecord{
+		IssueIdentifier:      "CAG-61",
+		IssueID:              "issue-id",
+		IssueTitle:           "Mirror artifacts",
+		Workspace:            workspace,
+		WorkspaceRoot:        workspaceRoot,
+		Branch:               "symphony/CAG-61-workspace",
+		ExpectedBranch:       "symphony/CAG-61-workspace",
+		StartedAt:            now,
+		EndedAt:              now.Add(time.Second),
+		ReviewStatus:         "passed",
+		ReviewClassification: "ready",
+		ReviewFindings:       "REVIEW_PASS",
+		PRURL:                "https://github.com/acme/repo/pull/61",
+		FeedbackHash:         "feedback-hash",
+		Status:               "success",
+	}
+
+	writeRunRecord(workspace, record)
+	writeRunRecord(workspace, record)
+
+	for _, name := range []string{".pi-symphony-run.json", evaluationArtifactName} {
+		if _, err := os.Stat(filepath.Join(workspace, name)); err != nil {
+			t.Fatalf("expected artifact %s: %v", name, err)
+		}
+	}
+	db, err := sql.Open("sqlite", filepath.Join(root, ".symphony", "state", "pi-symphony.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	assertCount(t, db, "issue_attempts", 1)
+	assertCount(t, db, "pr_mappings", 1)
+	assertCount(t, db, "review_states", 1)
+	assertCount(t, db, "feedback_states", 1)
+	assertCount(t, db, "terminal_outcomes", 1)
+	var prURL, baseBranch, reviewStatus, feedbackHash, outcome string
+	if err := db.QueryRow(`SELECT pr_url FROM pr_mappings`).Scan(&prURL); err != nil || prURL != record.PRURL {
+		t.Fatalf("pr mapping = %q, %v", prURL, err)
+	}
+	if err := db.QueryRow(`SELECT base_branch FROM pr_mappings`).Scan(&baseBranch); err != nil || baseBranch != "integration" {
+		t.Fatalf("base branch = %q, %v", baseBranch, err)
+	}
+	if err := db.QueryRow(`SELECT command_status FROM review_states`).Scan(&reviewStatus); err != nil || reviewStatus != "passed" {
+		t.Fatalf("review status = %q, %v", reviewStatus, err)
+	}
+	if err := db.QueryRow(`SELECT feedback_hash FROM feedback_states`).Scan(&feedbackHash); err != nil || feedbackHash != "feedback-hash" {
+		t.Fatalf("feedback hash = %q, %v", feedbackHash, err)
+	}
+	if err := db.QueryRow(`SELECT outcome FROM terminal_outcomes`).Scan(&outcome); err != nil || outcome != "handoff_ready" {
+		t.Fatalf("terminal outcome = %q, %v", outcome, err)
+	}
+}
+
+func TestWriteRunRecordWithoutWorkspaceRootSkipsSQLiteMirror(t *testing.T) {
+	workspace := t.TempDir()
+	record := runRecord{IssueIdentifier: "CAG-legacy", Workspace: workspace, Status: "success", StartedAt: time.Now(), EndedAt: time.Now()}
+	writeRunRecord(workspace, record)
+	if _, err := os.Stat(filepath.Join(workspace, ".pi-symphony-run.json")); err != nil {
+		t.Fatalf("expected run artifact: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, evaluationArtifactName)); err != nil {
+		t.Fatalf("expected evaluation artifact: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "state", "pi-symphony.db")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected sqlite state for legacy helper path: %v", err)
+	}
+}
+
+func assertCount(t *testing.T, db *sql.DB, table string, want int) {
+	t.Helper()
+	var got int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("%s count = %d, want %d", table, got, want)
 	}
 }
 

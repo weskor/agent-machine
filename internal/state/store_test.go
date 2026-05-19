@@ -70,6 +70,42 @@ func TestHealthReportsWALAndBusyTimeout(t *testing.T) {
 	}
 }
 
+func TestDefaultDBPathUsesSymphonyStateSibling(t *testing.T) {
+	root := t.TempDir()
+	workspaceRoot := filepath.Join(root, ".symphony", "workspaces")
+	want := filepath.Join(root, ".symphony", "state", "pi-symphony.db")
+	if got := DefaultDBPath(workspaceRoot); got != want {
+		t.Fatalf("DefaultDBPath() = %q, want %q", got, want)
+	}
+	if got := DefaultDBPath(""); got != "" {
+		t.Fatalf("DefaultDBPath(empty) = %q, want empty", got)
+	}
+}
+
+func TestUpsertRunArtifactReplacesRetryDecision(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	snap := RunArtifactSnapshot{IssueKey: "CAG-61", Attempt: 1, Status: "review_failed", RetryReason: "review", RetryNextState: "repair"}
+	if err := s.UpsertRunArtifact(ctx, snap); err != nil {
+		t.Fatalf("UpsertRunArtifact() error = %v", err)
+	}
+	snap.RetryReason = "updated"
+	if err := s.UpsertRunArtifact(ctx, snap); err != nil {
+		t.Fatalf("second UpsertRunArtifact() error = %v", err)
+	}
+	var count int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM retry_decisions`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("retry_decisions count = %d, want 1", count)
+	}
+}
+
 func TestOpenFailsClosedForFutureSchemaVersion(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "state.db")

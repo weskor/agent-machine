@@ -3,8 +3,11 @@ package state
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -28,9 +31,55 @@ type Health struct {
 	BusyTimeoutMS int
 }
 
+type RunArtifactSnapshot struct {
+	IssueKey             string
+	IssueID              string
+	Attempt              int
+	WorkspacePath        string
+	BranchName           string
+	BaseBranch           string
+	Status               string
+	StartedAt            time.Time
+	UpdatedAt            time.Time
+	Repository           string
+	PRNumber             int
+	PRURL                string
+	ReviewStatus         string
+	ReviewPassed         bool
+	ReviewClassification string
+	ReviewOutputRef      string
+	ReviewOutputHash     string
+	MergeEligible        bool
+	FeedbackHash         string
+	FeedbackNextAction   string
+	RetryCount           int
+	RetryBudgetState     string
+	RetryReason          string
+	RetryInputHash       string
+	RetryNextState       string
+	TerminalOutcome      string
+	TerminalReason       string
+	RunArtifactRef       string
+	EvaluationRef        string
+}
+
+func DefaultDBPath(workspaceRoot string) string {
+	if workspaceRoot == "" {
+		return ""
+	}
+	clean := filepath.Clean(workspaceRoot)
+	if filepath.Base(clean) == "workspaces" && filepath.Base(filepath.Dir(clean)) == ".symphony" {
+		return filepath.Join(filepath.Dir(clean), "state", "pi-symphony.db")
+	}
+	return filepath.Join(clean, "state", "pi-symphony.db")
+}
+
 func Open(ctx context.Context, path string) (*Store, error) {
 	if path == "" {
 		return nil, errors.New("open state store: path is required")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("create state store directory: %w", err)
 	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -53,6 +102,115 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) DB() *sql.DB { return s.db }
+
+func (s *Store) UpsertRunArtifact(ctx context.Context, snap RunArtifactSnapshot) error {
+	if snap.IssueKey == "" {
+		return errors.New("upsert run artifact: issue key is required")
+	}
+	if snap.Attempt <= 0 {
+		snap.Attempt = 1
+	}
+	if snap.BranchName == "" {
+		snap.BranchName = snap.IssueKey
+	}
+	if snap.BaseBranch == "" {
+		snap.BaseBranch = "main"
+	}
+	now := snap.UpdatedAt.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	created := snap.StartedAt.UTC()
+	if created.IsZero() {
+		created = now
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin run artifact mirror: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(ctx, `INSERT INTO issue_attempts(issue_key, issue_id, attempt, workspace_path, branch_name, base_branch, status, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(issue_key, attempt) DO UPDATE SET issue_id=excluded.issue_id, workspace_path=excluded.workspace_path, branch_name=excluded.branch_name, base_branch=excluded.base_branch, status=excluded.status, updated_at=excluded.updated_at`, snap.IssueKey, snap.IssueID, snap.Attempt, snap.WorkspacePath, snap.BranchName, snap.BaseBranch, snap.Status, created.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("upsert issue attempt: %w", err)
+	}
+	attemptID, err := attemptID(ctx, tx, snap.IssueKey, snap.Attempt)
+	if err != nil {
+		return err
+	}
+	if snap.PRURL != "" || snap.Repository != "" {
+		_, err = tx.ExecContext(ctx, `INSERT INTO pr_mappings(attempt_id, repository, branch_name, base_branch, pr_number, pr_url, symphony_owned, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+ON CONFLICT(repository, branch_name) DO UPDATE SET attempt_id=excluded.attempt_id, base_branch=excluded.base_branch, pr_number=excluded.pr_number, pr_url=excluded.pr_url, symphony_owned=excluded.symphony_owned, updated_at=excluded.updated_at`, attemptID, snap.Repository, snap.BranchName, snap.BaseBranch, nullZeroInt(snap.PRNumber), snap.PRURL, now.Format(time.RFC3339Nano))
+		if err != nil {
+			return fmt.Errorf("upsert pr mapping: %w", err)
+		}
+	}
+	if snap.ReviewStatus != "" || snap.ReviewClassification != "" {
+		_, err = tx.ExecContext(ctx, `INSERT INTO review_states(attempt_id, command_status, passed, classification, output_ref, output_hash, merge_eligible, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(attempt_id) DO UPDATE SET command_status=excluded.command_status, passed=excluded.passed, classification=excluded.classification, output_ref=excluded.output_ref, output_hash=excluded.output_hash, merge_eligible=excluded.merge_eligible, updated_at=excluded.updated_at`, attemptID, snap.ReviewStatus, boolInt(snap.ReviewPassed), snap.ReviewClassification, snap.ReviewOutputRef, snap.ReviewOutputHash, boolInt(snap.MergeEligible), now.Format(time.RFC3339Nano))
+		if err != nil {
+			return fmt.Errorf("upsert review state: %w", err)
+		}
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO feedback_states(attempt_id, feedback_hash, next_action, updated_at) VALUES (?, ?, ?, ?)
+ON CONFLICT(attempt_id) DO UPDATE SET feedback_hash=excluded.feedback_hash, next_action=excluded.next_action, updated_at=excluded.updated_at`, attemptID, snap.FeedbackHash, snap.FeedbackNextAction, now.Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("upsert feedback state: %w", err)
+	}
+	if snap.RetryNextState != "" || snap.RetryReason != "" {
+		if _, err = tx.ExecContext(ctx, `DELETE FROM retry_decisions WHERE attempt_id = ?`, attemptID); err != nil {
+			return fmt.Errorf("replace retry decision: %w", err)
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO retry_decisions(attempt_id, retry_count, budget_state, reason, input_hash, next_state, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, attemptID, snap.RetryCount, snap.RetryBudgetState, snap.RetryReason, snap.RetryInputHash, snap.RetryNextState, now.Format(time.RFC3339Nano))
+		if err != nil {
+			return fmt.Errorf("insert retry decision: %w", err)
+		}
+	}
+	if snap.TerminalOutcome != "" {
+		_, err = tx.ExecContext(ctx, `INSERT INTO terminal_outcomes(attempt_id, outcome, reason, recorded_at) VALUES (?, ?, ?, ?)
+ON CONFLICT(attempt_id) DO UPDATE SET outcome=excluded.outcome, reason=excluded.reason, recorded_at=excluded.recorded_at`, attemptID, snap.TerminalOutcome, snap.TerminalReason, now.Format(time.RFC3339Nano))
+		if err != nil {
+			return fmt.Errorf("upsert terminal outcome: %w", err)
+		}
+	}
+	for key, ref := range map[string]string{"run_record": snap.RunArtifactRef, "evaluation": snap.EvaluationRef} {
+		if ref == "" {
+			continue
+		}
+		factJSON, err := json.Marshal(map[string]string{"ref": ref})
+		if err != nil {
+			return fmt.Errorf("encode external artifact ref: %w", err)
+		}
+		_, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO external_fact_snapshots(attempt_id, source, fact_key, fact_json, fact_hash, captured_at) VALUES (?, 'artifact', ?, ?, ?, ?)`, attemptID, key, string(factJSON), ref, now.Format(time.RFC3339Nano))
+		if err != nil {
+			return fmt.Errorf("record external artifact ref: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+func attemptID(ctx context.Context, tx *sql.Tx, issueKey string, attempt int) (int64, error) {
+	var id int64
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM issue_attempts WHERE issue_key = ? AND attempt = ?`, issueKey, attempt).Scan(&id); err != nil {
+		return 0, fmt.Errorf("read issue attempt id: %w", err)
+	}
+	return id, nil
+}
+
+func boolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+func nullZeroInt(v int) any {
+	if v == 0 {
+		return nil
+	}
+	return v
+}
 
 func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
 	var version int

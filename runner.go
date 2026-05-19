@@ -17,6 +17,7 @@ func run() error {
 	workflowPath := "WORKFLOW.md"
 	mergeApproved := false
 	repair := false
+	backfillState := false
 	cleanup := false
 	status := false
 	cleanupApply := false
@@ -28,6 +29,8 @@ func run() error {
 			mergeApproved = true
 		case "--repair-artifacts":
 			repair = true
+		case "--backfill-state":
+			backfillState = true
 		case "--cleanup-workspaces":
 			cleanup = true
 		case "--status":
@@ -54,10 +57,6 @@ func run() error {
 		return err
 	}
 
-	apiKey := cfg.Scalar(wf.YAML, "  api_key", "")
-	if apiKey == "" {
-		return errors.New("LINEAR_API_KEY is required")
-	}
 	workspaceYAML := cfg.Section(wf.YAML, "workspace")
 	config := runnerConfig{
 		WorkflowPath:   workflowPath,
@@ -84,6 +83,23 @@ func run() error {
 
 	if config.ProjectSlug == "" || config.WorkspaceRoot == "" {
 		return errors.New("WORKFLOW.md must configure tracker.project_slug and workspace.root")
+	}
+
+	if backfillState {
+		summary, err := backfillStateFromArtifacts(config.WorkspaceRoot)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("backfilled SQLite state from %s: scanned=%d seeded=%d skipped=%d\n", config.WorkspaceRoot, summary.Scanned, summary.Seeded, len(summary.Skipped))
+		for _, skipped := range summary.Skipped {
+			fmt.Printf("skipped %s: %s\n", skipped.Workspace, skipped.Reason)
+		}
+		return nil
+	}
+
+	apiKey := cfg.Scalar(wf.YAML, "  api_key", "")
+	if apiKey == "" {
+		return errors.New("LINEAR_API_KEY is required")
 	}
 
 	client := linearClient{apiKey: apiKey, endpoint: cfg.Scalar(wf.YAML, "  endpoint", "https://api.linear.app/graphql")}

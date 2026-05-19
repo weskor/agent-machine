@@ -1,0 +1,606 @@
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+)
+
+func init() {
+	openPRsByIssueForSelection = func(runnerConfig) (map[string]*pullRequestSummary, error) {
+		return map[string]*pullRequestSummary{}, nil
+	}
+}
+
+func TestHasUnresolvedReviewFailure(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-1")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	record := `{"status":"review_failed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/1"}`
+	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(record), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !hasUnresolvedReviewFailure(root, "CAG-1") {
+		t.Fatal("expected unresolved review failure")
+	}
+}
+
+func TestHasUnresolvedReviewFailureIgnoresSuccessfulRuns(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-2")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	record := `{"status":"success","pr_url":"https://github.com/pennywise-investments/compound-web/pull/2"}`
+	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(record), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if hasUnresolvedReviewFailure(root, "CAG-2") {
+		t.Fatal("did not expect successful run to count as unresolved review failure")
+	}
+}
+
+func TestNextRunnableCandidatePrefersReadyCandidate(t *testing.T) {
+	root := t.TempDir()
+	client := linearClientWithCandidates(t, []issue{
+		testIssue("CAG-1", "In Progress"),
+		testIssue("CAG-2", "Ready for Agent"),
+	})
+
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate == nil || candidate.Identifier != "CAG-2" {
+		t.Fatalf("expected ready candidate CAG-2, got %#v", candidate)
+	}
+}
+
+func TestNextRunnableCandidateSkipsUnresolvedReviewFailures(t *testing.T) {
+	root := t.TempDir()
+	writeRunRecordFixture(t, root, "CAG-1", `{"status":"review_failed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/1"}`)
+	client := linearClientWithCandidates(t, []issue{
+		testIssue("CAG-1", "Ready for Agent"),
+		testIssue("CAG-2", "In Progress"),
+	})
+
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate == nil || candidate.Identifier != "CAG-2" {
+		t.Fatalf("expected non-blocked candidate CAG-2, got %#v", candidate)
+	}
+}
+
+func TestNextRunnableCandidateOrdersBySafetyPriorityAndAge(t *testing.T) {
+	root := t.TempDir()
+	feature := testIssue("CAG-1", "Ready for Agent")
+	feature.Priority = 1
+	feature.CreatedAt = "2026-01-01T00:00:00Z"
+	harness := testIssue("CAG-2", "Ready for Agent")
+	harness.Priority = 2
+	harness.CreatedAt = "2026-02-01T00:00:00Z"
+	addLabels(&harness, "harness")
+	client := linearClientWithCandidates(t, []issue{feature, harness})
+
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate == nil || candidate.Identifier != "CAG-2" {
+		t.Fatalf("expected harness candidate CAG-2, got %#v", candidate)
+	}
+}
+
+func TestNextRunnableCandidateOrdersPriorityBeforeAge(t *testing.T) {
+	root := t.TempDir()
+	older := testIssue("CAG-1", "Ready for Agent")
+	older.Priority = 3
+	older.CreatedAt = "2026-01-01T00:00:00Z"
+	newerHighPriority := testIssue("CAG-2", "Ready for Agent")
+	newerHighPriority.Priority = 1
+	newerHighPriority.CreatedAt = "2026-02-01T00:00:00Z"
+	client := linearClientWithCandidates(t, []issue{older, newerHighPriority})
+
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate == nil || candidate.Identifier != "CAG-2" {
+		t.Fatalf("expected priority candidate CAG-2, got %#v", candidate)
+	}
+}
+
+func TestNextRunnableCandidateUsesAgeAsTieBreaker(t *testing.T) {
+	root := t.TempDir()
+	newer := testIssue("CAG-2", "Ready for Agent")
+	newer.Priority = 2
+	newer.CreatedAt = "2026-02-01T00:00:00Z"
+	older := testIssue("CAG-1", "Ready for Agent")
+	older.Priority = 2
+	older.CreatedAt = "2026-01-01T00:00:00Z"
+	client := linearClientWithCandidates(t, []issue{newer, older})
+
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate == nil || candidate.Identifier != "CAG-1" {
+		t.Fatalf("expected older candidate CAG-1, got %#v", candidate)
+	}
+}
+
+func TestNextRunnableCandidateSkipsBlockedLabel(t *testing.T) {
+	root := t.TempDir()
+	blocked := testIssue("CAG-1", "Ready for Agent")
+	blocked.Priority = 1
+	addLabels(&blocked, "blocked")
+	available := testIssue("CAG-2", "Ready for Agent")
+	available.Priority = 2
+	client := linearClientWithCandidates(t, []issue{blocked, available})
+
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate == nil || candidate.Identifier != "CAG-2" {
+		t.Fatalf("expected unblocked candidate CAG-2, got %#v", candidate)
+	}
+}
+
+func TestNextRunnableCandidateReturnsNilWhenAllCandidatesHaveUnresolvedReviewFailures(t *testing.T) {
+	root := t.TempDir()
+	writeRunRecordFixture(t, root, "CAG-1", `{"status":"review_failed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/1"}`)
+	writeRunRecordFixture(t, root, "CAG-2", `{"status":"review_failed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/2"}`)
+	client := linearClientWithCandidates(t, []issue{
+		testIssue("CAG-1", "Ready for Agent"),
+		testIssue("CAG-2", "In Progress"),
+	})
+
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate != nil {
+		t.Fatalf("expected no candidate, got %#v", candidate)
+	}
+}
+
+func TestNextRunnableCandidateSkipsActiveLocks(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-1")
+	candidate := testIssue("CAG-1", "Ready for Agent")
+	_, release, err := acquireRunLock(workspace, &candidate, "branch-a", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	client := linearClientWithCandidates(t, []issue{candidate, testIssue("CAG-2", "In Progress")})
+
+	selected, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected == nil || selected.Identifier != "CAG-2" {
+		t.Fatalf("expected unlocked candidate CAG-2, got %#v", selected)
+	}
+}
+
+func TestNextRunnableCandidateSkipsExistingSuccessfulPRArtifact(t *testing.T) {
+	root := t.TempDir()
+	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/pennywise-investments/compound-web/pull/21"}`)
+	client := linearClientWithCandidates(t, []issue{testIssue("CAG-1", "Ready for Agent"), testIssue("CAG-2", "In Progress")})
+
+	selected, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected == nil || selected.Identifier != "CAG-2" {
+		t.Fatalf("expected candidate without existing PR artifact, got %#v", selected)
+	}
+}
+
+func TestNextRunnableCandidateAllowsReadyFeedbackRetryWithTerminalArtifact(t *testing.T) {
+	root := t.TempDir()
+	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/pennywise-investments/compound-web/pull/429"}`)
+	if err := os.WriteFile(filepath.Join(root, "CAG-1", ".pi-symphony-feedback.md"), []byte("# PR feedback\n\nTest should be unit test."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := linearClientWithCandidates(t, []issue{testIssue("CAG-1", "Ready for Agent"), testIssue("CAG-2", "In Progress")})
+
+	selected, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected == nil || selected.Identifier != "CAG-1" {
+		t.Fatalf("expected feedback retry candidate CAG-1, got %#v", selected)
+	}
+}
+
+func TestNextRunnableCandidateDoesNotRetryTerminalArtifactWithoutFeedback(t *testing.T) {
+	root := t.TempDir()
+	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/pennywise-investments/compound-web/pull/429"}`)
+	client := linearClientWithCandidates(t, []issue{testIssue("CAG-1", "Ready for Agent"), testIssue("CAG-2", "In Progress")})
+
+	selected, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected == nil || selected.Identifier != "CAG-2" {
+		t.Fatalf("expected non-terminal-artifact candidate CAG-2, got %#v", selected)
+	}
+}
+
+func TestNextRunnableCandidateSelectsChangesRequestedReviewFailure(t *testing.T) {
+	root := t.TempDir()
+	writeRunRecordFixture(t, root, "CAG-35", `{"status":"review_failed","review_status":"failed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/440"}`)
+	client := linearClientWithCandidates(t, []issue{testIssue("CAG-35", "Ready for Agent"), testIssue("CAG-36", "Ready for Agent")})
+	original := openPRsByIssueForSelection
+	openPRsByIssueForSelection = func(runnerConfig) (map[string]*pullRequestSummary, error) {
+		pr := &pullRequestSummary{Number: 440, URL: "https://github.com/pennywise-investments/compound-web/pull/440", BaseRefName: "develop", HeadRefName: "symphony/CAG-35-workspace", Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "CHANGES_REQUESTED"}
+		return map[string]*pullRequestSummary{"CAG-35": pr}, nil
+	}
+	t.Cleanup(func() { openPRsByIssueForSelection = original })
+
+	selected, pr, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected == nil || selected.Identifier != "CAG-35" || pr == nil || pr.Number != 440 {
+		t.Fatalf("expected CAG-35 feedback retry with PR #440, got selected=%#v pr=%#v", selected, pr)
+	}
+}
+
+func TestNextRunnableCandidateDoesNotSelectNeedsInfoIssues(t *testing.T) {
+	root := t.TempDir()
+	client := linearClientWithCandidates(t, []issue{
+		testIssue("CAG-1", "Needs Info"),
+	})
+	config := testRunnerConfig(root)
+	config.ActiveStates = []string{"Ready for Agent", "In Progress"}
+
+	candidate, _, err := nextRunnableCandidate(client, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate != nil {
+		t.Fatalf("expected Needs Info issue to be excluded by active states, got %#v", candidate)
+	}
+}
+
+func TestNextRunnableCandidateDoesNotSelectHumanReviewDoneOrCanceledIssues(t *testing.T) {
+	root := t.TempDir()
+	client := linearClientWithCandidates(t, []issue{
+		testIssue("CAG-1", "Human Review"),
+		testIssue("CAG-2", "Done"),
+		testIssue("CAG-3", "Canceled"),
+		testIssue("CAG-4", "Ready for Agent"),
+	})
+
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate == nil || candidate.Identifier != "CAG-4" {
+		t.Fatalf("expected only active candidate CAG-4, got %#v", candidate)
+	}
+}
+
+func TestParseNeedsInfoExtractsNumberedQuestions(t *testing.T) {
+	output := "NEEDS_INFO\n\n1. Which Linear team should own this state?\n2) Should existing issues be migrated?\n- not numbered\n"
+	result := parseNeedsInfo(output)
+	if !result.NeedsInfo {
+		t.Fatal("expected NEEDS_INFO marker")
+	}
+	want := []string{"1. Which Linear team should own this state?", "2) Should existing issues be migrated?"}
+	if len(result.Questions) != len(want) {
+		t.Fatalf("questions = %#v, want %#v", result.Questions, want)
+	}
+	for i := range want {
+		if result.Questions[i] != want[i] {
+			t.Fatalf("questions = %#v, want %#v", result.Questions, want)
+		}
+	}
+}
+
+func TestRenderNeedsInfoCommentNumbersQuestions(t *testing.T) {
+	comment := renderNeedsInfoComment([]string{"1. Which state name should be used?", "2) Who can answer?"})
+	if !strings.Contains(comment, "move the issue back to Ready for Agent") {
+		t.Fatalf("comment missing operator instructions: %s", comment)
+	}
+	if !strings.Contains(comment, "1. Which state name should be used?") || !strings.Contains(comment, "2. Who can answer?") {
+		t.Fatalf("comment did not renumber questions: %s", comment)
+	}
+}
+
+func TestEnsureIsolatedWorkspaceSwitchesFromBaseBranch(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-31")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := shell("git init -q && git checkout -q -b develop", workspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureIsolatedWorkspace(root, workspace, "CAG-31"); err != nil {
+		t.Fatal(err)
+	}
+	branch, err := currentGitBranch(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if branch != "symphony/CAG-31-workspace" {
+		t.Fatalf("branch = %q", branch)
+	}
+}
+
+func TestEnsureIsolatedWorkspaceRefusesSharedCheckout(t *testing.T) {
+	parent := t.TempDir()
+	if err := shell("git init -q", parent); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(parent, ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-32")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureIsolatedWorkspace(root, workspace, "CAG-32"); err == nil || !strings.Contains(err.Error(), "shared git checkout") {
+		t.Fatalf("expected shared checkout refusal, got %v", err)
+	}
+}
+
+func TestEnsureIsolatedWorkspaceRefusesOtherSymphonyBranch(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-33")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := shell("git init -q && git checkout -q -b symphony/CAG-99-workspace", workspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureIsolatedWorkspace(root, workspace, "CAG-33"); err == nil || !strings.Contains(err.Error(), "unexpected Symphony branch") {
+		t.Fatalf("expected branch refusal, got %v", err)
+	}
+}
+
+func TestRunRecordCapturesWorkspaceIsolationFields(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-34")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := shell("git init -q && git checkout -q -b symphony/CAG-34-workspace", workspace); err != nil {
+		t.Fatal(err)
+	}
+	issue := testIssue("CAG-34", "In Progress")
+	record := runRecordFor(&issue, workspace, "pi", "", nowFixture(), nowFixture(), nil, nil, "", "success", "", nil, "")
+	if record.WorkspaceRoot != root || record.ExpectedBranch != "symphony/CAG-34-workspace" || record.Branch != record.ExpectedBranch {
+		t.Fatalf("unexpected isolation fields: %#v", record)
+	}
+}
+
+func TestPRHandoffBlockReasonRejectsWrongBaseAndBroadDiff(t *testing.T) {
+	config := testRunnerConfig(t.TempDir())
+	config.BaseBranch = "develop"
+	candidate := testIssue("CAG-31", "In Progress")
+	details := prHandoffDetails{BaseRefName: "main", HeadRefName: "symphony/CAG-31-workspace", ChangedFiles: 228, Additions: 12617}
+
+	reason := prHandoffBlockReason(config, &candidate, details)
+
+	for _, expected := range []string{"base branch", "main", "develop", "228 files", "12617 lines"} {
+		if !strings.Contains(reason, expected) {
+			t.Fatalf("reason %q missing %q", reason, expected)
+		}
+	}
+}
+
+func TestPRHandoffBlockReasonRejectsUnexpectedHeadBranch(t *testing.T) {
+	config := testRunnerConfig(t.TempDir())
+	config.BaseBranch = "develop"
+	candidate := testIssue("CAG-32", "In Progress")
+	details := prHandoffDetails{BaseRefName: "develop", HeadRefName: "feature/random", ChangedFiles: 3, Additions: 120}
+
+	reason := prHandoffBlockReason(config, &candidate, details)
+
+	if !strings.Contains(reason, "head branch") || !strings.Contains(reason, "symphony/CAG-32-workspace") {
+		t.Fatalf("unexpected reason: %q", reason)
+	}
+}
+
+func TestPRHandoffBlockReasonAllowsScopedDevelopPR(t *testing.T) {
+	config := testRunnerConfig(t.TempDir())
+	config.BaseBranch = "develop"
+	candidate := testIssue("CAG-33", "In Progress")
+	details := prHandoffDetails{BaseRefName: "develop", HeadRefName: "symphony/CAG-33-workspace", ChangedFiles: 6, Additions: 240}
+
+	if reason := prHandoffBlockReason(config, &candidate, details); reason != "" {
+		t.Fatalf("expected no block reason, got %q", reason)
+	}
+}
+
+func nowFixture() time.Time {
+	return time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC)
+}
+
+func TestRunOneMovesNeedsInfoAndCommentsWithoutPRHandoff(t *testing.T) {
+	t.Setenv("GITHUB_APP_ID", "")
+	t.Setenv("GITHUB_APP_INSTALLATION_ID", "")
+	t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "")
+	root := t.TempDir()
+	var updatedStates []string
+	var comments []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		switch {
+		case strings.Contains(request.Query, "issues(first"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issues": map[string]any{"nodes": []issue{testIssue("CAG-9", "Ready for Agent")}}}})
+		case strings.Contains(request.Query, "workflowStates"):
+			states := []workflowState{{ID: "running-id", Name: "In Progress"}, {ID: "needs-id", Name: "Needs Info"}, {ID: "handoff-id", Name: "Human Review"}}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"workflowStates": map[string]any{"nodes": states}}})
+		case strings.Contains(request.Query, "issueUpdate"):
+			updatedStates = append(updatedStates, request.Variables["stateId"].(string))
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issueUpdate": map[string]any{"success": true}}})
+		case strings.Contains(request.Query, "commentCreate"):
+			comments = append(comments, request.Variables["body"].(string))
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"commentCreate": map[string]any{"success": true}}})
+		default:
+			t.Fatalf("unexpected Linear query: %s", request.Query)
+		}
+	}))
+	defer server.Close()
+
+	client := linearClient{apiKey: "test-key", endpoint: server.URL}
+	config := testRunnerConfig(root)
+	config.RunningState = "In Progress"
+	config.HandoffState = "Human Review"
+	config.AfterCreate = "git init -q && git checkout -q -b develop"
+	config.PiCommand = "printf 'NEEDS_INFO\\n1. Which account type should be supported?\\n'"
+	wf := workflow{Body: "# Test workflow"}
+
+	didWork, err := runOne(client, wf, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didWork {
+		t.Fatal("expected runOne to process an issue")
+	}
+	if !reflect.DeepEqual(updatedStates, []string{"running-id", "needs-id"}) {
+		t.Fatalf("updated states = %#v", updatedStates)
+	}
+	if len(comments) != 1 || !strings.Contains(comments[0], "Which account type should be supported?") {
+		t.Fatalf("unexpected comments: %#v", comments)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "CAG-9", ".pi-symphony-run.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record runRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != "needs_info" || record.PRURL != "" {
+		t.Fatalf("unexpected run record: %#v", record)
+	}
+}
+
+func TestBehaviorContractPreflightPromptCoversGenericReplacementContracts(t *testing.T) {
+	prompt := behaviorContractPreflightPrompt()
+
+	for _, expected := range []string{
+		"refactors, replacements, and rewrites",
+		"code, commands, dependencies, integrations, workflows, or state-machine logic",
+		"inputs/outputs, side effects, cleanup, error handling, security/ownership assumptions, state transitions, and hidden operational contracts",
+		"behavior preserved",
+		"behavior intentionally changed",
+		"unknown behavior that needs clarification",
+		"TDD or characterization tests",
+		"complexity/LOC budget",
+		"expected files touched",
+		"what bespoke code is removed",
+		"NEEDS_INFO",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("preflight prompt missing %q:\n%s", expected, prompt)
+		}
+	}
+}
+
+func TestRunRecordStoresBehaviorContractEvidence(t *testing.T) {
+	workspace := t.TempDir()
+	record := runRecordFor(&issue{Identifier: "CAG-38"}, workspace, "pi", "", nowFixture(), nowFixture(), nil, &reviewResult{Status: "failed", Findings: "REVIEW_FAIL missing parity checklist"}, "", "review_failed", "review did not pass", nil, "")
+
+	joined := strings.Join(record.BehaviorContractEvidence, ",")
+	for _, expected := range []string{"implementation_prompt_required_behavior_contract_preflight", "review_prompt_required_behavior_contract_parity_check", "review_failed_behavior_contract_or_scope_gate", "findings_recorded_for_behavior_contract_audit"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("behavior contract evidence missing %q in %#v", expected, record.BehaviorContractEvidence)
+		}
+	}
+}
+
+func linearClientWithCandidates(t *testing.T, candidates []issue) linearClient {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Variables map[string]any `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if request.Variables["projectSlug"] != "CAG" {
+			t.Fatalf("unexpected projectSlug: %#v", request.Variables["projectSlug"])
+		}
+		states, _ := request.Variables["states"].([]any)
+		allowed := map[string]bool{}
+		for _, state := range states {
+			if name, ok := state.(string); ok {
+				allowed[name] = true
+			}
+		}
+		filtered := make([]issue, 0, len(candidates))
+		for _, candidate := range candidates {
+			if allowed[candidate.State.Name] {
+				filtered = append(filtered, candidate)
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{
+				"issues": map[string]any{"nodes": filtered},
+			},
+		})
+	}))
+	t.Cleanup(server.Close)
+	return linearClient{apiKey: "test-key", endpoint: server.URL}
+}
+
+func testRunnerConfig(workspaceRoot string) runnerConfig {
+	return runnerConfig{
+		ProjectSlug:    "CAG",
+		WorkspaceRoot:  workspaceRoot,
+		ReadyState:     "Ready for Agent",
+		NeedsInfoState: "Needs Info",
+		ActiveStates:   []string{"Ready for Agent", "In Progress"},
+	}
+}
+
+func testIssue(identifier, state string) issue {
+	var out issue
+	out.ID = identifier + "-id"
+	out.Identifier = identifier
+	out.Title = identifier + " title"
+	out.State.Name = state
+	return out
+}
+
+func addLabels(candidate *issue, names ...string) {
+	for _, name := range names {
+		candidate.Labels.Nodes = append(candidate.Labels.Nodes, struct {
+			Name string `json:"name"`
+		}{Name: name})
+	}
+}
+
+func writeRunRecordFixture(t *testing.T, root, identifier, record string) {
+	t.Helper()
+	workspace := filepath.Join(root, identifier)
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(record), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}

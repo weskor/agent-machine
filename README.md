@@ -54,7 +54,13 @@ go run . --repair-artifacts /path/to/target/WORKFLOW.md
 ## Development
 
 ```bash
+make fmt        # apply gofmt/goimports
+make fmt-check  # verify gofmt/goimports formatting
+make vet        # run go vet ./...
+make lint       # run golangci-lint with the repository baseline
 go test ./...
+make test       # run go test ./...
+make ci         # run format, vet, lint, and tests
 ```
 
 ## Current extraction status

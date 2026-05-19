@@ -7,11 +7,21 @@ on:
       - main
 
 jobs:
-  go-test:
+  go-ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go test ./...
+      - name: Format check
+        run: make fmt-check
+      - name: Vet
+        run: make vet
+      - name: Lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.4.0
+          args: ./...
+      - name: Test
+        run: make test

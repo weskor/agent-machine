@@ -94,6 +94,45 @@ func TestBackfillStateFromArtifactsSkipsMalformedAndHiddenWorkspaces(t *testing.
 	assertCount(t, db, "issue_attempts", 1)
 }
 
+func TestBackfillStateFromArtifactsMarksConflictingIssueArtifactsForReconciliation(t *testing.T) {
+	root := t.TempDir()
+	workspaceRoot := filepath.Join(root, ".symphony", "workspaces")
+	newer := filepath.Join(workspaceRoot, "CAG-69-newer")
+	older := filepath.Join(workspaceRoot, "CAG-69-older")
+	for _, dir := range []string{newer, older} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeJSON(t, filepath.Join(newer, ".pi-symphony-run.json"), runRecord{IssueIdentifier: "CAG-69", Workspace: newer, WorkspaceRoot: workspaceRoot, Status: "review_failed", PRURL: "https://github.com/acme/repo/pull/69", EndedAt: time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)})
+	writeJSON(t, filepath.Join(older, ".pi-symphony-run.json"), runRecord{IssueIdentifier: "CAG-69", Workspace: older, WorkspaceRoot: workspaceRoot, Status: "success", PRURL: "https://github.com/acme/repo/pull/69", EndedAt: time.Date(2026, 5, 19, 11, 0, 0, 0, time.UTC)})
+
+	summary, err := backfillStateFromArtifacts(workspaceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Scanned != 2 || summary.Seeded != 0 || summary.ReconciliationNeeded != 1 || len(summary.Skipped) != 0 {
+		t.Fatalf("summary = %#v", summary)
+	}
+
+	db := openBackfillDB(t, root)
+	defer db.Close()
+	assertCount(t, db, "issue_attempts", 1)
+	var status, terminalReason string
+	if err := db.QueryRow(`SELECT status FROM issue_attempts WHERE issue_key = 'CAG-69'`).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "reconciliation-needed" {
+		t.Fatalf("status = %q, want reconciliation-needed", status)
+	}
+	if err := db.QueryRow(`SELECT reason FROM terminal_outcomes JOIN issue_attempts ON issue_attempts.id = terminal_outcomes.attempt_id WHERE issue_key = 'CAG-69'`).Scan(&terminalReason); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(terminalReason, "conflicting artifacts") {
+		t.Fatalf("terminal reason = %q", terminalReason)
+	}
+}
+
 func writeJSON(t *testing.T, path string, value any) {
 	t.Helper()
 	data, err := json.Marshal(value)

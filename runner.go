@@ -90,7 +90,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("backfilled SQLite state from %s: scanned=%d seeded=%d skipped=%d\n", config.WorkspaceRoot, summary.Scanned, summary.Seeded, len(summary.Skipped))
+		fmt.Printf("backfilled SQLite state from %s: scanned=%d seeded=%d reconciliation_needed=%d skipped=%d\n", config.WorkspaceRoot, summary.Scanned, summary.Seeded, summary.ReconciliationNeeded, len(summary.Skipped))
 		for _, skipped := range summary.Skipped {
 			fmt.Printf("skipped %s: %s\n", skipped.Workspace, skipped.Reason)
 		}

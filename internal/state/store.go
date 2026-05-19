@@ -53,6 +53,17 @@ type DaemonHeartbeat struct {
 	UpdatedAt        time.Time
 }
 
+type Lease struct {
+	Name          string
+	Scope         string
+	Owner         string
+	AcquiredAt    time.Time
+	ExpiresAt     time.Time
+	RenewedAt     time.Time
+	ReleasedAt    time.Time
+	ReleaseReason string
+}
+
 type RunArtifactSnapshot struct {
 	IssueKey             string
 	IssueID              string
@@ -124,6 +135,70 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) DB() *sql.DB { return s.db }
+
+func (s *Store) UpsertLease(ctx context.Context, lease Lease) error {
+	if lease.Name == "" {
+		return errors.New("upsert lease: name is required")
+	}
+	if lease.Scope == "" {
+		return errors.New("upsert lease: scope is required")
+	}
+	if lease.Owner == "" {
+		return errors.New("upsert lease: owner is required")
+	}
+	if lease.AcquiredAt.IsZero() {
+		lease.AcquiredAt = time.Now().UTC()
+	}
+	if lease.RenewedAt.IsZero() {
+		lease.RenewedAt = lease.AcquiredAt
+	}
+	if lease.ExpiresAt.IsZero() {
+		lease.ExpiresAt = lease.RenewedAt
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO leases(name, scope, owner, acquired_at, expires_at, renewed_at, released_at, release_reason) VALUES (?, ?, ?, ?, ?, ?, '', '') ON CONFLICT(name) DO UPDATE SET scope = excluded.scope, owner = excluded.owner, acquired_at = excluded.acquired_at, expires_at = excluded.expires_at, renewed_at = excluded.renewed_at, released_at = '', release_reason = ''`, lease.Name, lease.Scope, lease.Owner, formatTime(lease.AcquiredAt), formatTime(lease.ExpiresAt), formatTime(lease.RenewedAt))
+	if err != nil {
+		return fmt.Errorf("upsert lease: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) RenewLease(ctx context.Context, name string, renewedAt, expiresAt time.Time) error {
+	if name == "" {
+		return errors.New("renew lease: name is required")
+	}
+	if renewedAt.IsZero() {
+		renewedAt = time.Now().UTC()
+	}
+	if expiresAt.IsZero() {
+		expiresAt = renewedAt
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE leases SET expires_at = ?, renewed_at = ? WHERE name = ?`, formatTime(expiresAt), formatTime(renewedAt), name)
+	if err != nil {
+		return fmt.Errorf("renew lease: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ReleaseLease(ctx context.Context, name string, releasedAt time.Time, reason string) error {
+	if name == "" {
+		return errors.New("release lease: name is required")
+	}
+	if releasedAt.IsZero() {
+		releasedAt = time.Now().UTC()
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE leases SET released_at = ?, release_reason = ? WHERE name = ?`, formatTime(releasedAt), reason, name)
+	if err != nil {
+		return fmt.Errorf("release lease: %w", err)
+	}
+	return nil
+}
+
+func formatTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339Nano)
+}
 
 func (s *Store) UpsertDaemonHeartbeat(ctx context.Context, heartbeat DaemonHeartbeat) error {
 	if heartbeat.ProcessID == "" {

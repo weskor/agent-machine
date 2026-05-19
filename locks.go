@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 const (
@@ -59,10 +62,12 @@ func acquireRunLock(workspace string, candidate *issue, branch string, now time.
 		return nil, nil, err
 	}
 	log("acquired run lock: %s", path)
+	mirrorRunLockAcquire(lock)
 	release := func() {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			log("failed to release run lock %s: %v", path, err)
 		}
+		mirrorRunLockRelease(lock, time.Now(), "released")
 	}
 	return &lock, release, nil
 }
@@ -87,7 +92,9 @@ func heartbeatRunLock(workspace string, at time.Time) {
 	}
 	if err := os.WriteFile(path, append(updated, '\n'), 0o600); err != nil {
 		log("failed to write run lock heartbeat: %v", err)
+		return
 	}
+	mirrorRunLockRenew(lock)
 }
 
 func describeExistingRunLock(path string, now time.Time) error {
@@ -128,11 +135,99 @@ func cleanupStaleRunLocks(workspaceRoot string, now time.Time) (int, error) {
 		removed++
 		if deadOwner {
 			log("removed dead-owner run lock: %s", path)
+			mirrorRunLockRelease(lock, now, "dead_owner")
 		} else {
 			log("removed stale run lock: %s", path)
+			mirrorRunLockRelease(lock, now, "stale")
 		}
 	}
 	return removed, nil
+}
+
+func mirrorRunLockAcquire(lock runLock) {
+	withRunLockStateStore(lock.Workspace, func(store *state.Store) error {
+		return store.UpsertLease(context.Background(), runLockLeaseSnapshot(lock, lock.StartedAt))
+	})
+}
+
+func mirrorRunLockRenew(lock runLock) {
+	withRunLockStateStore(lock.Workspace, func(store *state.Store) error {
+		if err := store.UpsertLease(context.Background(), runLockLeaseSnapshot(lock, lock.HeartbeatAt)); err != nil {
+			return err
+		}
+		return store.RenewLease(context.Background(), runLockLeaseName(lock), lock.HeartbeatAt, lock.HeartbeatAt.Add(runLockStaleAfter))
+	})
+}
+
+func mirrorRunLockRelease(lock runLock, at time.Time, reason string) {
+	withRunLockStateStore(lock.Workspace, func(store *state.Store) error {
+		if err := store.UpsertLease(context.Background(), runLockLeaseSnapshot(lock, at)); err != nil {
+			return err
+		}
+		return store.ReleaseLease(context.Background(), runLockLeaseName(lock), at, reason)
+	})
+}
+
+func runLockLeaseSnapshot(lock runLock, observedAt time.Time) state.Lease {
+	owner := strings.TrimSpace(lock.Owner)
+	if owner == "" {
+		owner = "unknown"
+	}
+	acquiredAt := lock.StartedAt
+	if acquiredAt.IsZero() {
+		acquiredAt = lock.HeartbeatAt
+	}
+	if acquiredAt.IsZero() {
+		acquiredAt = observedAt
+	}
+	renewedAt := lock.HeartbeatAt
+	if renewedAt.IsZero() {
+		renewedAt = acquiredAt
+	}
+	lease := state.Lease{
+		Name:       runLockLeaseName(lock),
+		Scope:      runLockLeaseScope(lock),
+		Owner:      owner,
+		AcquiredAt: acquiredAt,
+		RenewedAt:  renewedAt,
+	}
+	if !renewedAt.IsZero() {
+		lease.ExpiresAt = renewedAt.Add(runLockStaleAfter)
+	}
+	return lease
+}
+
+func withRunLockStateStore(workspace string, fn func(*state.Store) error) {
+	if strings.TrimSpace(workspace) == "" {
+		log("skipping sqlite lease mirror: workspace path is empty")
+		return
+	}
+	dbPath := state.DefaultDBPath(filepath.Dir(workspace))
+	if dbPath == "" {
+		log("skipping sqlite lease mirror: state db path is empty")
+		return
+	}
+	store, err := state.Open(context.Background(), dbPath)
+	if err != nil {
+		log("skipping sqlite lease mirror: %v", err)
+		return
+	}
+	defer store.Close()
+	if err := fn(store); err != nil {
+		log("skipping sqlite lease mirror: %v", err)
+	}
+}
+
+func runLockLeaseName(lock runLock) string {
+	name := strings.TrimSpace(lock.IssueIdentifier)
+	if name == "" {
+		name = filepath.Base(lock.Workspace)
+	}
+	return "run:" + name
+}
+
+func runLockLeaseScope(lock runLock) string {
+	return filepath.Dir(lock.Workspace)
 }
 
 func sameHost(host string) bool {

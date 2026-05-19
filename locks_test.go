@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 func TestAcquireRunLockWritesOwnerAndReleaseRemovesLock(t *testing.T) {
@@ -29,6 +32,50 @@ func TestAcquireRunLockWritesOwnerAndReleaseRemovesLock(t *testing.T) {
 	release()
 	if _, err := os.Stat(runLockPath(workspace)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected released lock to be removed, err=%v", err)
+	}
+}
+
+func TestAcquireRunLockMirrorsLeaseAndReleaseMarksReleased(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-64")
+	candidate := testIssue("CAG-64", "In Progress")
+	now := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
+
+	_, release, err := acquireRunLock(workspace, &candidate, "symphony/CAG-64", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := readLeaseFixture(t, root, "run:CAG-64")
+	if row.scope != root || row.owner == "" || row.acquiredAt != now.Format(time.RFC3339Nano) || row.renewedAt != now.Format(time.RFC3339Nano) || row.expiresAt != now.Add(runLockStaleAfter).Format(time.RFC3339Nano) || row.releasedAt != "" {
+		t.Fatalf("unexpected acquired lease row: %#v", row)
+	}
+
+	release()
+	row = readLeaseFixture(t, root, "run:CAG-64")
+	if row.releasedAt == "" || row.releaseReason != "released" {
+		t.Fatalf("expected released lease row, got %#v", row)
+	}
+	if _, err := os.Stat(runLockPath(workspace)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected JSON lock removed, err=%v", err)
+	}
+}
+
+func TestHeartbeatRunLockRenewsMirroredLease(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-64")
+	candidate := testIssue("CAG-64", "In Progress")
+	now := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
+	_, release, err := acquireRunLock(workspace, &candidate, "symphony/CAG-64", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	renewed := now.Add(5 * time.Minute)
+	heartbeatRunLock(workspace, renewed)
+	row := readLeaseFixture(t, root, "run:CAG-64")
+	if row.renewedAt != renewed.Format(time.RFC3339Nano) || row.expiresAt != renewed.Add(runLockStaleAfter).Format(time.RFC3339Nano) {
+		t.Fatalf("expected renewed lease row, got %#v", row)
 	}
 }
 
@@ -138,6 +185,26 @@ func TestCleanupStaleRunLocksRemovesOnlyStaleLocks(t *testing.T) {
 	}
 }
 
+func TestCleanupStaleRunLocksRecordsUnmirroredLeaseRelease(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
+	staleWorkspace := filepath.Join(root, "CAG-64")
+	lock := runLock{IssueIdentifier: "CAG-64", Owner: "agent", Workspace: staleWorkspace, StartedAt: now.Add(-5 * time.Hour), HeartbeatAt: now.Add(-runLockStaleAfter - time.Second)}
+	writeRunLockFixture(t, staleWorkspace, lock)
+
+	removed, err := cleanupStaleRunLocks(root, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 1 {
+		t.Fatalf("removed=%d, want 1", removed)
+	}
+	row := readLeaseFixture(t, root, "run:CAG-64")
+	if row.releasedAt != now.Format(time.RFC3339Nano) || row.releaseReason != "stale" {
+		t.Fatalf("expected stale release row, got %#v", row)
+	}
+}
+
 func TestCleanupStaleRunLocksRemovesDeadOwnerLocksOnSameHost(t *testing.T) {
 	root := t.TempDir()
 	now := time.Now()
@@ -158,6 +225,10 @@ func TestCleanupStaleRunLocksRemovesDeadOwnerLocksOnSameHost(t *testing.T) {
 	}
 	if _, err := os.Stat(runLockPath(activeWorkspace)); err != nil {
 		t.Fatalf("expected active current-process lock kept: %v", err)
+	}
+	row := readLeaseFixture(t, root, "run:CAG-33")
+	if row.releasedAt == "" || row.releaseReason != "dead_owner" {
+		t.Fatalf("expected dead-owner release row, got %#v", row)
 	}
 }
 
@@ -210,4 +281,29 @@ func runGit(t *testing.T, dir string, args ...string) {
 	if err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, output)
 	}
+}
+
+type leaseFixture struct {
+	scope         string
+	owner         string
+	acquiredAt    string
+	expiresAt     string
+	renewedAt     string
+	releasedAt    string
+	releaseReason string
+}
+
+func readLeaseFixture(t *testing.T, workspaceRoot, name string) leaseFixture {
+	t.Helper()
+	store, err := state.Open(context.Background(), state.DefaultDBPath(workspaceRoot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	var row leaseFixture
+	err = store.DB().QueryRowContext(context.Background(), `SELECT scope, owner, acquired_at, expires_at, renewed_at, released_at, release_reason FROM leases WHERE name = ?`, name).Scan(&row.scope, &row.owner, &row.acquiredAt, &row.expiresAt, &row.renewedAt, &row.releasedAt, &row.releaseReason)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return row
 }

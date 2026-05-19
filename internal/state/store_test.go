@@ -81,6 +81,36 @@ func TestUpsertDaemonHeartbeatInsertsAndUpdatesLaneProcessRow(t *testing.T) {
 	}
 }
 
+func TestLeaseLifecycleUpsertRenewRelease(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+
+	acquired := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
+	if err := s.UpsertLease(ctx, Lease{Name: "run:CAG-64", Scope: "/repo/.symphony/workspaces", Owner: "agent", AcquiredAt: acquired, RenewedAt: acquired, ExpiresAt: acquired.Add(time.Hour)}); err != nil {
+		t.Fatalf("UpsertLease() error = %v", err)
+	}
+	renewed := acquired.Add(10 * time.Minute)
+	if err := s.RenewLease(ctx, "run:CAG-64", renewed, renewed.Add(time.Hour)); err != nil {
+		t.Fatalf("RenewLease() error = %v", err)
+	}
+	released := acquired.Add(20 * time.Minute)
+	if err := s.ReleaseLease(ctx, "run:CAG-64", released, "released"); err != nil {
+		t.Fatalf("ReleaseLease() error = %v", err)
+	}
+
+	var expiresAt, renewedAt, releasedAt, reason string
+	if err := s.db.QueryRowContext(ctx, `SELECT expires_at, renewed_at, released_at, release_reason FROM leases WHERE name = 'run:CAG-64'`).Scan(&expiresAt, &renewedAt, &releasedAt, &reason); err != nil {
+		t.Fatal(err)
+	}
+	if expiresAt != renewed.Add(time.Hour).Format(time.RFC3339Nano) || renewedAt != renewed.Format(time.RFC3339Nano) || releasedAt != released.Format(time.RFC3339Nano) || reason != "released" {
+		t.Fatalf("lease lifecycle row = expires_at=%q renewed_at=%q released_at=%q reason=%q", expiresAt, renewedAt, releasedAt, reason)
+	}
+}
+
 func TestHealthReportsWALAndBusyTimeout(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))

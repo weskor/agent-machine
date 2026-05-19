@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-var prURLPattern = regexp.MustCompile(`https://github\.com/pennywise-investments/compound-web/pull/[0-9]+`)
+var prURLPattern = regexp.MustCompile(`https://github\.com/([^/\s"'<>]+)/([^/\s"'<>]+)/pull/[0-9]+`)
 
 func parseUsage(output string) *usage {
 	var last *usage
@@ -42,12 +42,27 @@ func (u usage) totalCost() float64 {
 }
 
 func firstPRURL(output string) string {
+	owner, repo, err := currentGitHubRepo()
+	repoKnown := err == nil
 	if text := assistantText(output); text != "" {
-		if prURL := prURLPattern.FindString(text); prURL != "" {
+		if prURL := firstPRURLForRepository(text, owner, repo, repoKnown); prURL != "" {
 			return prURL
 		}
 	}
-	return prURLPattern.FindString(output)
+	return firstPRURLForRepository(output, owner, repo, repoKnown)
+}
+
+func firstPRURLForRepository(output, owner, repo string, repoKnown bool) string {
+	for _, match := range prURLPattern.FindAllStringSubmatch(output, -1) {
+		if len(match) < 3 {
+			continue
+		}
+		if repoKnown && (match[1] != owner || match[2] != repo) {
+			continue
+		}
+		return match[0]
+	}
+	return ""
 }
 
 func usageSummary(u *usage) string {

@@ -58,7 +58,8 @@ This spec captures current observable Pi Symphony runner behavior. Update it whe
 ## Review and handoff
 
 - When a review command is configured, the runner runs a separate review prompt after the implementation opens/updates a PR.
-- Review output must contain `REVIEW_PASS` or `REVIEW_FAIL`; failed review marks the run as review_failed and prevents automatic handoff success.
+- Review output must contain `REVIEW_PASS` or `REVIEW_FAIL`; failed review is classified so behavior/spec blockers remain `review_failed` and prevent automatic handoff success, while `missing_evidence_only` failures with an existing PR may route to Human Review for human judgment instead of returning to Ready for Agent.
+- Missing-evidence-only review handoff is not merge approval: evaluation artifacts must keep the failed review status/classification, mark the run merge-ineligible, and record a no-retry human-review next action.
 - Before handoff, the runner validates PR details through the GitHub API.
 - Handoff requires the PR to belong to the expected repository, branch, base branch, and issue identifier context.
 - On successful handoff, the runner posts or updates deterministic PR/Linear comments and moves the Linear issue to the configured handoff state, usually `Human Review`.

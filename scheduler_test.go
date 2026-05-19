@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -57,5 +58,37 @@ func TestContinuousSchedulerRunsMergeLaneWhileWorkLaneIsBusy(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("scheduler did not stop after max cycles")
+	}
+}
+
+func TestContinuousSchedulerRecordsLaneHeartbeats(t *testing.T) {
+	var mu sync.Mutex
+	var heartbeats []continuousHeartbeat
+	scheduler := continuousScheduler{
+		maxCycles: 1,
+		recordHeartbeat: func(heartbeat continuousHeartbeat) {
+			mu.Lock()
+			defer mu.Unlock()
+			heartbeats = append(heartbeats, heartbeat)
+		},
+		lanes: []continuousLane{
+			{name: "merge", run: func() (bool, error) { return true, nil }},
+			{name: "work", run: func() (bool, error) { return false, nil }},
+		},
+	}
+
+	if err := scheduler.run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	seen := map[string]bool{}
+	for _, heartbeat := range heartbeats {
+		if heartbeat.CycleNumber == 1 && heartbeat.Success && heartbeat.Err == nil {
+			seen[heartbeat.LaneName] = true
+		}
+	}
+	if !seen["merge"] || !seen["work"] {
+		t.Fatalf("heartbeats = %+v; want successful merge and work lane heartbeats", heartbeats)
 	}
 }

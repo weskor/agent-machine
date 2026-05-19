@@ -39,6 +39,18 @@ type Counts struct {
 	PRMappings       int
 	ReviewStates     int
 	TerminalOutcomes int
+	DaemonHeartbeats int
+}
+
+type DaemonHeartbeat struct {
+	ProcessID        string
+	LaneName         string
+	WorkflowPath     string
+	CycleNumber      int
+	LastSuccessAt    time.Time
+	LastError        string
+	RecoveryRequired bool
+	UpdatedAt        time.Time
 }
 
 type RunArtifactSnapshot struct {
@@ -112,6 +124,41 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) DB() *sql.DB { return s.db }
+
+func (s *Store) UpsertDaemonHeartbeat(ctx context.Context, heartbeat DaemonHeartbeat) error {
+	if heartbeat.ProcessID == "" {
+		return errors.New("upsert daemon heartbeat: process_id is required")
+	}
+	if heartbeat.LaneName == "" {
+		return errors.New("upsert daemon heartbeat: lane_name is required")
+	}
+	if heartbeat.UpdatedAt.IsZero() {
+		heartbeat.UpdatedAt = time.Now().UTC()
+	}
+	lastSuccessAt := ""
+	if !heartbeat.LastSuccessAt.IsZero() {
+		lastSuccessAt = heartbeat.LastSuccessAt.UTC().Format(time.RFC3339Nano)
+	}
+	now := heartbeat.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	recoveryRequired := 0
+	if heartbeat.RecoveryRequired {
+		recoveryRequired = 1
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE daemon_heartbeats SET workflow_path = ?, cycle_number = ?, last_success_at = COALESCE(NULLIF(?, ''), last_success_at), last_error = ?, recovery_required = ?, updated_at = ? WHERE process_id = ? AND lane_name = ?`, heartbeat.WorkflowPath, heartbeat.CycleNumber, lastSuccessAt, heartbeat.LastError, recoveryRequired, now, heartbeat.ProcessID, heartbeat.LaneName)
+	if err != nil {
+		return fmt.Errorf("update daemon heartbeat: %w", err)
+	}
+	if rows, err := res.RowsAffected(); err != nil {
+		return fmt.Errorf("update daemon heartbeat rows affected: %w", err)
+	} else if rows > 0 {
+		return nil
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO daemon_heartbeats(process_id, lane_name, workflow_path, cycle_number, last_success_at, last_error, recovery_required, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, heartbeat.ProcessID, heartbeat.LaneName, heartbeat.WorkflowPath, heartbeat.CycleNumber, lastSuccessAt, heartbeat.LastError, recoveryRequired, now)
+	if err != nil {
+		return fmt.Errorf("insert daemon heartbeat: %w", err)
+	}
+	return nil
+}
 
 func (s *Store) UpsertRunArtifact(ctx context.Context, snap RunArtifactSnapshot) error {
 	if snap.IssueKey == "" {
@@ -287,6 +334,7 @@ func (s *Store) Counts(ctx context.Context) (Counts, error) {
 		"pr_mappings":       &counts.PRMappings,
 		"review_states":     &counts.ReviewStates,
 		"terminal_outcomes": &counts.TerminalOutcomes,
+		"daemon_heartbeats": &counts.DaemonHeartbeats,
 	} {
 		if err := s.db.QueryRowContext(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s`, table)).Scan(dest); err != nil {
 			return Counts{}, fmt.Errorf("count %s: %w", table, err)

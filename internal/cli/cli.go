@@ -10,6 +10,8 @@ import (
 
 type Config struct {
 	WorkflowPath           string
+	APIKey                 string
+	Endpoint               string
 	ProjectSlug            string
 	WorkspaceRoot          string
 	RunningState           string
@@ -107,11 +109,10 @@ func Run[Client any](args []string, deps Dependencies[Client]) error {
 		return nil
 	}
 
-	apiKey := cfg.Scalar(wf.YAML, "  api_key", "")
-	if apiKey == "" {
+	if config.APIKey == "" {
 		return errors.New("LINEAR_API_KEY is required")
 	}
-	client := deps.NewLinearClient(apiKey, cfg.Scalar(wf.YAML, "  endpoint", "https://api.linear.app/graphql"))
+	client := deps.NewLinearClient(config.APIKey, config.Endpoint)
 
 	switch parsed.mode {
 	case modeRepair:
@@ -177,32 +178,32 @@ func LoadWorkflowConfig(workflowPath string) (cfg.Workflow, Config, error) {
 		return cfg.Workflow{}, Config{}, err
 	}
 
-	workspaceYAML := cfg.Section(wf.YAML, "workspace")
+	schema, err := cfg.ParseConfig(wf.YAML)
+	if err != nil {
+		return cfg.Workflow{}, Config{}, err
+	}
+
 	config := Config{
 		WorkflowPath:   workflowPath,
-		ProjectSlug:    cfg.Scalar(wf.YAML, "  project_slug", ""),
-		WorkspaceRoot:  cfg.Scalar(workspaceYAML, "  root", ""),
-		RunningState:   cfg.Scalar(wf.YAML, "  running_state", "In Progress"),
-		HandoffState:   cfg.Scalar(wf.YAML, "  handoff_state", "Human Review"),
-		DoneState:      cfg.Scalar(wf.YAML, "  done_state", "Done"),
-		NeedsInfoState: cfg.Scalar(wf.YAML, "  needs_info_state", "Needs Info"),
+		APIKey:         schema.Tracker.APIKey,
+		Endpoint:       schema.Tracker.Endpoint,
+		ProjectSlug:    schema.Tracker.ProjectSlug,
+		WorkspaceRoot:  schema.Workspace.Root,
+		RunningState:   schema.Compound.RunningState,
+		HandoffState:   schema.Compound.HandoffState,
+		DoneState:      schema.Compound.DoneState,
+		NeedsInfoState: schema.Compound.NeedsInfoState,
 		ReadyState:     "Ready for Agent",
-		BaseBranch:     cfg.BaseBranchFromWorkflow(wf.YAML),
-		ActiveStates:   cfg.ListUnder(wf.YAML, "active_states"),
+		BaseBranch:     schema.Workspace.BaseBranch,
+		ActiveStates:   schema.Tracker.ActiveStates,
 	}
-	piYAML := cfg.Section(wf.YAML, "pi")
-	config.PiCommand = cfg.CommandUnder(piYAML, "command", "pi --print --no-session --thinking low")
-	config.ReviewCommand = cfg.CommandUnder(piYAML, "review_command", "")
-	config.AfterCreate = cfg.BlockUnder(piYAML, "after_create")
-	config.BeforeRun = cfg.Scalar(piYAML, "  before_run", "")
-	config.AfterRun = cfg.Scalar(piYAML, "  after_run", "")
-	config.Budget = cfg.ParseBudget(wf.YAML)
-	githubYAML := cfg.Section(wf.YAML, "github")
-	config.GitHubAppSlug = cfg.Scalar(githubYAML, "  app_slug", "")
-	config.GitHubPRAuthorOverride = cfg.Scalar(githubYAML, "  pr_author_override", "")
-
-	if config.ProjectSlug == "" || config.WorkspaceRoot == "" {
-		return cfg.Workflow{}, Config{}, errors.New("WORKFLOW.md must configure tracker.project_slug and workspace.root")
-	}
+	config.PiCommand = schema.Pi.Command
+	config.ReviewCommand = schema.Pi.ReviewCommand
+	config.AfterCreate = schema.Pi.AfterCreate
+	config.BeforeRun = schema.Pi.BeforeRun
+	config.AfterRun = schema.Pi.AfterRun
+	config.Budget = schema.Budgets
+	config.GitHubAppSlug = schema.GitHub.AppSlug
+	config.GitHubPRAuthorOverride = schema.GitHub.PRAuthorOverride
 	return wf, config, nil
 }

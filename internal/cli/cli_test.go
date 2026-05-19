@@ -97,6 +97,23 @@ func TestRunValidatesLinearAPIKeyBeforeNetworkModes(t *testing.T) {
 	}
 }
 
+func TestRunUsesSchemaTrackerCredentials(t *testing.T) {
+	workflowPath := writeWorkflow(t, "tracker:\n  endpoint: https://linear.test/graphql\n")
+	var gotClient fakeClient
+	deps := testDeps(t, nil, nil, nil)
+	deps.NewLinearClient = func(apiKey, endpoint string) fakeClient {
+		gotClient = fakeClient{apiKey: apiKey, endpoint: endpoint}
+		return gotClient
+	}
+
+	if err := Run([]string{"--status", workflowPath}, deps); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if gotClient.apiKey != "test-linear-key" || gotClient.endpoint != "https://linear.test/graphql" {
+		t.Fatalf("NewLinearClient credentials = %#v", gotClient)
+	}
+}
+
 func TestLoadWorkflowConfigParsesDefaultsAndWorkflowValues(t *testing.T) {
 	workflowPath := writeWorkflow(t, "")
 	_, config, err := LoadWorkflowConfig(workflowPath)
@@ -108,6 +125,9 @@ func TestLoadWorkflowConfigParsesDefaultsAndWorkflowValues(t *testing.T) {
 	}
 	if config.ProjectSlug != "CAG" || config.WorkspaceRoot != "/tmp/pi-symphony-test-workspaces" {
 		t.Fatalf("config = %+v", config)
+	}
+	if config.APIKey != "test-linear-key" || config.Endpoint != "https://api.linear.app/graphql" {
+		t.Fatalf("tracker credentials = %+v", config)
 	}
 	if config.RunningState != "In Progress" || config.HandoffState != "Human Review" || config.DoneState != "Done" || config.NeedsInfoState != "Needs Info" || config.ReadyState != "Ready for Agent" {
 		t.Fatalf("unexpected states in config: %+v", config)
@@ -212,6 +232,8 @@ func mergeSimpleWorkflowOverride(base, overrides string) string {
 		return strings.Replace(base, "  root: /tmp/pi-symphony-test-workspaces", "  root: \"\"", 1)
 	case "tracker:\n  api_key: \"\"\n":
 		return strings.Replace(base, "  api_key: test-linear-key", "  api_key: \"\"", 1)
+	case "tracker:\n  endpoint: https://linear.test/graphql\n":
+		return strings.Replace(base, "  api_key: test-linear-key", "  api_key: test-linear-key\n  endpoint: https://linear.test/graphql", 1)
 	default:
 		return base + overrides
 	}

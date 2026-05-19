@@ -245,7 +245,7 @@ func summarizePR(pr pullRequestSummary, artifact *artifactSummary) string {
 	}
 	merge := "mergeable"
 	reason := ""
-	if conflictReason := pr.mergeConflictReason(); conflictReason != "" {
+	if conflictReason := mergeConflictReason(pr); conflictReason != "" {
 		merge = "conflicting"
 		reason = fmt.Sprintf(" reason=%s", conflictReason)
 	}

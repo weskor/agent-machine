@@ -140,7 +140,7 @@ func (d *reconciliationDecision) applyPRInvariants(config runnerConfig, candidat
 		d.block(lifecycleHandoffReady, fmt.Sprintf("waiting for approval; reviewDecision=%s", emptyAsUnknown(pr.ReviewDecision)), "await_human_approval")
 		return
 	}
-	if reason := pr.mergeGateBlockReason(); reason != "" {
+	if reason := mergeGateBlockReason(pr); reason != "" {
 		d.block(lifecycleHandoffReady, reason, "wait_for_green_mergeable_pr")
 		return
 	}

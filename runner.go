@@ -844,16 +844,6 @@ func expectedWorkspaceBranch(identifier string) string {
 	return "symphony/" + strings.TrimSpace(identifier) + "-workspace"
 }
 
-type prHandoffDetails struct {
-	Number       int    `json:"number"`
-	URL          string `json:"url"`
-	BaseRefName  string `json:"baseRefName"`
-	HeadRefName  string `json:"headRefName"`
-	ChangedFiles int    `json:"changedFiles"`
-	Additions    int    `json:"additions"`
-	Deletions    int    `json:"deletions"`
-}
-
 func validatePRForHandoff(config runnerConfig, candidate *issue, prURL string) (string, error) {
 	github, ctx, cancel, err := githubClientWithTimeout(config.Budget.GitHubTimeout)
 	if err != nil {

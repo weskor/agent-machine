@@ -37,7 +37,7 @@ func TestGitHubContractFixtureCoversOpenPRMetadataAndOwnership(t *testing.T) {
 
 func TestGitHubContractFixtureCoversChecksConflictsAndChangesRequested(t *testing.T) {
 	green := pullRequestSummary{HeadRefName: expectedWorkspaceBranch("CAG-39"), Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Name: "build", Status: "COMPLETED", Conclusion: "SUCCESS"}, {Typename: "StatusContext", Context: "Vercel", State: "SUCCESS"}}}
-	if reason := green.mergeGateBlockReason(); reason != "" {
+	if reason := mergeGateBlockReason(green); reason != "" {
 		t.Fatalf("expected green checks to pass, got %q", reason)
 	}
 	for name, pr := range map[string]pullRequestSummary{
@@ -45,7 +45,7 @@ func TestGitHubContractFixtureCoversChecksConflictsAndChangesRequested(t *testin
 		"failed":   {Mergeable: "MERGEABLE", StatusCheckRollup: []statusCheck{{Typename: "StatusContext", Context: "Vercel", State: "FAILURE"}}},
 		"conflict": {HeadRefName: expectedWorkspaceBranch("CAG-39"), Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY", StatusCheckRollup: green.StatusCheckRollup},
 	} {
-		if reason := pr.mergeGateBlockReason(); reason == "" {
+		if reason := mergeGateBlockReason(pr); reason == "" {
 			t.Fatalf("expected %s PR to block merge", name)
 		}
 	}

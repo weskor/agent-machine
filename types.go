@@ -26,6 +26,7 @@ type runRecord struct {
 	DurationMS               int64      `json:"duration_ms"`
 	PiUsage                  *usage     `json:"pi_usage,omitempty"`
 	ReviewStatus             string     `json:"review_status,omitempty"`
+	ReviewClassification     string     `json:"review_classification,omitempty"`
 	ReviewFindings           string     `json:"review_findings,omitempty"`
 	ReviewUsage              *usage     `json:"review_usage,omitempty"`
 	PRURL                    string     `json:"pr_url,omitempty"`
@@ -52,9 +53,10 @@ type runLock struct {
 }
 
 type reviewResult struct {
-	Status   string `json:"status"`
-	Findings string `json:"findings,omitempty"`
-	Usage    *usage `json:"usage,omitempty"`
+	Status         string `json:"status"`
+	Classification string `json:"classification,omitempty"`
+	Findings       string `json:"findings,omitempty"`
+	Usage          *usage `json:"usage,omitempty"`
 }
 
 type usage struct {

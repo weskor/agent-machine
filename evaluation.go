@@ -23,6 +23,7 @@ type evaluationArtifact struct {
 	TotalCost                    float64  `json:"total_cost,omitempty"`
 	ChecksStatus                 string   `json:"checks_status"`
 	ReviewStatus                 string   `json:"review_status,omitempty"`
+	ReviewClassification         string   `json:"review_classification,omitempty"`
 	ReviewPassed                 *bool    `json:"review_passed,omitempty"`
 	Outcome                      string   `json:"outcome"`
 	MergeEligible                bool     `json:"merge_eligible"`
@@ -65,6 +66,7 @@ func evaluationForRun(workspace string, record runRecord) evaluationArtifact {
 		DurationMS:               record.DurationMS,
 		ChecksStatus:             checksStatusForRun(record),
 		ReviewStatus:             record.ReviewStatus,
+		ReviewClassification:     record.ReviewClassification,
 		FeedbackRetryCount:       feedbackRetryCount(workspace),
 		NeedsInfoUsed:            strings.HasPrefix(record.Status, "needs_info"),
 		MergeBlockReason:         mergeBlockReason(record),
@@ -107,6 +109,9 @@ func outcomeForRun(record runRecord, evaluation evaluationArtifact) string {
 	if evaluation.NeedsInfoUsed {
 		return "needs_info"
 	}
+	if record.ReviewStatus == "failed" && record.ReviewClassification == reviewClassificationMissingEvidenceOnly {
+		return "human_review"
+	}
 	if record.Status == "review_failed" || record.ReviewStatus == "failed" {
 		return "review_failed"
 	}
@@ -141,6 +146,9 @@ func rootCauseForRun(record runRecord, evaluation evaluationArtifact) string {
 		return "out_of_scope_diff"
 	}
 	if record.Status == "review_failed" || record.ReviewStatus == "failed" {
+		if record.ReviewClassification == reviewClassificationMissingEvidenceOnly {
+			return "missing_behavior_contract_evidence"
+		}
 		return "pre_handoff_review_failed"
 	}
 	if record.Status == "timeout" || record.Status == "budget_exceeded" {
@@ -163,6 +171,9 @@ func nextActionForRun(record runRecord, evaluation evaluationArtifact) string {
 		return "answer_needs_info_questions"
 	}
 	if record.Status == "review_failed" || record.ReviewStatus == "failed" {
+		if record.ReviewClassification == reviewClassificationMissingEvidenceOnly {
+			return "await_human_review_for_behavior_contract_evidence"
+		}
 		return "repair_review_findings_before_handoff"
 	}
 	if record.Status == "timeout" || record.Status == "budget_exceeded" {
@@ -179,6 +190,9 @@ func nextActionForRun(record runRecord, evaluation evaluationArtifact) string {
 
 func shouldRetryRun(record runRecord, evaluation evaluationArtifact) bool {
 	if evaluation.NeedsInfoUsed || evaluation.MergeEligible {
+		return false
+	}
+	if record.ReviewClassification == reviewClassificationMissingEvidenceOnly {
 		return false
 	}
 	return record.Status == "review_failed" || record.Status == "timeout" || record.Status == "budget_exceeded" || hasString(evaluation.FrictionSignals, "operational_failure")
@@ -236,6 +250,9 @@ func frictionSignals(record runRecord, evaluation evaluationArtifact) []string {
 	}
 	if record.Status == "review_failed" {
 		add("review_failed")
+	}
+	if record.ReviewClassification == reviewClassificationMissingEvidenceOnly {
+		add("missing_behavior_contract_evidence")
 	}
 	if evaluation.FeedbackRetryCount > 0 {
 		add("changes_requested")

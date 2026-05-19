@@ -31,6 +31,44 @@ func TestReviewStatusUnknownWithoutMarker(t *testing.T) {
 	}
 }
 
+func TestReviewClassificationPassIsEmpty(t *testing.T) {
+	if got := reviewClassification("passed", "REVIEW_PASS"); got != "" {
+		t.Fatalf("expected empty pass classification, got %q", got)
+	}
+}
+
+func TestReviewClassificationBehaviorSpecBlocker(t *testing.T) {
+	output := "REVIEW_FAIL\nREVIEW_CLASSIFICATION: behavior_spec_blocker\nScope drift found."
+	if got := reviewClassification("failed", output); got != reviewClassificationBehaviorSpecBlocker {
+		t.Fatalf("classification = %q", got)
+	}
+}
+
+func TestReviewClassificationMissingEvidenceOnly(t *testing.T) {
+	output := "REVIEW_FAIL\nREVIEW_CLASSIFICATION: missing_evidence_only\nPR body needs Behavior Contract Evidence."
+	if got := reviewClassification("failed", output); got != reviewClassificationMissingEvidenceOnly {
+		t.Fatalf("classification = %q", got)
+	}
+}
+
+func TestReviewClassificationUnknownWhenMissingOrMalformed(t *testing.T) {
+	for _, output := range []string{"REVIEW_FAIL", "REVIEW_FAIL\nREVIEW_CLASSIFICATION: maybe"} {
+		if got := reviewClassification("failed", output); got != reviewClassificationUnknown {
+			t.Fatalf("classification = %q for %q", got, output)
+		}
+	}
+}
+
+func TestMissingEvidenceOnlyReviewFailureRoutesToHumanHandoffWithPR(t *testing.T) {
+	review := &reviewResult{Status: "failed", Classification: reviewClassificationMissingEvidenceOnly}
+	if !reviewFailureRoutesToHumanHandoff(review, "https://github.com/acme/repo/pull/1") {
+		t.Fatal("expected missing-evidence-only review failure with PR to route to Human Review")
+	}
+	if reviewFailureRoutesToHumanHandoff(review, "") {
+		t.Fatal("expected missing PR to remain blocking")
+	}
+}
+
 func TestReviewCommandWithHighReasoningUpgradesLow(t *testing.T) {
 	command := "pi --mode json --print --no-session --thinking low"
 	want := "pi --mode json --print --no-session --thinking xhigh"

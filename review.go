@@ -13,6 +13,12 @@ import (
 const reviewPassMarker = "REVIEW_PASS"
 const reviewFailMarker = "REVIEW_FAIL"
 
+const (
+	reviewClassificationBehaviorSpecBlocker = "behavior_spec_blocker"
+	reviewClassificationMissingEvidenceOnly = "missing_evidence_only"
+	reviewClassificationUnknown             = "unknown"
+)
+
 func reviewPrompt(candidate *issue, prURL, workspace string) string {
 	return fmt.Sprintf(`Review the final Symphony/Pi runner output for %s.
 
@@ -30,7 +36,7 @@ Check for:
 
 Behavior-contract review requirements for refactors, replacements, and rewrites:
 - REVIEW_FAIL if the PR replaces code, dependencies, commands, integrations, workflows, or state-machine logic without an existing-behavior inventory covering inputs/outputs, side effects, cleanup, error handling, security/ownership assumptions, state transitions, and hidden operational contracts.
-- Use docs/specs/ and docs/adr/ as the behavior-contract source when present; REVIEW_FAIL if observable behavior contradicts a spec or ADR without an explicit issue-backed update.
+- Use docs/specs/ and docs/adr/ as the behavior-contract source when present, including docs/specs/harness-behavior.md and docs/agents/review-policy.md; REVIEW_FAIL if observable behavior contradicts a spec or ADR without an explicit issue-backed update.
 - REVIEW_FAIL if the Behavior Contract Evidence section is missing for broad refactors, replacements, or rewrites: relevant specs/ADRs cited, behavior preserved, behavior intentionally changed with justification, and unknown behavior needing clarification.
 - REVIEW_FAIL if a broad mechanical move does not cite relevant specs/ADRs or explicitly state that no spec changes were needed.
 - REVIEW_FAIL if observable behavior lacks TDD or characterization-test evidence, or if tests cover only the new abstraction while prior observable behavior is unprotected.
@@ -51,8 +57,18 @@ Respond with exactly one marker line:
 %s — if the PR is safe to hand off
 %s — if the PR should go back to Ready for Agent
 
+If you return %s, also include exactly one classification line:
+REVIEW_CLASSIFICATION: behavior_spec_blocker
+REVIEW_CLASSIFICATION: missing_evidence_only
+REVIEW_CLASSIFICATION: unknown
+
+Classification rules:
+- behavior_spec_blocker: behavior/spec mismatch, scope drift, validation blocker, security risk, out-of-scope changes, missing required validation, or any finding that means the implementation should be repaired before Human Review.
+- missing_evidence_only: the PR exists and validation appears green, but the only concern is missing or insufficient Behavior Contract Evidence in the PR body/handoff notes. Use only when there is no behavior/spec/scope/validation blocker.
+- unknown: malformed, ambiguous, or mixed findings. Use unknown unless missing_evidence_only is clearly the only issue.
+
 Then add concise findings.
-`, candidate.Identifier, prURL, workspace, ticketContractReviewPrompt(), reviewPassMarker, reviewFailMarker)
+`, candidate.Identifier, prURL, workspace, ticketContractReviewPrompt(), reviewPassMarker, reviewFailMarker, reviewFailMarker)
 }
 
 func reviewCommandWithHighReasoning(command string) string {
@@ -91,7 +107,8 @@ func runReview(reviewCommand, workspace string, candidate *issue, prURL string, 
 	if findings == "" {
 		findings = output
 	}
-	result := &reviewResult{Status: reviewStatus(findings), Findings: strings.TrimSpace(findings), Usage: parseUsage(output)}
+	status := reviewStatus(findings)
+	result := &reviewResult{Status: status, Classification: reviewClassification(status, findings), Findings: strings.TrimSpace(findings), Usage: parseUsage(output)}
 	if result.Usage != nil {
 		log("review usage: input=%.0f output=%.0f cacheRead=%.0f total=%.0f cost=$%.4f", result.Usage.Input, result.Usage.Output, result.Usage.CacheRead, result.Usage.TotalTokens, result.Usage.totalCost())
 	}
@@ -100,6 +117,29 @@ func runReview(reviewCommand, workspace string, candidate *issue, prURL string, 
 		return result, err
 	}
 	return result, nil
+}
+
+func reviewClassification(status, output string) string {
+	if status == "passed" {
+		return ""
+	}
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToUpper(trimmed), "REVIEW_CLASSIFICATION:") {
+			value := strings.TrimSpace(trimmed[len("REVIEW_CLASSIFICATION:"):])
+			switch value {
+			case reviewClassificationBehaviorSpecBlocker, reviewClassificationMissingEvidenceOnly, reviewClassificationUnknown:
+				return value
+			default:
+				return reviewClassificationUnknown
+			}
+		}
+	}
+	return reviewClassificationUnknown
+}
+
+func reviewFailureRoutesToHumanHandoff(review *reviewResult, prURL string) bool {
+	return review != nil && review.Status == "failed" && review.Classification == reviewClassificationMissingEvidenceOnly && strings.TrimSpace(prURL) != ""
 }
 
 func reviewStatus(output string) string {

@@ -96,6 +96,25 @@ func TestEvaluationArtifactReviewFailed(t *testing.T) {
 	}
 }
 
+func TestEvaluationArtifactMissingEvidenceOnlyRoutesHumanReviewWithoutRetry(t *testing.T) {
+	record := testRunRecord("success", "https://github.com/pennywise-investments/compound-web/pull/402")
+	record.ReviewStatus = "failed"
+	record.ReviewClassification = reviewClassificationMissingEvidenceOnly
+	record.ReviewFindings = "REVIEW_FAIL\nREVIEW_CLASSIFICATION: missing_evidence_only\nBehavior Contract Evidence missing from PR body."
+
+	evaluation := evaluationForRun(t.TempDir(), record)
+
+	if evaluation.Outcome != "human_review" || evaluation.NextAction != "await_human_review_for_behavior_contract_evidence" || evaluation.ShouldRetry {
+		t.Fatalf("expected human-review no-retry outcome, got %#v", evaluation)
+	}
+	if evaluation.MergeEligible {
+		t.Fatal("review failure must remain merge-ineligible")
+	}
+	if evaluation.ReviewClassification != reviewClassificationMissingEvidenceOnly || !containsString(evaluation.FrictionSignals, "missing_behavior_contract_evidence") {
+		t.Fatalf("expected retained classification evidence: %#v", evaluation)
+	}
+}
+
 func TestEvaluationArtifactNeedsInfo(t *testing.T) {
 	evaluation := evaluationForRun(t.TempDir(), testRunRecord("needs_info", ""))
 

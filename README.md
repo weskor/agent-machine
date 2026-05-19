@@ -57,6 +57,14 @@ go run . --repair-artifacts /path/to/target/WORKFLOW.md
 
 ## Development
 
+Start with the project docs when planning behavior or architecture work:
+
+- `docs/vision/pi-symphony-v1.md` for the north star and V1 milestones.
+- `docs/agents/development-loop.md` for the spec-first, TDD-oriented agent workflow.
+- `docs/agents/implementation.md` and `docs/agents/review.md` for agent-session expectations.
+- `CONTEXT.md` and `LANGUAGE.md` for shared domain and architecture vocabulary.
+- `docs/specs/` and `docs/adr/` for behavior contracts and durable decisions.
+
 ```bash
 make fmt        # apply gofmt/goimports
 make fmt-check  # verify gofmt/goimports formatting

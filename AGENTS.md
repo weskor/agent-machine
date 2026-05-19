@@ -4,6 +4,10 @@ Work in small, reviewable changes. Use `mise exec go -- make ci` and `git diff -
 
 For runner behavior changes, read the relevant specs first and preserve observable behavior unless the ticket explicitly asks for a behavior change.
 
+Read `docs/vision/pi-symphony-v1.md` before planning roadmap, architecture, multi-agent, editor Adapter, MCP, web UI, cloud, or other product-surface work.
+
+Use the development loop in `docs/agents/development-loop.md`: spec/ADR first for durable behavior, TDD or characterization before behavior-risky refactors, then the smallest implementation slice.
+
 ## Agent skills
 
 ### Issue tracker
@@ -17,3 +21,11 @@ The skill triage roles map to Linear workflow states, not GitHub labels. See `do
 ### Domain docs
 
 This is a single-context repo: read `CONTEXT.md`, `LANGUAGE.md`, relevant `docs/adr/`, and relevant `docs/specs/` before planning architecture or runner behavior changes. See `docs/agents/domain.md`.
+
+### Development loop
+
+Pi Symphony work should be spec-driven, TDD-oriented, and evidence-backed. See `docs/agents/development-loop.md`.
+
+### Implementation and review
+
+Implementation agents should follow `docs/agents/implementation.md`. Review agents should follow `docs/agents/review.md` and `docs/agents/review-policy.md`.

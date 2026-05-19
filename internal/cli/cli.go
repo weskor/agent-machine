@@ -133,22 +133,29 @@ func Run[Client any](args []string, deps Dependencies[Client]) error {
 
 func parseArgs(args []string) parsedArgs {
 	parsed := parsedArgs{workflowPath: "WORKFLOW.md", mode: modeOnce}
+	modeRank := 0
+	setMode := func(mode string, rank int) {
+		if rank > modeRank {
+			parsed.mode = mode
+			modeRank = rank
+		}
+	}
 	for _, arg := range args {
 		switch arg {
 		case "--merge-approved":
-			parsed.mode = modeMerge
+			setMode(modeMerge, 2)
 		case "--repair-artifacts":
-			parsed.mode = modeRepair
+			setMode(modeRepair, 5)
 		case "--backfill-state":
-			parsed.mode = modeBackfill
+			setMode(modeBackfill, 6)
 		case "--cleanup-workspaces":
-			parsed.mode = modeCleanup
+			setMode(modeCleanup, 4)
 		case "--status":
-			parsed.mode = modeStatus
+			setMode(modeStatus, 3)
 		case "--apply":
 			parsed.cleanupApply = true
 		case "--continuous", "--daemon":
-			parsed.mode = modeContinuous
+			setMode(modeContinuous, 1)
 		case "--once":
 			// explicit default
 		default:

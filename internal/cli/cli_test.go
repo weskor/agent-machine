@@ -33,6 +33,10 @@ func TestRunDispatchesRepresentativeArgCombinations(t *testing.T) {
 		{name: "repair artifacts", args: []string{"--repair-artifacts", workflowPath}, wantMode: modeRepair},
 		{name: "cleanup apply", args: []string{"--cleanup-workspaces", "--apply", workflowPath}, wantMode: modeCleanup, wantApply: true},
 		{name: "backfill", args: []string{"--backfill-state", workflowPath}, wantMode: modeBackfill},
+		{name: "status wins over later merge approved", args: []string{"--status", "--merge-approved", workflowPath}, wantMode: modeStatus},
+		{name: "repair wins over later status", args: []string{"--status", "--repair-artifacts", workflowPath}, wantMode: modeRepair},
+		{name: "cleanup wins over later daemon", args: []string{"--daemon", "--cleanup-workspaces", workflowPath}, wantMode: modeCleanup},
+		{name: "backfill wins over repair", args: []string{"--repair-artifacts", "--backfill-state", workflowPath}, wantMode: modeBackfill},
 	}
 
 	for _, tt := range tests {

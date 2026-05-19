@@ -47,6 +47,8 @@ budgets:
   review_timeout: 45m
   merge_timeout: 10m
   github_timeout: 2m
+github:
+  app_slug: pi-symphony-bot
 compound:
   handoff_state: Human Review
   running_state: In Progress

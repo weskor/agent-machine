@@ -117,6 +117,17 @@ func TestLoadWorkflowConfigParsesDefaultsAndWorkflowValues(t *testing.T) {
 	}
 }
 
+func TestLoadWorkflowConfigParsesGitHubOwnership(t *testing.T) {
+	workflowPath := writeWorkflow(t, "github:\n  app_slug: pi-symphony-bot\n  pr_author_override: other-bot[bot]\n")
+	_, config, err := LoadWorkflowConfig(workflowPath)
+	if err != nil {
+		t.Fatalf("LoadWorkflowConfig() error = %v", err)
+	}
+	if config.GitHubAppSlug != "pi-symphony-bot" || config.GitHubPRAuthorOverride != "other-bot[bot]" {
+		t.Fatalf("unexpected GitHub ownership config: %+v", config)
+	}
+}
+
 func testDeps(t *testing.T, gotMode *string, gotApply *bool, gotCycles *int) Dependencies[fakeClient] {
 	t.Helper()
 	setMode := func(mode string) {

@@ -178,8 +178,9 @@ func prInvariantBlockReason(config runnerConfig, candidate issue, pr pullRequest
 	if pr.HeadRefName != expectedWorkspaceBranch(candidate.Identifier) {
 		reasons = append(reasons, fmt.Sprintf("PR head branch is %q; expected %q", emptyAsUnknown(pr.HeadRefName), expectedWorkspaceBranch(candidate.Identifier)))
 	}
-	if pr.AuthorLogin() != "" && !isExpectedGitHubAppPRAuthor(pr.AuthorLogin()) {
-		reasons = append(reasons, fmt.Sprintf("PR author is %q; expected %s", pr.AuthorLogin(), expectedGitHubAppPRAuthorLogins()))
+	ownership := newGitHubOwnershipPolicy(config)
+	if !ownership.AllowsPRAuthor(pr.AuthorLogin()) {
+		reasons = append(reasons, fmt.Sprintf("PR author is %q; expected %s", emptyAsUnknown(pr.AuthorLogin()), ownership.ExpectedPRAuthorSource()))
 	}
 	if reason := commitAuthorInvariantBlockReason(pr); reason != "" {
 		reasons = append(reasons, reason)

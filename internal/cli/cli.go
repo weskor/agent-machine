@@ -9,22 +9,24 @@ import (
 )
 
 type Config struct {
-	WorkflowPath   string
-	ProjectSlug    string
-	WorkspaceRoot  string
-	RunningState   string
-	HandoffState   string
-	DoneState      string
-	NeedsInfoState string
-	ReadyState     string
-	BaseBranch     string
-	ActiveStates   []string
-	PiCommand      string
-	ReviewCommand  string
-	AfterCreate    string
-	BeforeRun      string
-	AfterRun       string
-	Budget         cfg.Budget
+	WorkflowPath           string
+	ProjectSlug            string
+	WorkspaceRoot          string
+	RunningState           string
+	HandoffState           string
+	DoneState              string
+	NeedsInfoState         string
+	ReadyState             string
+	BaseBranch             string
+	ActiveStates           []string
+	PiCommand              string
+	ReviewCommand          string
+	AfterCreate            string
+	BeforeRun              string
+	AfterRun               string
+	Budget                 cfg.Budget
+	GitHubAppSlug          string
+	GitHubPRAuthorOverride string
 }
 
 type BackfillSummary struct {
@@ -195,6 +197,9 @@ func LoadWorkflowConfig(workflowPath string) (cfg.Workflow, Config, error) {
 	config.BeforeRun = cfg.Scalar(piYAML, "  before_run", "")
 	config.AfterRun = cfg.Scalar(piYAML, "  after_run", "")
 	config.Budget = cfg.ParseBudget(wf.YAML)
+	githubYAML := cfg.Section(wf.YAML, "github")
+	config.GitHubAppSlug = cfg.Scalar(githubYAML, "  app_slug", "")
+	config.GitHubPRAuthorOverride = cfg.Scalar(githubYAML, "  pr_author_override", "")
 
 	if config.ProjectSlug == "" || config.WorkspaceRoot == "" {
 		return cfg.Workflow{}, Config{}, errors.New("WORKFLOW.md must configure tracker.project_slug and workspace.root")

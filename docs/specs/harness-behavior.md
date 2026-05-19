@@ -70,6 +70,7 @@ Future SQLite-backed orchestration state work is specified in [SQLite Orchestrat
 
 - Merge automation only considers Symphony-owned PRs.
 - Merge gates check PR state, mergeability/conflicts, review decision, status checks, branch/issue mapping, app author and commit author invariants, and configured workflow ownership expectations.
+- The PR author invariant derives accepted GitHub App author forms from the configured app slug (`app/<slug>` and `<slug>[bot]`) or an explicit workflow PR author override; if neither source is available, merge automation fails closed with a clear ownership blocker.
 - Successful merge deletes the Symphony workspace branch and moves the Linear issue to Done.
 - Blocked merges should explain the gate reason instead of forcing a merge.
 

@@ -547,12 +547,25 @@ func TestRunOneFailsWhenPiFinishesWithoutPRURLOrNeedsInfo(t *testing.T) {
 	config.RunningState = "In Progress"
 	config.HandoffState = "Human Review"
 	config.AfterCreate = "git init -q && git checkout -q -b develop"
-	config.PiCommand = "printf 'completed scoped diff and validation, but no handoff URL\n'"
+	t.Setenv("RAW_AGENT_OUTPUT", "completed scoped diff and validation, but no handoff URL\n")
+	config.PiCommand = `printf %s "$RAW_AGENT_OUTPUT"`
 	wf := workflow{Body: "# Test workflow"}
 
-	didWork, err := runOne(client, wf, config)
+	var didWork bool
+	var err error
+	stdout := captureStdout(t, func() {
+		didWork, err = runOne(client, wf, config)
+	})
 	if err == nil || !strings.Contains(err.Error(), "missing PR URL") {
 		t.Fatalf("expected missing PR URL error, got %v", err)
+	}
+	if strings.Contains(stdout, "completed scoped diff and validation") {
+		t.Fatalf("primary log included raw Pi output: %q", stdout)
+	}
+	for _, expected := range []string{"run summary:", "issue=CAG-10", "status=failed", "outcome=operational_failure", "next_action=inspect_run_log_and_create_or_repair_pr"} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected %q in concise run output %q", expected, stdout)
+		}
 	}
 	if !didWork {
 		t.Fatal("expected runOne to process an issue")

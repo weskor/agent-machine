@@ -56,6 +56,41 @@ func TestCaptureAgentOutputWritesCappedDebugArtifactWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestHandoffRunSummaryIncludesConcisePRReviewAndValidation(t *testing.T) {
+	stdout := captureStdout(t, func() {
+		logHandoffRunSummary("CAG-86", "https://github.com/weskor/pi-symphony/pull/25", &reviewResult{Status: "passed"}, []string{"make ci passed", "git diff --check passed"})
+	})
+
+	for _, expected := range []string{"handoff summary:", "issue=CAG-86", "pr=https://github.com/weskor/pi-symphony/pull/25", "review=passed", "validation=make ci passed | git diff --check passed"} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected %q in concise handoff summary %q", expected, stdout)
+		}
+	}
+}
+
+func TestWriteRunRecordLogsConciseFinalSummary(t *testing.T) {
+	workspace := t.TempDir()
+	record := runRecord{
+		IssueIdentifier: "CAG-86",
+		Workspace:       workspace,
+		WorkspaceRoot:   workspace,
+		Status:          "success",
+		PRURL:           "https://github.com/weskor/pi-symphony/pull/25",
+		ReviewStatus:    "passed",
+		DurationMS:      1234,
+	}
+
+	stdout := captureStdout(t, func() {
+		writeRunRecord(workspace, record)
+	})
+
+	for _, expected := range []string{"run summary:", "issue=CAG-86", "status=success", "pr=https://github.com/weskor/pi-symphony/pull/25", "review=passed", "duration_ms=1234", ".pi-symphony-run.json", ".pi-symphony-evaluation.json"} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected %q in concise run summary %q", expected, stdout)
+		}
+	}
+}
+
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	old := os.Stdout

@@ -67,8 +67,13 @@ func writeRunRecord(workspace string, record runRecord) {
 		return
 	}
 	log("wrote run record: %s", path)
-	writeEvaluationArtifact(workspace, record)
+	evaluationPath, evaluation := writeEvaluationArtifact(workspace, record)
+	logRunArtifactSummary(path, evaluationPath, record, evaluation)
 	mirrorRunRecordToState(workspace, record)
+}
+
+func logRunArtifactSummary(runRecordPath, evaluationPath string, record runRecord, evaluation evaluationArtifact) {
+	log("run summary: issue=%s status=%s outcome=%s pr=%s review=%s checks=%s next_action=%s duration_ms=%d run_record=%s evaluation=%s", emptyAsUnknown(record.IssueIdentifier), emptyAsUnknown(record.Status), emptyAsUnknown(evaluation.Outcome), emptyAsUnknown(record.PRURL), emptyAsUnknown(record.ReviewStatus), emptyAsUnknown(evaluation.ChecksStatus), emptyAsUnknown(evaluation.NextAction), record.DurationMS, runRecordPath, evaluationPath)
 }
 
 func mirrorRunRecordToState(workspace string, record runRecord) {

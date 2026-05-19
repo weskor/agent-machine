@@ -42,19 +42,20 @@ type evaluationArtifact struct {
 	TicketContractEvidence       []string `json:"ticket_contract_evidence,omitempty"`
 }
 
-func writeEvaluationArtifact(workspace string, record runRecord) {
+func writeEvaluationArtifact(workspace string, record runRecord) (string, evaluationArtifact) {
 	evaluation := evaluationForRun(workspace, record)
 	data, err := json.MarshalIndent(evaluation, "", "  ")
 	if err != nil {
 		log("failed to encode evaluation artifact: %v", err)
-		return
+		return "", evaluation
 	}
 	path := filepath.Join(workspace, evaluationArtifactName)
 	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
 		log("failed to write evaluation artifact: %v", err)
-		return
+		return "", evaluation
 	}
 	log("wrote evaluation artifact: %s", path)
+	return path, evaluation
 }
 
 func evaluationForRun(workspace string, record runRecord) evaluationArtifact {

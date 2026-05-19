@@ -58,3 +58,31 @@ func rawAgentOutputLimitBytes() int {
 	}
 	return parsed
 }
+
+func logHandoffRunSummary(issueIdentifier, prURL string, review *reviewResult, validation []string) {
+	log("handoff summary: issue=%s pr=%s review=%s validation=%s", emptyAsUnknown(issueIdentifier), emptyAsUnknown(prURL), reviewStatusSummary(review), validationSummary(validation))
+}
+
+func reviewStatusSummary(review *reviewResult) string {
+	if review == nil || strings.TrimSpace(review.Status) == "" {
+		return "not_configured"
+	}
+	return review.Status
+}
+
+func validationSummary(lines []string) string {
+	var cleaned []string
+	for _, line := range lines {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+	if len(cleaned) == 0 {
+		return "not_reported"
+	}
+	const maxValidationSummaryLines = 3
+	if len(cleaned) > maxValidationSummaryLines {
+		cleaned = append(cleaned[:maxValidationSummaryLines], fmt.Sprintf("...+%d more", len(cleaned)-maxValidationSummaryLines))
+	}
+	return strings.Join(cleaned, " | ")
+}

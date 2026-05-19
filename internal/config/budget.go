@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +32,15 @@ func (b Budget) Active() *Budget {
 }
 
 func ParseBudget(yaml string) Budget {
+	budget, _ := parseBudget(yaml, false)
+	return budget
+}
+
+func ParseBudgetValidated(yaml string) (Budget, error) {
+	return parseBudget(yaml, true)
+}
+
+func parseBudget(yaml string, strict bool) (Budget, error) {
 	budgetYAML := Section(yaml, "budgets")
 	if budgetYAML == "" {
 		budgetYAML = Section(yaml, "resource_budgets")
@@ -49,30 +59,46 @@ func ParseBudget(yaml string) Budget {
 		GitHubTimeout:  2 * time.Minute,
 		GitHubText:     "2m",
 	}
-	budget.WallClock, budget.WallClockText = durationFromYAML(budgetYAML, "wall_clock", budget.WallClock, budget.WallClockText)
-	budget.CommandTimeout, budget.CommandText = durationFromYAML(budgetYAML, "command_timeout", budget.CommandTimeout, budget.CommandText)
-	budget.PiTimeout, budget.PiText = durationFromYAML(budgetYAML, "pi_timeout", budget.PiTimeout, budget.PiText)
-	budget.ReviewTimeout, budget.ReviewText = durationFromYAML(budgetYAML, "review_timeout", budget.ReviewTimeout, budget.ReviewText)
-	budget.MergeTimeout, budget.MergeText = durationFromYAML(budgetYAML, "merge_timeout", budget.MergeTimeout, budget.MergeText)
-	budget.GitHubTimeout, budget.GitHubText = durationFromYAML(budgetYAML, "github_timeout", budget.GitHubTimeout, budget.GitHubText)
+	var err error
+	if budget.WallClock, budget.WallClockText, err = durationFromYAML(budgetYAML, "wall_clock", budget.WallClock, budget.WallClockText, strict); err != nil {
+		return Budget{}, err
+	}
+	if budget.CommandTimeout, budget.CommandText, err = durationFromYAML(budgetYAML, "command_timeout", budget.CommandTimeout, budget.CommandText, strict); err != nil {
+		return Budget{}, err
+	}
+	if budget.PiTimeout, budget.PiText, err = durationFromYAML(budgetYAML, "pi_timeout", budget.PiTimeout, budget.PiText, strict); err != nil {
+		return Budget{}, err
+	}
+	if budget.ReviewTimeout, budget.ReviewText, err = durationFromYAML(budgetYAML, "review_timeout", budget.ReviewTimeout, budget.ReviewText, strict); err != nil {
+		return Budget{}, err
+	}
+	if budget.MergeTimeout, budget.MergeText, err = durationFromYAML(budgetYAML, "merge_timeout", budget.MergeTimeout, budget.MergeText, strict); err != nil {
+		return Budget{}, err
+	}
+	if budget.GitHubTimeout, budget.GitHubText, err = durationFromYAML(budgetYAML, "github_timeout", budget.GitHubTimeout, budget.GitHubText, strict); err != nil {
+		return Budget{}, err
+	}
 	budget.MaxTokens = floatFromYAML(budgetYAML, "max_tokens", 0)
 	budget.MaxCost = floatFromYAML(budgetYAML, "max_cost", 0)
-	return budget
+	return budget, nil
 }
 
-func durationFromYAML(yaml, key string, fallback time.Duration, fallbackText string) (time.Duration, string) {
+func durationFromYAML(yaml, key string, fallback time.Duration, fallbackText string, strict bool) (time.Duration, string, error) {
 	value := Scalar(yaml, "  "+key, "")
 	if value == "" {
-		return fallback, fallbackText
+		return fallback, fallbackText, nil
 	}
 	if value == "0" || strings.EqualFold(value, "none") || strings.EqualFold(value, "disabled") {
-		return 0, ""
+		return 0, "", nil
 	}
 	duration, err := time.ParseDuration(value)
 	if err != nil {
-		return fallback, fallbackText
+		if strict {
+			return 0, "", fmt.Errorf("WORKFLOW.md budgets.%s must be a Go duration such as 10m or 2h", key)
+		}
+		return fallback, fallbackText, nil
 	}
-	return duration, value
+	return duration, value, nil
 }
 
 func floatFromYAML(yaml, key string, fallback float64) float64 {

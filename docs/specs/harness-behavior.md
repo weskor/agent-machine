@@ -2,6 +2,8 @@
 
 This spec captures current observable Pi Symphony runner behavior. Update it when a ticket intentionally changes runner behavior; cite it when a refactor only moves code.
 
+Future SQLite-backed orchestration state work is specified in [SQLite Orchestration State Contract](./sqlite-orchestration-state.md). That contract is for CAG-49 implementation planning and does not change the current behavior described here until an implementation ticket updates this spec.
+
 ## Configuration loading
 
 - The CLI defaults to `WORKFLOW.md` unless another workflow path is supplied.

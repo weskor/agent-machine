@@ -15,7 +15,7 @@ It is extracted from `pennywise-investments/compound-web` and should be treated 
 
 ## Requirements
 
-- Go 1.23+
+- Go 1.23+ installed through `mise` (`mise install` in this repository, then use `mise exec go -- ...` for validation)
 - `pi` CLI available on `PATH`
 - Linear API token
 - GitHub token or GitHub App credentials with repository access
@@ -35,6 +35,10 @@ Secrets can be exported in the environment or placed in a local `.env.local` nex
   - `GITHUB_APP_ID`
   - `GITHUB_APP_INSTALLATION_ID`
   - `GITHUB_APP_PRIVATE_KEY_PATH`
+
+Keep `.env.local` local-only. Do not commit tokens, private keys, absolute credential paths, or copied environment files; commit only placeholder examples such as `WORKFLOW.example.md`.
+
+For local runner development, a minimal `.env.local` usually contains `LINEAR_API_KEY` plus either `GITHUB_TOKEN`/`GH_TOKEN` or the three `GITHUB_APP_*` values. Prefer GitHub App credentials for bot-authored PR handoff and merge-lane testing.
 
 ## Commands
 
@@ -58,10 +62,29 @@ make fmt        # apply gofmt/goimports
 make fmt-check  # verify gofmt/goimports formatting
 make vet        # run go vet ./...
 make lint       # run golangci-lint with the repository baseline
-go test ./...
+mise exec go -- go test ./...
 make test       # run go test ./...
 make ci         # run format, vet, lint, and tests
+git diff --check
 ```
+
+Use `make ci` and `git diff --check` before handing off a runner change. When validating workflow/status/cleanup/merge behavior, also run a safe status smoke check against the intended workflow file, for example:
+
+```bash
+mise exec go -- go run . --status WORKFLOW.md
+```
+
+## Symphony dogfood loop
+
+Use small, reviewable Linear tickets when evaluating the runner against itself or another target repository:
+
+1. Write each ticket with the standard `Goal`, `Scope`, `Requirements`, `Acceptance Criteria`, and `Validation` sections.
+2. Move exactly one ticket into `Ready for Agent` when it is safe for the runner to start it. Keep future dogfood tickets out of active states until the current PR is reviewed.
+3. Run one issue with `go run . --once WORKFLOW.md` or the target workflow path. The runner treats `Ready for Agent` and `In Progress` as active states by default; it moves claimed work to the configured running state and hands completed implementation PRs to `Human Review`.
+4. Review the PR before activating the next ticket. Objective review signals are: scoped diff, no secrets, required validation recorded, `make ci`/tests green, `git diff --check` clean, review pass or clear blocker notes, and a PR from the expected `symphony/<issue>-workspace` branch into the configured base branch.
+5. Only after the PR is accepted or the ticket is moved to a non-active lane should the next dogfood ticket be moved into `Ready for Agent`.
+
+Do not use the dogfood loop to batch unrelated work. If a ticket needs missing credentials, unclear scope, or unsafe production changes, move it to `Needs Info` instead of guessing.
 
 ## Current extraction status
 

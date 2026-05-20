@@ -9,6 +9,9 @@ import (
 )
 
 func TestCaptureAgentOutputDoesNotPrintRawOutputByDefault(t *testing.T) {
+	t.Setenv("PI_SYMPHONY_DEBUG_RAW_OUTPUT", "")
+	t.Setenv("PI_SYMPHONY_DEBUG_RAW_OUTPUT_LIMIT_BYTES", "")
+
 	workspace := t.TempDir()
 	stdout := captureStdout(t, func() {
 		output, err := captureAgentOutput("printf %s \"$RAW_AGENT_OUTPUT\"", workspace, map[string]string{"RAW_AGENT_OUTPUT": "raw-jsonl-stream"}, 0, "implementation")

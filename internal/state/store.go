@@ -246,6 +246,68 @@ func (s *Store) ReleaseLease(ctx context.Context, name string, releasedAt time.T
 	return nil
 }
 
+func (s *Store) Lease(ctx context.Context, name string) (Lease, bool, error) {
+	if name == "" {
+		return Lease{}, false, errors.New("lease: name is required")
+	}
+	var lease Lease
+	var acquiredRaw, expiresRaw, renewedRaw, releasedRaw string
+	err := s.db.QueryRowContext(ctx, `SELECT name, scope, owner, acquired_at, expires_at, renewed_at, released_at, release_reason FROM leases WHERE name = ?`, name).Scan(&lease.Name, &lease.Scope, &lease.Owner, &acquiredRaw, &expiresRaw, &renewedRaw, &releasedRaw, &lease.ReleaseReason)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Lease{}, false, nil
+	}
+	if err != nil {
+		return Lease{}, false, fmt.Errorf("read lease: %w", err)
+	}
+	if lease.AcquiredAt, err = parseTime(acquiredRaw); err != nil {
+		return Lease{}, false, fmt.Errorf("parse lease acquired_at: %w", err)
+	}
+	if lease.ExpiresAt, err = parseTime(expiresRaw); err != nil {
+		return Lease{}, false, fmt.Errorf("parse lease expires_at: %w", err)
+	}
+	if lease.RenewedAt, err = parseTime(renewedRaw); err != nil {
+		return Lease{}, false, fmt.Errorf("parse lease renewed_at: %w", err)
+	}
+	if lease.ReleasedAt, err = parseTime(releasedRaw); err != nil {
+		return Lease{}, false, fmt.Errorf("parse lease released_at: %w", err)
+	}
+	return lease, true, nil
+}
+
+func (s *Store) ReclaimLease(ctx context.Context, lease Lease, now time.Time, reason string) (bool, error) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if reason == "" {
+		reason = "reclaimed"
+	}
+	if err := normalizeLease(&lease, now); err != nil {
+		return false, fmt.Errorf("reclaim lease: %w", err)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin reclaim lease: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var oldOwner string
+	if err := tx.QueryRowContext(ctx, `SELECT owner FROM leases WHERE name = ? AND released_at = ''`, lease.Name).Scan(&oldOwner); errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("read reclaim lease owner: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE leases SET scope = ?, owner = ?, acquired_at = ?, expires_at = ?, renewed_at = ?, released_at = '', release_reason = '' WHERE name = ? AND owner = ? AND released_at = ''`, lease.Scope, lease.Owner, formatTime(lease.AcquiredAt), formatTime(lease.ExpiresAt), formatTime(lease.RenewedAt), lease.Name, oldOwner)
+	if err != nil {
+		return false, fmt.Errorf("reclaim lease: %w", err)
+	}
+	if rows, _ := result.RowsAffected(); rows == 0 {
+		return false, nil
+	}
+	if err := recordLeaseReclaim(ctx, tx, lease.Name, oldOwner, lease.Owner, reason, now); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
+}
+
 func normalizeLease(lease *Lease, now time.Time) error {
 	if lease.Name == "" {
 		return errors.New("name is required")

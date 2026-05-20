@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -80,12 +81,20 @@ func (m LockManager) Acquire(workspace string, candidate *domain.Issue, branch s
 }
 
 func (m LockManager) acquireSQLiteLease(workspace string, lock domain.RunLock, now time.Time) (*domain.RunLock, func(), error) {
-	acquired, err := m.StateStore.AcquireLease(context.Background(), RunLockLease(lock, now), now)
+	lease := RunLockLease(lock, now)
+	ctx := context.Background()
+	acquired, err := m.StateStore.AcquireLease(ctx, lease, now)
 	if err != nil {
 		return nil, nil, err
 	}
 	if !acquired {
-		return nil, nil, fmt.Errorf("%w: active SQLite lease %s", ErrRunLocked, RunLockLeaseName(lock))
+		reclaimed, err := m.reclaimDeadOwnerSQLiteLease(ctx, lease, now)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !reclaimed {
+			return nil, nil, fmt.Errorf("%w: active SQLite lease %s", ErrRunLocked, RunLockLeaseName(lock))
+		}
 	}
 	path := Path(workspace)
 	if err := writeExportedLock(path, lock); err != nil {
@@ -101,6 +110,50 @@ func (m LockManager) acquireSQLiteLease(workspace string, lock domain.RunLock, n
 		}
 	}
 	return &lock, release, nil
+}
+
+func (m LockManager) reclaimDeadOwnerSQLiteLease(ctx context.Context, lease state.Lease, now time.Time) (bool, error) {
+	existing, ok, err := m.StateStore.Lease(ctx, lease.Name)
+	if err != nil {
+		return false, err
+	}
+	if !ok || !existing.ReleasedAt.IsZero() {
+		return false, nil
+	}
+	host, pid, ok := leaseOwnerHostPID(existing.Owner)
+	if !ok || !SameHost(host) || ProcessAlive(pid) {
+		return false, nil
+	}
+	reclaimed, err := m.StateStore.ReclaimLease(ctx, lease, now, "dead_owner")
+	if err != nil {
+		return false, err
+	}
+	if reclaimed {
+		m.logf("reclaimed dead-owner SQLite run lease: %s old_owner=%s", lease.Name, existing.Owner)
+	}
+	return reclaimed, nil
+}
+
+func leaseOwnerHostPID(owner string) (string, int, bool) {
+	owner = strings.TrimSpace(owner)
+	pidSep := strings.LastIndex(owner, "#")
+	if pidSep < 0 || pidSep == len(owner)-1 {
+		return "", 0, false
+	}
+	pid, err := strconv.Atoi(owner[pidSep+1:])
+	if err != nil || pid <= 0 {
+		return "", 0, false
+	}
+	hostOwner := owner[:pidSep]
+	hostSep := strings.LastIndex(hostOwner, "@")
+	if hostSep < 0 || hostSep == len(hostOwner)-1 {
+		return "", 0, false
+	}
+	host := strings.TrimSpace(hostOwner[hostSep+1:])
+	if host == "" {
+		return "", 0, false
+	}
+	return host, pid, true
 }
 
 func writeExportedLock(path string, lock domain.RunLock) error {

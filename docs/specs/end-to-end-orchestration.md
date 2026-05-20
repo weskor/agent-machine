@@ -73,6 +73,10 @@ structured output, raw debug capture, and deterministic handoff support.
 14. The merge lane merges only Symphony-owned PRs that pass all configured gates.
 15. Cleanup deletes only workspaces that are safe by current cleanup policy and records cleanup state.
 
+During the attempt, Pi Symphony updates a compact local progress snapshot for the
+issue so operators can inspect current phase, PR URL, review/check state, next
+action, and artifact pointers without reading raw daemon or Agent logs.
+
 ## Outcome contract
 
 ### Success with PR Handoff
@@ -144,6 +148,7 @@ Each PR Handoff should include:
 - changed files summary;
 - known risks and out-of-scope items;
 - review status and classification when review ran.
+- progress status from `.symphony/state/run-progress/<issue>/progress.json` for active or recently terminal issue-level inspection.
 
 ## TDD expectation
 

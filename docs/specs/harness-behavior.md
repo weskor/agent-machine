@@ -117,6 +117,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 - `--cleanup-workspaces`: inspect workspace cleanup eligibility; `--apply` deletes eligible workspaces.
 - `--repair-artifacts`: repair local Symphony artifacts.
 - `--status`: print runner/workspace status for the workflow.
+- `--run-status=<issue>`: print one compact progress line for an active or recently terminal run from the runner-owned progress snapshot under `.symphony/state/run-progress/<issue>/progress.json`. This command is local/read-only and must not require Linear or GitHub access.
 - `--explain` / `--dry-run`: print structured JSON for the next scheduling decision, merge blockers, and cleanup eligibility without mutating Linear, GitHub, workspaces, artifacts, or orchestration state.
 - `--status` includes SQLite event-log counts when the durable orchestration event schema is available; these counts are diagnostic evidence only and do not replace artifact summaries or lifecycle decisions.
 
@@ -190,6 +191,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 
 - Every attempt writes a run record with issue, workspace, branch, timing, usage, review, PR URL, status, budget, and behavior-contract evidence fields when possible.
 - Evaluation artifacts classify dogfood outcomes and suggested improvements.
+- Active and terminal attempts write a compact progress snapshot outside the cloned issue workspace. The snapshot is observability-only evidence for polling/status efficiency; it must not drive candidate selection, Linear/GitHub transitions, leases, merge gates, cleanup eligibility, or review classification.
 - Under the SQLite transition plan, run records, evaluation artifacts, deterministic comments, PR bodies, and capped debug logs become evidence/debug exports rather than primary coordination state as each decision class is migrated.
 - Command timeouts and budget failures produce failure status and, when possible, Linear comments.
 - Run locks are released when the attempt exits.

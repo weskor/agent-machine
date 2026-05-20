@@ -57,6 +57,7 @@ type Dependencies[Client any] struct {
 	RepairArtifacts                       func(string) error
 	CleanupWorkspaces                     func(string, CleanupOptions) error
 	PrintStatus                           func(Client, Config) error
+	PrintRunProgress                      func(string, string) error
 	Explain                               func(Client, Config) error
 	MergeApprovedPRs                      func(Client, Config) error
 	RunContinuous                         func(Client, cfg.Workflow, Config, int) error
@@ -68,6 +69,7 @@ type parsedArgs struct {
 	mode         string
 	cleanupApply bool
 	maxCycles    int
+	runStatusID  string
 }
 
 const (
@@ -77,6 +79,7 @@ const (
 	modeBackfill   = "backfill-state"
 	modeCleanup    = "cleanup-workspaces"
 	modeStatus     = "status"
+	modeRunStatus  = "run-status"
 	modeExplain    = "explain"
 	modeContinuous = "continuous"
 )
@@ -109,6 +112,12 @@ func Run[Client any](args []string, deps Dependencies[Client]) error {
 			fmt.Printf("skipped %s: %s\n", skipped.Workspace, skipped.Reason)
 		}
 		return nil
+	}
+	if parsed.mode == modeRunStatus {
+		if parsed.runStatusID == "" {
+			return errors.New("--run-status requires an issue identifier, for example --run-status=CAG-123")
+		}
+		return deps.PrintRunProgress(config.WorkspaceRoot, parsed.runStatusID)
 	}
 
 	if config.APIKey == "" {
@@ -159,6 +168,8 @@ func parseArgs(args []string) parsedArgs {
 			setMode(modeCleanup, 4)
 		case "--status":
 			setMode(modeStatus, 3)
+		case "--run-status":
+			setMode(modeRunStatus, 3)
 		case "--explain", "--dry-run":
 			setMode(modeExplain, 7)
 		case "--apply":
@@ -170,6 +181,9 @@ func parseArgs(args []string) parsedArgs {
 		default:
 			if value, ok := strings.CutPrefix(arg, "--cycles="); ok {
 				fmt.Sscanf(value, "%d", &parsed.maxCycles)
+			} else if value, ok := strings.CutPrefix(arg, "--run-status="); ok {
+				setMode(modeRunStatus, 3)
+				parsed.runStatusID = value
 			} else {
 				parsed.workflowPath = arg
 			}

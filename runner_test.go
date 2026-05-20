@@ -484,7 +484,11 @@ func TestRunOneMovesNeedsInfoAndCommentsWithoutPRHandoff(t *testing.T) {
 	config.RunningState = "In Progress"
 	config.HandoffState = "Human Review"
 	config.AfterCreate = "git init -q && git checkout -q -b develop"
-	config.PiCommand = "printf 'NEEDS_INFO\\n1. Which account type should be supported?\\n'"
+	script := filepath.Join(root, "fake-pi")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf 'pwd=%s args=%s\\n' \"$PWD\" \"$*\" > invocation.txt\nprintf 'NEEDS_INFO\\n1. Which account type should be supported?\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	config.PiCommand = sh.Quote(script)
 	wf := workflow{Body: "# Test workflow"}
 
 	didWork, err := runOne(client, wf, config)
@@ -510,6 +514,15 @@ func TestRunOneMovesNeedsInfoAndCommentsWithoutPRHandoff(t *testing.T) {
 	}
 	if record.Status != "needs_info" || record.PRURL != "" {
 		t.Fatalf("unexpected run record: %#v", record)
+	}
+	invocation, err := os.ReadFile(filepath.Join(root, "CAG-9", "invocation.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"pwd=" + filepath.Join(root, "CAG-9"), "args=@" + filepath.Join(root, "CAG-9", ".pi-symphony-prompt.md")} {
+		if !strings.Contains(string(invocation), want) {
+			t.Fatalf("invocation %q missing %q", invocation, want)
+		}
 	}
 }
 

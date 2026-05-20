@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 type lifecycleState string
@@ -22,18 +27,20 @@ const (
 )
 
 type reconciliationDecision struct {
-	IssueIdentifier  string
-	StateName        string
-	Lifecycle        lifecycleState
-	CanRun           bool
-	CanMerge         bool
-	ShouldRetry      bool
-	ShouldQuarantine bool
-	NextAction       string
-	Blockers         []string
-	RunRecord        *runRecord
-	PR               *pullRequestSummary
-	Artifact         *artifactSummary
+	IssueIdentifier      string
+	StateName            string
+	Lifecycle            lifecycleState
+	CanRun               bool
+	CanMerge             bool
+	ShouldRetry          bool
+	ShouldQuarantine     bool
+	NextAction           string
+	Blockers             []string
+	RunRecord            *runRecord
+	PR                   *pullRequestSummary
+	Artifact             *artifactSummary
+	DBFacts              *state.ReconciliationFacts
+	ReconciliationNeeded bool
 }
 
 func reconcileIssue(config runnerConfig, candidate issue, pr *pullRequestSummary) reconciliationDecision {
@@ -54,8 +61,24 @@ func reconcileIssueWithArtifact(config runnerConfig, candidate issue, pr *pullRe
 			decision.RunRecord = &runRecord{Status: copy.Status, PRURL: copy.PRURL, ReviewStatus: copy.Review}
 		}
 	}
+	if facts, ok := reconciliationFactsFromSQLite(config.WorkspaceRoot, candidate.Identifier); ok {
+		decision.DBFacts = &facts
+		if facts.Status != "" && terminalRunStatus(facts.Status) && decision.RunRecord == nil {
+			decision.RunRecord = &runRecord{Status: facts.Status, PRURL: facts.PRURL}
+		}
+		if facts.PRURL != "" && pr == nil {
+			decision.ReconciliationNeeded = true
+		}
+		if artifact != nil && artifact.HasArtifact && facts.Status != "" && artifact.Status != "" && artifact.Status != facts.Status {
+			decision.ReconciliationNeeded = true
+		}
+	}
 	if record, ok := readRunArtifact(workspace); ok {
-		decision.RunRecord = &record
+		if decision.DBFacts == nil || decision.DBFacts.Status == "" {
+			decision.RunRecord = &record
+		} else if record.Status != decision.DBFacts.Status || record.PRURL != decision.DBFacts.PRURL {
+			decision.ReconciliationNeeded = true
+		}
 	}
 	if isBlockedCandidate(candidate) {
 		decision.block(lifecycleBlocked, "issue has blocked label", "operator_unblock_issue")
@@ -63,6 +86,10 @@ func reconcileIssueWithArtifact(config runnerConfig, candidate issue, pr *pullRe
 	}
 	if hasRunLock(workspace) {
 		decision.block(lifecycleRunning, "active run lock exists", "wait_for_or_clear_run_lock")
+		return decision
+	}
+	if activeSQLiteRunLease(config.WorkspaceRoot, candidate.Identifier, time.Now().UTC()) {
+		decision.block(lifecycleRunning, "active SQLite run lease exists", "wait_for_or_release_run_lease")
 		return decision
 	}
 	if candidate.State.Name == config.NeedsInfoState {
@@ -74,7 +101,14 @@ func reconcileIssueWithArtifact(config runnerConfig, candidate issue, pr *pullRe
 		return decision
 	}
 	if pr != nil {
+		if decision.DBFacts != nil && decision.DBFacts.PRURL != "" && decision.DBFacts.PRURL != pr.URL {
+			decision.ReconciliationNeeded = true
+		}
 		decision.applyPRInvariants(config, candidate, workspace, *pr)
+		return decision
+	}
+	if decision.DBFacts != nil && decision.DBFacts.PRURL != "" && pr == nil {
+		decision.block(lifecycleBlocked, "SQLite PR mapping has no current open PR", "reconcile_missing_or_closed_pr_mapping")
 		return decision
 	}
 	if hasUnresolvedReviewFailure(config.WorkspaceRoot, candidate.Identifier) {
@@ -88,6 +122,43 @@ func reconcileIssueWithArtifact(config runnerConfig, candidate issue, pr *pullRe
 		decision.CanRun = true
 	}
 	return decision
+}
+
+func reconciliationFactsFromSQLite(workspaceRoot, issueKey string) (state.ReconciliationFacts, bool) {
+	path := state.DefaultDBPath(workspaceRoot)
+	if path == "" {
+		return state.ReconciliationFacts{}, false
+	}
+	if _, err := os.Stat(path); err != nil {
+		return state.ReconciliationFacts{}, false
+	}
+	store, err := state.Open(context.Background(), path)
+	if err != nil {
+		return state.ReconciliationFacts{}, false
+	}
+	defer store.Close()
+	facts, ok, err := store.ReconciliationFacts(context.Background(), issueKey)
+	if err != nil {
+		return state.ReconciliationFacts{}, false
+	}
+	return facts, ok
+}
+
+func activeSQLiteRunLease(workspaceRoot, issueKey string, now time.Time) bool {
+	path := state.DefaultDBPath(workspaceRoot)
+	if path == "" {
+		return false
+	}
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+	store, err := state.Open(context.Background(), path)
+	if err != nil {
+		return false
+	}
+	defer store.Close()
+	lease, ok, err := store.Lease(context.Background(), "run:"+issueKey)
+	return err == nil && ok && lease.ReleasedAt.IsZero() && lease.ExpiresAt.After(now)
 }
 
 func reconcileIssues(config runnerConfig, issues []issue, prsByIssue map[string]*pullRequestSummary, artifactsByIssue map[string]artifactSummary) []reconciliationDecision {

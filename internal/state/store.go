@@ -133,6 +133,23 @@ type CleanupFacts struct {
 	UpdatedAt       time.Time
 }
 
+type ReconciliationFacts struct {
+	IssueKey           string
+	Attempt            int
+	WorkspacePath      string
+	BranchName         string
+	Status             string
+	PRURL              string
+	RetryNextState     string
+	RetryReason        string
+	TerminalOutcome    string
+	TerminalReason     string
+	CleanupDecision    string
+	CleanupResult      string
+	CleanupArtifactRef string
+	UpdatedAt          time.Time
+}
+
 type RunArtifactSnapshot struct {
 	SchemaVersion         int
 	ArtifactSchemaVersion int
@@ -510,6 +527,34 @@ ORDER BY a.attempt DESC LIMIT 1`, issueKey).Scan(&facts.IssueKey, &facts.Attempt
 	}
 	if facts.UpdatedAt, err = parseTime(updatedRaw); err != nil {
 		return CleanupFacts{}, false, fmt.Errorf("parse cleanup facts updated_at: %w", err)
+	}
+	return facts, true, nil
+}
+
+func (s *Store) ReconciliationFacts(ctx context.Context, issueKey string) (ReconciliationFacts, bool, error) {
+	if issueKey == "" {
+		return ReconciliationFacts{}, false, errors.New("reconciliation facts: issue key is required")
+	}
+	var facts ReconciliationFacts
+	var updatedRaw string
+	err := s.db.QueryRowContext(ctx, `SELECT a.issue_key, a.attempt, a.workspace_path, a.branch_name, a.status,
+COALESCE(p.pr_url, ''), COALESCE(r.next_state, ''), COALESCE(r.reason, ''), COALESCE(t.outcome, ''), COALESCE(t.reason, ''),
+COALESCE(c.decision, ''), COALESCE(c.deletion_result, ''), COALESCE(c.artifact_ref, ''), a.updated_at
+FROM issue_attempts a
+LEFT JOIN pr_mappings p ON p.attempt_id = a.id
+LEFT JOIN retry_decisions r ON r.attempt_id = a.id
+LEFT JOIN terminal_outcomes t ON t.attempt_id = a.id
+LEFT JOIN cleanup_states c ON c.attempt_id = a.id
+WHERE a.issue_key = ?
+ORDER BY a.attempt DESC LIMIT 1`, issueKey).Scan(&facts.IssueKey, &facts.Attempt, &facts.WorkspacePath, &facts.BranchName, &facts.Status, &facts.PRURL, &facts.RetryNextState, &facts.RetryReason, &facts.TerminalOutcome, &facts.TerminalReason, &facts.CleanupDecision, &facts.CleanupResult, &facts.CleanupArtifactRef, &updatedRaw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ReconciliationFacts{}, false, nil
+	}
+	if err != nil {
+		return ReconciliationFacts{}, false, fmt.Errorf("reconciliation facts: %w", err)
+	}
+	if facts.UpdatedAt, err = parseTime(updatedRaw); err != nil {
+		return ReconciliationFacts{}, false, fmt.Errorf("parse reconciliation facts updated_at: %w", err)
 	}
 	return facts, true, nil
 }

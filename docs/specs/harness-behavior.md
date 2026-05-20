@@ -99,6 +99,8 @@ These seams still rely too much on Agent or reviewer interpretation and should b
   - skips any candidate with an active run lock;
   - acquires an issue lock before workspace mutation;
   - skips candidates with reusable terminal run artifacts unless fresh PR feedback exists.
+- When the SQLite state DB exists, candidate reconciliation also reads latest durable attempt, PR mapping, retry decision, terminal outcome, cleanup, and active run lease facts. Fresh Linear candidate facts and fresh GitHub open-PR facts remain required before externally visible or mutating actions. Workspace artifacts are evidence/backfill inputs and must not silently override newer SQLite rows or current GitHub PR facts.
+- Selection, `--status`, and `--explain` report deterministic skip/retry reasons from the same reconciliation policy. An active SQLite run lease blocks the issue. A durable SQLite PR mapping without a matching current open GitHub PR is reported as reconciliation-needed instead of retrying from stale workspace artifacts.
 
 ### Retry, feedback, and persistence source (current state)
 

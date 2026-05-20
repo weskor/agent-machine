@@ -117,6 +117,9 @@ func explainCandidateSelection(config runnerConfig, candidates []issue, prsByIss
 		} else if candidate.Identifier != selected {
 			reason = "lower ordered runnable candidate"
 		}
+		if decision.ReconciliationNeeded {
+			reason = strings.TrimSpace(reason + "; reconciliation_needed")
+		}
 		decisions = append(decisions, explainCandidateDecision{
 			Identifier: candidate.Identifier,
 			State:      candidate.State.Name,

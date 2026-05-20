@@ -47,16 +47,31 @@ func printStatus(client linearClient, config runnerConfig) error {
 	for _, summary := range summarizeArtifacts(artifacts) {
 		log("- %s", summary)
 	}
-	for _, line := range summarizeReadyReconciliation(issues, artifactIndex.byIssue, config.ReadyState) {
+	prsByIssue := indexPRsByIssue(prs)
+	decisions := reconcileIssues(config, issues, prsByIssue, artifactIndex.byIssue)
+	for _, line := range summarizeReadyReconciliationDecisions(decisions, config.ReadyState) {
 		log("- %s", line)
 	}
-	for _, line := range summarizeRunningReconciliation(issues, artifactIndex.byIssue, config) {
+	for _, line := range summarizeRunningReconciliationDecisions(decisions, config) {
 		log("- %s", line)
 	}
 	for _, line := range summarizeStateStore(config.WorkspaceRoot) {
 		log("- %s", line)
 	}
 	return nil
+}
+
+func indexPRsByIssue(prs []pullRequestSummary) map[string]*pullRequestSummary {
+	byIssue := map[string]*pullRequestSummary{}
+	for i := range prs {
+		identifier := issueIdentifierFromBranch(prs[i].HeadRefName)
+		if identifier == "" {
+			continue
+		}
+		copy := prs[i]
+		byIssue[identifier] = &copy
+	}
+	return byIssue
 }
 
 func summarizeStateStore(workspaceRoot string) []string {
@@ -286,20 +301,27 @@ func summarizePR(pr pullRequestSummary, artifact *artifactSummary) string {
 }
 
 func summarizeReadyReconciliation(issues []issue, artifacts map[string]artifactSummary, readyState string) []string {
+	return summarizeReadyReconciliationDecisions(reconcileIssues(runnerConfig{ReadyState: readyState}, issues, nil, artifacts), readyState)
+}
+
+func summarizeReadyReconciliationDecisions(decisions []reconciliationDecision, readyState string) []string {
 	var lines []string
-	for _, issue := range issues {
-		if issue.State.Name != readyState {
+	for _, decision := range decisions {
+		if decision.StateName != readyState || decision.Artifact == nil {
 			continue
 		}
-		artifact, ok := artifacts[issue.Identifier]
-		if !ok || !artifact.Cleanable {
+		artifact := *decision.Artifact
+		if !artifact.Cleanable {
 			continue
 		}
 		next := artifact.NextAction
 		if next == "" {
+			next = decision.NextAction
+		}
+		if next == "" {
 			next = "reconcile_linear_state_or_clear_terminal_artifact"
 		}
-		lines = append(lines, fmt.Sprintf("Reconcile Ready issue with terminal artifact: %s status=%s outcome=%s next=%s attention=%t", issue.Identifier, artifact.Status, emptyAsNA(artifact.Outcome), next, artifact.OperatorAttention))
+		lines = append(lines, fmt.Sprintf("Reconcile Ready issue with terminal artifact: %s status=%s outcome=%s next=%s attention=%t", decision.IssueIdentifier, artifact.Status, emptyAsNA(artifact.Outcome), next, artifact.OperatorAttention))
 	}
 	if len(lines) == 0 {
 		return nil
@@ -309,30 +331,30 @@ func summarizeReadyReconciliation(issues []issue, artifacts map[string]artifactS
 }
 
 func summarizeRunningReconciliation(issues []issue, artifacts map[string]artifactSummary, config runnerConfig) []string {
+	return summarizeRunningReconciliationDecisions(reconcileIssues(config, issues, nil, artifacts), config)
+}
+
+func summarizeRunningReconciliationDecisions(decisions []reconciliationDecision, config runnerConfig) []string {
 	var lines []string
-	for _, issue := range issues {
-		if issue.State.Name != config.RunningState {
+	for _, decision := range decisions {
+		if decision.StateName != config.RunningState || decision.Lifecycle == lifecycleRunning || decision.IssueIdentifier == "" {
 			continue
 		}
-		workspace := filepath.Join(config.WorkspaceRoot, issue.Identifier)
-		if hasRunLock(workspace) {
-			continue
-		}
-		artifact, ok := artifacts[issue.Identifier]
-		if ok && !artifact.Cleanable {
+		artifact := decision.Artifact
+		if artifact != nil && !artifact.Cleanable {
 			continue
 		}
 		next := "restart_runner_or_move_issue_ready"
-		if ok && artifact.NextAction != "" {
+		if artifact != nil && artifact.NextAction != "" {
 			next = artifact.NextAction
 		}
 		status := "missing"
 		outcome := "n/a"
-		if ok {
+		if artifact != nil {
 			status = emptyAsNA(artifact.Status)
 			outcome = emptyAsNA(artifact.Outcome)
 		}
-		lines = append(lines, fmt.Sprintf("Reconcile In Progress issue with no active run lock: %s artifact_status=%s outcome=%s next=%s", issue.Identifier, status, outcome, next))
+		lines = append(lines, fmt.Sprintf("Reconcile In Progress issue with no active run lock: %s artifact_status=%s outcome=%s next=%s", decision.IssueIdentifier, status, outcome, next))
 	}
 	if len(lines) == 0 {
 		return nil

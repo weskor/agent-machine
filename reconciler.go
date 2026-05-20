@@ -23,6 +23,7 @@ const (
 
 type reconciliationDecision struct {
 	IssueIdentifier  string
+	StateName        string
 	Lifecycle        lifecycleState
 	CanRun           bool
 	CanMerge         bool
@@ -32,14 +33,26 @@ type reconciliationDecision struct {
 	Blockers         []string
 	RunRecord        *runRecord
 	PR               *pullRequestSummary
+	Artifact         *artifactSummary
 }
 
 func reconcileIssue(config runnerConfig, candidate issue, pr *pullRequestSummary) reconciliationDecision {
+	return reconcileIssueWithArtifact(config, candidate, pr, nil)
+}
+
+func reconcileIssueWithArtifact(config runnerConfig, candidate issue, pr *pullRequestSummary, artifact *artifactSummary) reconciliationDecision {
 	workspace := filepath.Join(config.WorkspaceRoot, candidate.Identifier)
-	decision := reconciliationDecision{IssueIdentifier: candidate.Identifier, Lifecycle: lifecycleReady, NextAction: "run_agent"}
+	decision := reconciliationDecision{IssueIdentifier: candidate.Identifier, StateName: candidate.State.Name, Lifecycle: lifecycleReady, NextAction: "run_agent"}
 	if pr != nil {
 		copy := *pr
 		decision.PR = &copy
+	}
+	if artifact != nil {
+		copy := *artifact
+		decision.Artifact = &copy
+		if copy.HasArtifact && terminalRunStatus(copy.Status) {
+			decision.RunRecord = &runRecord{Status: copy.Status, PRURL: copy.PRURL, ReviewStatus: copy.Review}
+		}
 	}
 	if record, ok := readRunArtifact(workspace); ok {
 		decision.RunRecord = &record
@@ -75,6 +88,24 @@ func reconcileIssue(config runnerConfig, candidate issue, pr *pullRequestSummary
 		decision.CanRun = true
 	}
 	return decision
+}
+
+func reconcileIssues(config runnerConfig, issues []issue, prsByIssue map[string]*pullRequestSummary, artifactsByIssue map[string]artifactSummary) []reconciliationDecision {
+	decisions := make([]reconciliationDecision, 0, len(issues))
+	for _, issue := range issues {
+		var artifact *artifactSummary
+		if artifactsByIssue != nil {
+			if summary, ok := artifactsByIssue[issue.Identifier]; ok {
+				artifact = &summary
+			}
+		}
+		var pr *pullRequestSummary
+		if prsByIssue != nil {
+			pr = prsByIssue[issue.Identifier]
+		}
+		decisions = append(decisions, reconcileIssueWithArtifact(config, issue, pr, artifact))
+	}
+	return decisions
 }
 
 func stateIsRunnable(state string, config runnerConfig) bool {

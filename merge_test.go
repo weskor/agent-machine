@@ -83,6 +83,13 @@ func TestWorkspaceLockedOrModifiedIgnoresEvidenceArtifacts(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-evaluation.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	legacyDebugPath := filepath.Join(workspace, ".pi-symphony-debug", "implementation-raw.log")
+	if err := os.MkdirAll(filepath.Dir(legacyDebugPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyDebugPath, []byte("legacy"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	locked, reason := workspaceLockedOrModified(root, "CAG-24", "cag-24-test")
 	if locked || reason != "" {

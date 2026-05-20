@@ -92,6 +92,9 @@ func HasChanges(workspace string) (bool, error) {
 			continue
 		}
 		path := strings.TrimSpace(strings.TrimPrefix(line, "??"))
+		if strings.HasPrefix(path, ".pi-symphony-debug/") || path == ".pi-symphony-debug" {
+			continue
+		}
 		switch path {
 		case ".pi-symphony-run.json", ".pi-symphony-evaluation.json", ".pi-symphony-prompt.md", ".pi-symphony-review-prompt.md":
 			continue

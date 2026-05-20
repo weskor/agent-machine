@@ -23,6 +23,11 @@ func maybeWriteRawAgentOutput(workspace, phase, output string) {
 	if strings.TrimSpace(os.Getenv("PI_SYMPHONY_DEBUG_RAW_OUTPUT")) != "1" || output == "" {
 		return
 	}
+	path := debugRawArtifactPath(workspace, phase)
+	if strings.TrimSpace(path) == "" {
+		log("failed to resolve raw %s output debug artifact path", phase)
+		return
+	}
 	limit := rawAgentOutputLimitBytes()
 	data := []byte(output)
 	truncated := false
@@ -30,12 +35,11 @@ func maybeWriteRawAgentOutput(workspace, phase, output string) {
 		data = data[len(data)-limit:]
 		truncated = true
 	}
-	dir := filepath.Join(workspace, ".pi-symphony-debug")
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		log("failed to create raw %s output debug directory: %v", phase, err)
 		return
 	}
-	path := filepath.Join(dir, phase+"-raw.log")
 	if truncated {
 		prefix := fmt.Sprintf("[pi-symphony] raw %s output truncated to last %d bytes; enable a larger PI_SYMPHONY_DEBUG_RAW_OUTPUT_LIMIT_BYTES only for local debugging\n", phase, limit)
 		data = append([]byte(prefix), data...)
@@ -45,6 +49,21 @@ func maybeWriteRawAgentOutput(workspace, phase, output string) {
 		return
 	}
 	log("raw %s output debug artifact: %s (%d bytes, capped at %d bytes)", phase, path, len(data), limit)
+}
+
+func debugRawArtifactPath(workspace, phase string) string {
+	workspace = strings.TrimSpace(workspace)
+	phase = strings.TrimSpace(phase)
+	if workspace == "" || phase == "" {
+		return ""
+	}
+	workspaceRoot := filepath.Dir(filepath.Clean(workspace))
+	issue := filepath.Base(filepath.Clean(workspace))
+	issue = strings.TrimSpace(issue)
+	if issue == "" {
+		return ""
+	}
+	return filepath.Join(workspaceRoot, ".symphony", "debug", issue, phase+"-raw.log")
 }
 
 func rawAgentOutputLimitBytes() int {

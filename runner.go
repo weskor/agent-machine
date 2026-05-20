@@ -41,6 +41,9 @@ func cliDependencies() cli.Dependencies[linearClient] {
 		PrintStatus: func(client linearClient, config cli.Config) error {
 			return printStatus(client, runnerConfigFromCLI(config))
 		},
+		Explain: func(client linearClient, config cli.Config) error {
+			return printExplain(client, runnerConfigFromCLI(config))
+		},
 		MergeApprovedPRs: func(client linearClient, config cli.Config) error {
 			return mergeApprovedPRs(client, runnerConfigFromCLI(config))
 		},

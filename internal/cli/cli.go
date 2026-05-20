@@ -57,6 +57,7 @@ type Dependencies[Client any] struct {
 	RepairArtifacts                       func(string) error
 	CleanupWorkspaces                     func(string, CleanupOptions) error
 	PrintStatus                           func(Client, Config) error
+	Explain                               func(Client, Config) error
 	MergeApprovedPRs                      func(Client, Config) error
 	RunContinuous                         func(Client, cfg.Workflow, Config, int) error
 	RunOne                                func(Client, cfg.Workflow, Config) error
@@ -76,6 +77,7 @@ const (
 	modeBackfill   = "backfill-state"
 	modeCleanup    = "cleanup-workspaces"
 	modeStatus     = "status"
+	modeExplain    = "explain"
 	modeContinuous = "continuous"
 )
 
@@ -125,6 +127,8 @@ func Run[Client any](args []string, deps Dependencies[Client]) error {
 		return deps.CleanupWorkspaces(config.WorkspaceRoot, CleanupOptions{Apply: parsed.cleanupApply, DoneIssues: doneIssues})
 	case modeStatus:
 		return deps.PrintStatus(client, config)
+	case modeExplain:
+		return deps.Explain(client, config)
 	case modeMerge:
 		return deps.MergeApprovedPRs(client, config)
 	case modeContinuous:
@@ -155,6 +159,8 @@ func parseArgs(args []string) parsedArgs {
 			setMode(modeCleanup, 4)
 		case "--status":
 			setMode(modeStatus, 3)
+		case "--explain", "--dry-run":
+			setMode(modeExplain, 7)
 		case "--apply":
 			parsed.cleanupApply = true
 		case "--continuous", "--daemon":

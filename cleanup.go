@@ -148,6 +148,12 @@ func cleanupDecision(workspace string, doneIssues map[string]bool) (cleanupResul
 }
 
 func cleanupDecisionForRoot(workspaceRoot, workspace string, doneIssues map[string]bool) (cleanupResult, error) {
+	return cleanupDecisionForRootWithChanges(workspaceRoot, workspace, doneIssues, workspaceHasChanges)
+}
+
+type workspaceChangeChecker func(string) (bool, error)
+
+func cleanupDecisionForRootWithChanges(workspaceRoot, workspace string, doneIssues map[string]bool, hasChanges workspaceChangeChecker) (cleanupResult, error) {
 	if _, err := safeWorkspaceRoot(workspaceRoot); err != nil {
 		return cleanupResult{}, err
 	}
@@ -155,7 +161,7 @@ func cleanupDecisionForRoot(workspaceRoot, workspace string, doneIssues map[stri
 		return cleanupResult{Category: "unsafe", Reason: err.Error()}, nil
 	}
 	identifier := filepath.Base(workspace)
-	if dirty, err := workspaceHasChanges(workspace); err != nil {
+	if dirty, err := hasChanges(workspace); err != nil {
 		return cleanupResult{}, err
 	} else if dirty {
 		return cleanupResult{Category: "dirty", Reason: "workspace has uncommitted or untracked files"}, nil

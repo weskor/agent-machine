@@ -1,0 +1,162 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/weskor/pi-symphony/internal/state"
+)
+
+func TestOrchestrationSnapshotEmptyState(t *testing.T) {
+	root := t.TempDir()
+	snap, err := buildOrchestrationSnapshot(context.Background(), runnerConfig{WorkspaceRoot: root}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Issues) != 0 || len(snap.ActiveLocks) != 0 || len(snap.Artifacts) != 0 {
+		t.Fatalf("expected empty snapshot, got %+v", snap)
+	}
+	if got := snap.SourcePrecedence; len(got) != 3 || got[0] != "active_locks_lanes" || got[1] != "sqlite" || got[2] != "artifacts_fallback" {
+		t.Fatalf("unexpected precedence: %#v", got)
+	}
+}
+
+func TestOrchestrationSnapshotActiveLockOverridesSQLiteAndArtifact(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	writeSnapshotArtifact(t, root, "CAG-1", runRecord{IssueIdentifier: "CAG-1", Status: "success"})
+	writeSnapshotState(t, root, state.RunArtifactSnapshot{IssueKey: "CAG-1", Attempt: 1, Status: "failed", UpdatedAt: now.Add(-time.Hour), TerminalOutcome: "failed"})
+	writeSnapshotLock(t, root, "CAG-1", now)
+	snap, err := buildOrchestrationSnapshot(context.Background(), runnerConfig{WorkspaceRoot: root}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := findSnapshotIssue(t, snap, "CAG-1")
+	if issue.Source != "active_lock" || issue.Status != "active" {
+		t.Fatalf("lock should win, got %+v", issue)
+	}
+	if len(snap.ActiveLocks) != 1 || !snap.ActiveLocks[0].Active {
+		t.Fatalf("expected active lock: %+v", snap.ActiveLocks)
+	}
+}
+
+func TestOrchestrationSnapshotStaleArtifactDoesNotOverrideSQLite(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+	writeSnapshotArtifact(t, root, "CAG-2", runRecord{IssueIdentifier: "CAG-2", Status: "success", PRURL: "https://example.test/old"})
+	writeSnapshotState(t, root, state.RunArtifactSnapshot{IssueKey: "CAG-2", Attempt: 1, Status: "running", PRURL: "https://example.test/new", UpdatedAt: now})
+	snap, err := buildOrchestrationSnapshot(context.Background(), runnerConfig{WorkspaceRoot: root}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := findSnapshotIssue(t, snap, "CAG-2")
+	if issue.Source != "sqlite" || issue.Status != "running" || issue.PRURL != "https://example.test/new" {
+		t.Fatalf("sqlite should win over artifact, got %+v", issue)
+	}
+}
+
+func TestOrchestrationSnapshotCompletedAndFailedAttempts(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+	writeSnapshotState(t, root, state.RunArtifactSnapshot{IssueKey: "CAG-3", Attempt: 1, Status: "success", ReviewStatus: "passed", PRURL: "https://example.test/pr/3", TerminalOutcome: "success", UpdatedAt: now})
+	writeSnapshotState(t, root, state.RunArtifactSnapshot{IssueKey: "CAG-4", Attempt: 1, Status: "failed", ReviewStatus: "failed", TerminalOutcome: "failed", UpdatedAt: now})
+	snap, err := buildOrchestrationSnapshot(context.Background(), runnerConfig{WorkspaceRoot: root}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issue := findSnapshotIssue(t, snap, "CAG-3"); issue.Outcome != "success" || issue.Review != "passed" {
+		t.Fatalf("completed issue missing state: %+v", issue)
+	}
+	if issue := findSnapshotIssue(t, snap, "CAG-4"); issue.Outcome != "failed" || issue.Status != "failed" {
+		t.Fatalf("failed attempt missing state: %+v", issue)
+	}
+}
+
+func TestOrchestrationSnapshotKeepsBudgetAndReviewFieldsAvailable(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+	writeSnapshotState(t, root, state.RunArtifactSnapshot{IssueKey: "CAG-5", Attempt: 1, Status: "review_failed", ReviewStatus: "failed", ReviewClassification: "needs_work", MergeEligible: false, RetryBudgetState: "available", RetryReason: "review_failed", RetryNextState: "retry", UpdatedAt: now})
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	rows, err := store.SnapshotAttempts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ReviewStatus != "failed" || rows[0].RetryBudgetState != "available" || rows[0].RetryNextState != "retry" {
+		t.Fatalf("budget/review unavailable: %+v", rows)
+	}
+}
+
+func TestOrchestrationSnapshotIncludesActiveLaneData(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertDaemonHeartbeat(context.Background(), state.DaemonHeartbeat{ProcessID: "pid-1", LaneName: "work", WorkflowPath: "WORKFLOW.md", CycleNumber: 7, LastSuccessAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := buildOrchestrationSnapshot(context.Background(), runnerConfig{WorkspaceRoot: root}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.ActiveLanes) != 1 || snap.ActiveLanes[0].Name != "work" || snap.ActiveLanes[0].CycleNumber != 7 || snap.ActiveLanes[0].Source != "sqlite" {
+		t.Fatalf("missing lane data: %+v", snap.ActiveLanes)
+	}
+}
+
+func writeSnapshotState(t *testing.T, root string, snap state.RunArtifactSnapshot) {
+	t.Helper()
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertRunArtifact(context.Background(), snap); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeSnapshotArtifact(t *testing.T, root, issue string, record runRecord) {
+	t.Helper()
+	dir := filepath.Join(root, issue)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(record)
+	if err := os.WriteFile(filepath.Join(dir, ".pi-symphony-run.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeSnapshotLock(t *testing.T, root, issue string, at time.Time) {
+	t.Helper()
+	dir := filepath.Join(root, issue)
+	if err := os.MkdirAll(filepath.Dir(runLockPath(dir)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(runLock{IssueIdentifier: issue, Workspace: dir, Owner: "test", StartedAt: at, HeartbeatAt: at})
+	if err := os.WriteFile(runLockPath(dir), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func findSnapshotIssue(t *testing.T, snap orchestrationSnapshot, issue string) snapshotIssue {
+	t.Helper()
+	for _, candidate := range snap.Issues {
+		if candidate.Issue == issue {
+			return candidate
+		}
+	}
+	t.Fatalf("missing issue %s in %+v", issue, snap)
+	return snapshotIssue{}
+}

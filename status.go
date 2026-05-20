@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/weskor/pi-symphony/internal/state"
 )
@@ -34,10 +35,11 @@ func printStatus(client linearClient, config runnerConfig) error {
 	if err != nil {
 		return err
 	}
-	artifacts, err := workspaceArtifactSummaries(config.WorkspaceRoot)
+	snapshot, err := buildOrchestrationSnapshot(context.Background(), config, time.Now().UTC())
 	if err != nil {
 		return err
 	}
+	artifacts := snapshot.Artifacts
 	artifactIndex := indexArtifacts(artifacts)
 	log("Open Symphony PRs: %d", len(prs))
 	for _, pr := range prs {
@@ -55,7 +57,7 @@ func printStatus(client linearClient, config runnerConfig) error {
 	for _, line := range summarizeRunningReconciliationDecisions(decisions, config) {
 		log("- %s", line)
 	}
-	for _, line := range summarizeStateStore(config.WorkspaceRoot) {
+	for _, line := range summarizeSnapshotStateStore(config.WorkspaceRoot, snapshot) {
 		log("- %s", line)
 	}
 	return nil
@@ -72,6 +74,29 @@ func indexPRsByIssue(prs []pullRequestSummary) map[string]*pullRequestSummary {
 		byIssue[identifier] = &copy
 	}
 	return byIssue
+}
+
+func summarizeSnapshotStateStore(workspaceRoot string, snapshot orchestrationSnapshot) []string {
+	path := state.DefaultDBPath(workspaceRoot)
+	lines := []string{fmt.Sprintf("SQLite state path: %s", emptyAsNA(path))}
+	if path == "" {
+		return append(lines, "SQLite state health: degraded path=unconfigured action=set workspace.root")
+	}
+	if snapshot.SQLiteHealthError != "" {
+		return append(lines, fmt.Sprintf("SQLite state health: degraded error=%q action=check state DB path and permissions", snapshot.SQLiteHealthError))
+	}
+	health := snapshot.SQLiteHealth
+	if !health.Exists {
+		return append(lines, "SQLite state health: missing action=run pi-symphony once to initialize mirrored state")
+	}
+	status := "degraded"
+	if health.OK {
+		status = "healthy"
+	}
+	return append(lines,
+		fmt.Sprintf("SQLite state health: %s schema_version=%d journal_mode=%s busy_timeout_ms=%d", status, health.SchemaVersion, emptyAsNA(health.JournalMode), health.BusyTimeoutMS),
+		fmt.Sprintf("SQLite state counts: issue_attempts=%d pr_mappings=%d review_states=%d terminal_outcomes=%d daemon_heartbeats=%d cleanup_states=%d events=%d", health.Counts.IssueAttempts, health.Counts.PRMappings, health.Counts.ReviewStates, health.Counts.TerminalOutcomes, health.Counts.DaemonHeartbeats, health.Counts.CleanupStates, health.Counts.Events),
+	)
 }
 
 func summarizeStateStore(workspaceRoot string) []string {

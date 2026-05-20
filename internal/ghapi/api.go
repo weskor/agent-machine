@@ -214,6 +214,7 @@ func (c *goClient) pullRequestCommits(ctx context.Context, number int) ([]PRComm
 }
 
 func (c *goClient) openPullRequestSummary(ctx context.Context, pr *github.PullRequest) PullRequestSummary {
+	mergeState := mergeStateStatusFromPullRequest(pr)
 	return PullRequestSummary{
 		Number:            pr.GetNumber(),
 		URL:               pr.GetHTMLURL(),
@@ -221,9 +222,9 @@ func (c *goClient) openPullRequestSummary(ctx context.Context, pr *github.PullRe
 		HeadRefName:       pr.GetHead().GetRef(),
 		Author:            PRAuthor{Login: pr.GetUser().GetLogin()},
 		Mergeable:         mergeableFromPullRequest(pr),
-		MergeStateStatus:  mergeStateStatusFromPullRequest(pr),
+		MergeStateStatus:  mergeState,
 		ReviewDecision:    c.pullRequestReviewDecision(ctx, pr.GetNumber()),
-		StatusCheckRollup: c.statusChecksForRef(ctx, pr.GetHead().GetSHA()),
+		StatusCheckRollup: checksWithMergeStateFallback(c.statusChecksForRef(ctx, pr.GetHead().GetSHA()), mergeState),
 	}
 }
 
@@ -466,5 +467,30 @@ func (c *goClient) UpdatePullRequest(ctx context.Context, number int, title, bod
 
 func (c *goClient) prHandoffDetails(ctx context.Context, pr *github.PullRequest) PRHandoffDetails {
 	headSHA := pr.GetHead().GetSHA()
-	return PRHandoffDetails{Number: pr.GetNumber(), URL: pr.GetHTMLURL(), BaseRefName: pr.GetBase().GetRef(), HeadRefName: pr.GetHead().GetRef(), HeadSHA: headSHA, ChangedFiles: pr.GetChangedFiles(), Additions: pr.GetAdditions(), Deletions: pr.GetDeletions(), StatusCheckRollup: c.statusChecksForRef(ctx, headSHA)}
+	return PRHandoffDetails{Number: pr.GetNumber(), URL: pr.GetHTMLURL(), BaseRefName: pr.GetBase().GetRef(), HeadRefName: pr.GetHead().GetRef(), HeadSHA: headSHA, ChangedFiles: pr.GetChangedFiles(), Additions: pr.GetAdditions(), Deletions: pr.GetDeletions(), StatusCheckRollup: checksWithMergeStateFallback(c.statusChecksForRef(ctx, headSHA), mergeStateStatusFromPullRequest(pr))}
+}
+
+func checksWithMergeStateFallback(checks []StatusCheck, mergeState string) []StatusCheck {
+	if !strings.EqualFold(strings.TrimSpace(mergeState), "CLEAN") || !onlyCheckRunAccessUnavailable(checks) {
+		return checks
+	}
+	return []StatusCheck{{Typename: "StatusContext", Context: "GitHub merge state", State: "SUCCESS"}}
+}
+
+func onlyCheckRunAccessUnavailable(checks []StatusCheck) bool {
+	if len(checks) == 0 {
+		return false
+	}
+	foundUnavailableCheckRun := false
+	for _, check := range checks {
+		if check.Typename == "CheckRun" && check.Name == "GitHub check runs" && strings.EqualFold(check.Status, "UNKNOWN") && strings.EqualFold(check.Conclusion, "UNKNOWN") {
+			foundUnavailableCheckRun = true
+			continue
+		}
+		if check.Typename == "StatusContext" && strings.EqualFold(check.State, "SUCCESS") {
+			continue
+		}
+		return false
+	}
+	return foundUnavailableCheckRun
 }

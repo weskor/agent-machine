@@ -17,6 +17,7 @@ import (
 type cleanupOptions struct {
 	Apply      bool
 	DoneIssues map[string]bool
+	StateStore *orchstate.Store
 }
 
 func cleanupWorkspaces(workspaceRoot string, options cleanupOptions) error {
@@ -51,26 +52,26 @@ func cleanupWorkspaces(workspaceRoot string, options cleanupOptions) error {
 		categories[decision.Category]++
 		if !decision.Delete {
 			kept++
-			mirrorCleanupState(safeRoot, decision, false, "kept", true)
+			mirrorCleanupState(options.StateStore, safeRoot, decision, false, "kept", true)
 			log("keep %s [%s]: %s", workspace, decision.Category, decision.Reason)
 			continue
 		}
 		eligible++
 		if !options.Apply {
-			mirrorCleanupState(safeRoot, decision, true, "dry_run", true)
+			mirrorCleanupState(options.StateStore, safeRoot, decision, true, "dry_run", true)
 			log("would delete %s [%s]: %s", workspace, decision.Category, decision.Reason)
 			continue
 		}
 		if err := assertSafeDeletePath(safeRoot, workspace); err != nil {
-			mirrorCleanupState(safeRoot, decision, true, "failed", true)
+			mirrorCleanupState(options.StateStore, safeRoot, decision, true, "failed", true)
 			return err
 		}
 		if err := os.RemoveAll(workspace); err != nil {
-			mirrorCleanupState(safeRoot, decision, true, "failed", true)
+			mirrorCleanupState(options.StateStore, safeRoot, decision, true, "failed", true)
 			return err
 		}
 		removed++
-		mirrorCleanupState(safeRoot, decision, true, "deleted", false)
+		mirrorCleanupState(options.StateStore, safeRoot, decision, true, "deleted", false)
 		log("deleted %s [%s]: %s", workspace, decision.Category, decision.Reason)
 	}
 	if options.Apply {
@@ -170,8 +171,15 @@ func cleanupDecisionForRoot(workspaceRoot, workspace string, doneIssues map[stri
 	return base, nil
 }
 
-func mirrorCleanupState(workspaceRoot string, decision cleanupResult, eligible bool, deletionResult string, workspaceExists bool) {
+func mirrorCleanupState(store *orchstate.Store, workspaceRoot string, decision cleanupResult, eligible bool, deletionResult string, workspaceExists bool) {
 	if strings.TrimSpace(decision.IssueIdentifier) == "" {
+		return
+	}
+	ctx := context.Background()
+	if store != nil {
+		if err := store.UpsertCleanupState(ctx, stateProjection{}.Cleanup(decision, eligible, deletionResult, workspaceExists, time.Now())); err != nil {
+			log("skipping sqlite cleanup mirror: %v", err)
+		}
 		return
 	}
 	dbPath := orchstate.DefaultDBPath(workspaceRoot)
@@ -179,7 +187,6 @@ func mirrorCleanupState(workspaceRoot string, decision cleanupResult, eligible b
 		log("skipping sqlite cleanup mirror: state db path is empty")
 		return
 	}
-	ctx := context.Background()
 	store, err := orchstate.Open(ctx, dbPath)
 	if err != nil {
 		log("skipping sqlite cleanup mirror: %v", err)

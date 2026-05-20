@@ -11,6 +11,7 @@ import (
 	artifactio "github.com/weskor/pi-symphony/internal/artifacts"
 	cfg "github.com/weskor/pi-symphony/internal/config"
 	sh "github.com/weskor/pi-symphony/internal/shell"
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 func closeInvalidPR(prURL, reason string) error {
@@ -55,6 +56,18 @@ func ensureIsolatedWorkspace(workspaceRoot, workspace, identifier string) error 
 }
 
 func writeRunRecord(workspace string, record runRecord) {
+	writeRunRecordWithState(nil, workspace, record)
+}
+
+func writeRunRecordWithState(store *state.Store, workspace string, record runRecord) {
+	writeRunRecordWithStateFallback(store, true, workspace, record)
+}
+
+func writeRunRecordWithCommandState(store *state.Store, workspace string, record runRecord) {
+	writeRunRecordWithStateFallback(store, false, workspace, record)
+}
+
+func writeRunRecordWithStateFallback(store *state.Store, fallbackOpen bool, workspace string, record runRecord) {
 	path, err := artifactManager().WriteRunRecord(workspace, record)
 	if err != nil {
 		log("failed to write run record: %v", err)
@@ -63,7 +76,9 @@ func writeRunRecord(workspace string, record runRecord) {
 	log("wrote run record: %s", path)
 	evaluationPath, evaluation := writeEvaluationArtifact(workspace, record)
 	logRunArtifactSummary(path, evaluationPath, record, evaluation)
-	mirrorRunRecordToState(workspace, record)
+	if store != nil || fallbackOpen {
+		mirrorRunRecordToState(store, workspace, record)
+	}
 }
 
 func artifactManager() artifactio.Manager {
@@ -78,7 +93,14 @@ func logRunArtifactSummary(runRecordPath, evaluationPath string, record runRecor
 	log("run summary: issue=%s status=%s outcome=%s pr=%s review=%s checks=%s next_action=%s duration_ms=%d run_record=%s evaluation=%s", emptyAsUnknown(record.IssueIdentifier), emptyAsUnknown(record.Status), emptyAsUnknown(evaluation.Outcome), emptyAsUnknown(record.PRURL), emptyAsUnknown(record.ReviewStatus), emptyAsUnknown(evaluation.ChecksStatus), emptyAsUnknown(evaluation.NextAction), record.DurationMS, runRecordPath, evaluationPath)
 }
 
-func mirrorRunRecordToState(workspace string, record runRecord) {
+func mirrorRunRecordToState(store *state.Store, workspace string, record runRecord) {
+	if store != nil {
+		evaluation := evaluationForRun(workspace, record)
+		if err := store.UpsertRunArtifact(context.Background(), stateProjection{}.RunArtifact(workspace, record, evaluation)); err != nil {
+			log("failed to mirror run record into SQLite state: %v", err)
+		}
+		return
+	}
 	store, dbPath, err := openStateProjectionStore(context.Background(), record.WorkspaceRoot)
 	if err != nil {
 		if dbPath != "" {

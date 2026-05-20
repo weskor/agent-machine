@@ -76,6 +76,27 @@ func TestCleanupWorkspacesMirrorsDeletedState(t *testing.T) {
 	}
 }
 
+func TestCleanupWorkspacesContinuesWhenCommandStateStoreUnavailable(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-107")
+	writeCleanRunArtifact(t, workspace, "success")
+	if err := os.WriteFile(filepath.Join(filepath.Dir(root), "state"), []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store, _ := commandScopedStateStore(context.Background(), root, "cleanup-test")
+	if store != nil {
+		defer store.Close()
+		t.Fatal("commandScopedStateStore succeeded; want degraded nil store")
+	}
+	if err := cleanupWorkspaces(root, cleanupOptions{Apply: true, DoneIssues: map[string]bool{"CAG-107": true}, StateStore: store}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(workspace); !os.IsNotExist(err) {
+		t.Fatalf("workspace still exists after cleanup with unavailable state store: %v", err)
+	}
+}
+
 func TestCleanupWorkspacesMirrorsDryRunAndKeptState(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
 	dryRunWorkspace := filepath.Join(root, "CAG-66")

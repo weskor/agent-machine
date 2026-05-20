@@ -3,6 +3,7 @@ package main
 import (
 	"time"
 
+	"github.com/weskor/pi-symphony/internal/state"
 	ws "github.com/weskor/pi-symphony/internal/workspace"
 )
 
@@ -16,16 +17,32 @@ var errRunLocked = ws.ErrRunLocked
 
 func runLockManager() ws.LockManager { return ws.LockManager{Logf: log} }
 
+func runLockManagerWithState(store *state.Store) ws.LockManager {
+	return ws.LockManager{Logf: log, StateStore: store}
+}
+
 func acquireRunLock(workspace string, candidate *issue, branch string, now time.Time) (*runLock, func(), error) {
 	return runLockManager().Acquire(workspace, candidate, branch, now)
 }
 
+func acquireRunLockWithState(store *state.Store, workspace string, candidate *issue, branch string, now time.Time) (*runLock, func(), error) {
+	return runLockManagerWithState(store).Acquire(workspace, candidate, branch, now)
+}
+
 func heartbeatRunLock(workspace string, at time.Time) { runLockManager().Heartbeat(workspace, at) }
+
+func heartbeatRunLockWithState(store *state.Store, workspace string, at time.Time) {
+	runLockManagerWithState(store).Heartbeat(workspace, at)
+}
 
 func describeExistingRunLock(path string, now time.Time) error { return ws.DescribeExisting(path, now) }
 
 func cleanupStaleRunLocks(workspaceRoot string, now time.Time) (int, error) {
 	return runLockManager().CleanupStale(workspaceRoot, now)
+}
+
+func cleanupStaleRunLocksWithState(store *state.Store, workspaceRoot string, now time.Time) (int, error) {
+	return runLockManagerWithState(store).CleanupStale(workspaceRoot, now)
 }
 
 func mirrorRunLockAcquire(lock runLock) { runLockManager().MirrorAcquire(lock) }

@@ -25,7 +25,10 @@ var ErrRunLocked = errors.New("pi symphony run is locked")
 
 type Logger func(string, ...any)
 
-type LockManager struct{ Logf Logger }
+type LockManager struct {
+	Logf       Logger
+	StateStore *state.Store
+}
 
 func (m LockManager) logf(format string, args ...any) {
 	if m.Logf != nil {
@@ -168,6 +171,12 @@ func (m LockManager) MirrorRelease(lock domain.RunLock, at time.Time, reason str
 }
 
 func (m LockManager) withStateStore(workspace string, fn func(*state.Store) error) {
+	if m.StateStore != nil {
+		if err := fn(m.StateStore); err != nil {
+			m.logf("skipping sqlite lease mirror: %v", err)
+		}
+		return
+	}
 	if strings.TrimSpace(workspace) == "" {
 		m.logf("skipping sqlite lease mirror: workspace path is empty")
 		return

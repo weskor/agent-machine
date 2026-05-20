@@ -113,6 +113,39 @@ type RuntimeCapabilities struct {
 	SupportsStop   bool
 }
 
+// PreflightInput describes runtime commands that must be available before the
+// runner claims or mutates work.
+type PreflightInput struct {
+	ImplementationCommand string
+	ReviewCommand         string
+}
+
+// PreflightCheck captures one prerequisite checked by a runtime provider.
+type PreflightCheck struct {
+	Name       string `json:"name"`
+	Command    string `json:"command,omitempty"`
+	Executable string `json:"executable,omitempty"`
+	Resolved   string `json:"resolved,omitempty"`
+	OK         bool   `json:"ok"`
+	Message    string `json:"message,omitempty"`
+}
+
+// PreflightResult is provider-aware, actionable evidence about runtime
+// readiness. It must not include secrets or expanded environment values.
+type PreflightResult struct {
+	Provider string           `json:"provider"`
+	Checks   []PreflightCheck `json:"checks,omitempty"`
+}
+
+func (r PreflightResult) OK() bool {
+	for _, check := range r.Checks {
+		if !check.OK {
+			return false
+		}
+	}
+	return true
+}
+
 // AttemptTimeouts maps the same coarse time-bound concepts currently used by the
 // runner's budget model.
 type AttemptTimeouts struct {
@@ -204,6 +237,7 @@ type AttemptResult struct {
 // handoff state transitions, and workspace lease rules.
 type AgentRuntime interface {
 	Capabilities() RuntimeCapabilities
+	Preflight(ctx context.Context, input PreflightInput) (PreflightResult, error)
 	StartAttempt(ctx context.Context, input StartAttemptInput) (AttemptContext, error)
 	RunAttempt(ctx context.Context, attemptID string, input RunAttemptInput, events EventSink) (AttemptResult, error)
 	ReviewAttempt(ctx context.Context, attemptID string, input ReviewAttemptInput, events EventSink) (ReviewResult, error)

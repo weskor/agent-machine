@@ -133,6 +133,12 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 - Safety labels rank before unlabeled work: runner-safety/harness first, docs-only/low-risk next, all others after.
 - Priority and older creation time break ties after state and safety ranking.
 - Before claiming work, stale/dead run locks are cleaned up.
+- After selecting a candidate but before acquiring a run lease, moving the issue
+  to the running state, creating/updating the workspace, creating/updating a PR,
+  or invoking `after_create`, the runner preflights the selected AgentRuntime.
+  A preflight failure leaves the issue in `Ready for Agent`, avoids workspace
+  creation/mutation, and returns an operational configuration error naming the
+  provider and missing command.
 - Explain mode reuses candidate ordering and reconciliation policy to report ordered candidates, the selected candidate when one is runnable, and skip/block reasons.
 - A claimed issue is moved to the configured running state, usually `In Progress`.
 - If the implementation outputs `NEEDS_INFO`, the issue moves to the configured needs-info state and receives the questions as a Linear comment.
@@ -152,7 +158,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 
 - The implementation prompt includes the workflow body, Linear issue description, ticket-contract preflight, behavior-contract preflight, PR feedback when present, and runner constraints.
 - The agent must create or update exactly one PR from the expected workspace branch into the configured base branch.
-- Current production behavior shells to the local `pi` CLI (`pi_cli` provider). Operators must have `pi` installed, discoverable on `PATH`, and configured for the desired auth/provider/model. Missing runtime setup currently surfaces as command failure; the target contract is to fail this during preflight before claim or workspace mutation.
+- Current production behavior shells to the local `pi` CLI (`pi_cli` provider). Operators must have the configured implementation command installed, discoverable on `PATH` or as an executable path, and configured for the desired auth/provider/model. When review is configured, the configured review command executable must also resolve. Missing command setup fails during preflight before claim or workspace mutation.
 - The agent should stop after scoped diff, validation notes, and PR handoff.
 - The runner parses Pi usage and the first configured-repository GitHub PR URL from the output.
 - When a Linear issue includes machine-readable `Allowed paths:` or `Out of scope:` bullets, the runner checks changed files against that path contract before review and handoff. Scope violations are recorded as behavior/spec blockers and move the issue back to the configured Ready state. Issues without a machine-readable path contract continue with a warning so legacy tickets remain runnable.

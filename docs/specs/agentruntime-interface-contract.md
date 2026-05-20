@@ -49,11 +49,17 @@ handoff comments, merge gates, or cleanup policy into provider-specific prompts.
 
 ### Runtime preflight contract
 
-Before mutating a workspace, acquiring or externally claiming work, or moving a
-Linear issue, the selected runtime provider should expose a preflight result with
-actionable failures. For `pi_cli`, this includes:
+Before mutating a workspace, acquiring a run lease or externally claiming work,
+or moving a Linear issue, the selected runtime provider exposes a preflight
+result with actionable failures. The result includes the provider name, checked
+command(s), resolved executable path when available, prerequisite status, and a
+configuration error that does not expand environment variables or leak secrets.
+For `pi_cli`, this includes:
 
-- binary availability and executable path for `pi`;
+- binary availability and executable path for the configured implementation
+  command;
+- binary availability and executable path for the configured review command when
+  review is enabled;
 - auth/config discoverability where feasible without leaking secrets;
 - selected provider/model visibility when the runtime can report it;
 - quota or account readiness when cheaply discoverable;
@@ -61,18 +67,21 @@ actionable failures. For `pi_cli`, this includes:
   login to, or select.
 
 Preflight must be best-effort where runtime CLIs do not expose stable auth/model
-inspection commands, but missing `pi` for `pi_cli` is a hard pre-claim failure.
+inspection commands, but a missing configured executable for `pi_cli` is a hard
+pre-claim failure.
 The runner should record the selected provider and visible model/config evidence
 in artifacts or orchestration state when available.
 
 The runtime adapter must implement:
 
-1. Session/attempt lifecycle start (`StartAttempt`).
-2. Attempt execution (`RunAttempt`) that produces a terminal outcome, usage, and
+1. Runtime preflight (`Preflight`) before claim, lease, workspace mutation, or
+   Agent execution.
+2. Session/attempt lifecycle start (`StartAttempt`).
+3. Attempt execution (`RunAttempt`) that produces a terminal outcome, usage, and
    optional PR URL.
-3. Review execution (`ReviewAttempt`) when available.
-4. Cancel/stop hooks (`Cancel`, `Stop`) where supported by the adapter.
-5. Event emission throughout execution.
+4. Review execution (`ReviewAttempt`) when available.
+5. Cancel/stop hooks (`Cancel`, `Stop`) where supported by the adapter.
+6. Event emission throughout execution.
 
 Runtime providers declare capabilities instead of relying on caller guesses:
 

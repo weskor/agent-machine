@@ -45,10 +45,11 @@ Supported vocabulary:
 - Future API, app-server, ACP-style, or MCP-style Adapters: transport choices
   that must reuse runner Modules instead of owning orchestration policy.
 
-Before claiming or mutating work, the selected provider should preflight binary
+Before claiming or mutating work, the selected provider preflights command
 availability, auth/config discoverability where feasible, selected provider/model
-visibility, and actionable operator-facing failure messages. Missing `pi` for
-`pi_cli` is a hard pre-claim failure in the target contract.
+visibility, and actionable operator-facing failure messages. Missing configured
+implementation or review command executables for `pi_cli` are hard pre-claim
+failures.
 
 Provider capabilities should be explicit for implementation runs, review runs,
 usage/cost reporting, timeout/cancellation, `max_turns`/iteration limits,

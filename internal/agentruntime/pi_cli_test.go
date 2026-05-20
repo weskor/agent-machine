@@ -3,12 +3,48 @@ package agentruntime
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	sh "github.com/weskor/pi-symphony/internal/shell"
 )
+
+func TestPiCLIAdapterPreflightReportsProviderAndMissingCommand(t *testing.T) {
+	runtime := PiCLIAdapter{}
+	result, err := runtime.Preflight(context.Background(), PreflightInput{ImplementationCommand: "definitely-missing-pi-symphony-test-binary"})
+	if err == nil {
+		t.Fatal("expected preflight error")
+	}
+	if result.Provider != "pi_cli" || len(result.Checks) != 1 {
+		t.Fatalf("unexpected preflight result: %+v", result)
+	}
+	check := result.Checks[0]
+	if check.OK || check.Name != "implementation_command" || check.Executable != "definitely-missing-pi-symphony-test-binary" || !strings.Contains(check.Message, "definitely-missing-pi-symphony-test-binary") {
+		t.Fatalf("preflight result was not actionable: %+v", result)
+	}
+	if !strings.Contains(err.Error(), "pi_cli") || !strings.Contains(err.Error(), "definitely-missing-pi-symphony-test-binary") {
+		t.Fatalf("error did not mention provider and command: %v", err)
+	}
+}
+
+func TestPiCLIAdapterPreflightChecksReviewCommandWhenConfigured(t *testing.T) {
+	dir := t.TempDir()
+	impl := filepath.Join(dir, "pi-ok")
+	if err := os.WriteFile(impl, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runtime := PiCLIAdapter{}
+	result, err := runtime.Preflight(context.Background(), PreflightInput{ImplementationCommand: impl, ReviewCommand: "missing-review-binary"})
+	if err == nil {
+		t.Fatal("expected review preflight error")
+	}
+	if len(result.Checks) != 2 || !result.Checks[0].OK || result.Checks[1].OK || result.Checks[1].Name != "review_command" || !strings.Contains(err.Error(), "missing-review-binary") {
+		t.Fatalf("unexpected review preflight result=%+v err=%v", result, err)
+	}
+}
 
 func TestPiCLIAdapterRunAttemptPreservesCommandShapeAndParsesOutput(t *testing.T) {
 	var gotCommand, gotPhase string

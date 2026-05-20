@@ -7,31 +7,14 @@ import (
 	"io"
 	"regexp"
 	"strings"
+
+	artifactio "github.com/weskor/pi-symphony/internal/artifacts"
 )
 
 var prURLPattern = regexp.MustCompile(`https://github\.com/([^/\s"'<>]+)/([^/\s"'<>]+)/pull/[0-9]+`)
 
 func parseUsage(output string) *usage {
-	var last *usage
-	scanner := bufio.NewScanner(strings.NewReader(output))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(line, "{") {
-			continue
-		}
-		var event struct {
-			Message *struct {
-				Usage *usage `json:"usage"`
-			} `json:"message"`
-		}
-		if err := json.Unmarshal([]byte(line), &event); err == nil && event.Message != nil && event.Message.Usage != nil {
-			candidate := event.Message.Usage
-			if candidate.TotalTokens > 0 {
-				last = candidate
-			}
-		}
-	}
-	return last
+	return artifactio.ParseUsage(output)
 }
 
 func firstPRURL(output string) string {

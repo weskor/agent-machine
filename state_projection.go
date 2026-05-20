@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	artifactio "github.com/weskor/pi-symphony/internal/artifacts"
 	"github.com/weskor/pi-symphony/internal/state"
 )
 
@@ -64,8 +65,8 @@ func (stateProjection) RunArtifact(workspace string, record runRecord, evaluatio
 		RetryNextState:       retryNextState,
 		TerminalOutcome:      terminalOutcome,
 		TerminalReason:       evaluation.RootCause,
-		RunArtifactRef:       filepath.Join(workspace, ".pi-symphony-run.json"),
-		EvaluationRef:        filepath.Join(workspace, evaluationArtifactName),
+		RunArtifactRef:       artifactio.RunRecordPath(workspace),
+		EvaluationRef:        artifactio.EvaluationPath(workspace),
 	}
 }
 

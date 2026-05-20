@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 
+	artifactio "github.com/weskor/pi-symphony/internal/artifacts"
 	cfg "github.com/weskor/pi-symphony/internal/config"
 	sh "github.com/weskor/pi-symphony/internal/shell"
 )
@@ -56,20 +55,24 @@ func ensureIsolatedWorkspace(workspaceRoot, workspace, identifier string) error 
 }
 
 func writeRunRecord(workspace string, record runRecord) {
-	data, err := json.MarshalIndent(record, "", "  ")
+	path, evaluationPath, evaluation, err := artifactManager().WriteRunRecord(workspace, record)
 	if err != nil {
-		log("failed to encode run record: %v", err)
-		return
-	}
-	path := filepath.Join(workspace, ".pi-symphony-run.json")
-	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
 		log("failed to write run record: %v", err)
 		return
 	}
 	log("wrote run record: %s", path)
-	evaluationPath, evaluation := writeEvaluationArtifact(workspace, record)
+	log("wrote evaluation artifact: %s", evaluationPath)
 	logRunArtifactSummary(path, evaluationPath, record, evaluation)
 	mirrorRunRecordToState(workspace, record)
+}
+
+func artifactManager() artifactio.Manager {
+	return artifactio.Manager{
+		Evaluate:       evaluationForRun,
+		SnapshotFunc:   stateProjection{}.RunArtifact,
+		PRStateForURL:  prStateForURL,
+		TerminalStatus: terminalRunStatus,
+	}
 }
 
 func logRunArtifactSummary(runRecordPath, evaluationPath string, record runRecord, evaluation evaluationArtifact) {

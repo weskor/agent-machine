@@ -1,12 +1,10 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
+
+	artifactio "github.com/weskor/pi-symphony/internal/artifacts"
 )
 
 func collectPRFeedback(prNumber int) (string, error) {
@@ -23,20 +21,12 @@ func collectPRFeedback(prNumber int) (string, error) {
 }
 
 func feedbackHash(feedback string) string {
-	normalized := strings.TrimSpace(feedback)
-	if normalized == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(normalized))
-	return hex.EncodeToString(sum[:])
+	return artifactio.FeedbackHash(feedback)
 }
 
 func writePRFeedback(workspace string, prNumber int, feedback string) error {
-	if strings.TrimSpace(feedback) == "" {
-		feedback = fmt.Sprintf("# PR #%d feedback\n\nNo review feedback returned by GitHub.\n", prNumber)
-	}
-	path := filepath.Join(workspace, ".pi-symphony-feedback.md")
-	if err := os.WriteFile(path, []byte(feedback), 0o600); err != nil {
+	path, err := artifactio.WritePRFeedback(workspace, prNumber, feedback)
+	if err != nil {
 		return err
 	}
 	log("wrote PR feedback: %s", path)
@@ -44,14 +34,7 @@ func writePRFeedback(workspace string, prNumber int, feedback string) error {
 }
 
 func readPRFeedback(workspace string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(workspace, ".pi-symphony-feedback.md"))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", err
-	}
-	return string(data), nil
+	return artifactio.ReadPRFeedback(workspace)
 }
 
 func renderPRFeedback(prNumber int, feedback prFeedback) string {

@@ -120,6 +120,7 @@ type artifactSummary struct {
 	NextAction        string
 	ChecksStatus      string
 	MergeBlockReason  string
+	MergeBlockerCodes []string
 	BlockedBy         []string
 	Frictions         []string
 	TotalTokens       float64
@@ -205,6 +206,7 @@ func workspaceArtifactSummaries(workspaceRoot string) ([]artifactSummary, error)
 			summary.OperatorAttention = evaluation.OperatorAttentionRequired
 			summary.ChecksStatus = evaluation.ChecksStatus
 			summary.MergeBlockReason = evaluation.MergeBlockReason
+			summary.MergeBlockerCodes = evaluation.MergeBlockerCodes
 			summary.Frictions = evaluation.FrictionSignals
 			summary.TicketContract = evaluation.TicketContractEvidence
 		} else if !os.IsNotExist(err) {
@@ -289,9 +291,10 @@ func summarizePR(pr pullRequestSummary, artifact *artifactSummary) string {
 	}
 	merge := "mergeable"
 	reason := ""
-	if conflictReason := mergeConflictReason(pr); conflictReason != "" {
+	prGate := evaluatePullRequestMergeGate(pr)
+	if hasString(prGate.Codes(), "merge_conflict") {
 		merge = "conflicting"
-		reason = fmt.Sprintf(" reason=%s", conflictReason)
+		reason = fmt.Sprintf(" reason=%s", prGate.Reason())
 	}
 	gate := "artifact_gate=unknown"
 	if artifact != nil && artifact.HasEvaluation {

@@ -300,7 +300,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 			}
 			notReady.Error = reviewEvidence.ChecksSummary
 			writeRunProgress(config.WorkspaceRoot, notReady)
-			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, "review_not_ready", err.Error(), config.Budget.Active(), err.Error()))
+			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, runAttemptStatusReviewNotReady, err.Error(), config.Budget.Active(), err.Error()))
 			return true, nil
 		}
 	}
@@ -387,7 +387,7 @@ func shouldResumeReviewReadiness(workspaceRoot, issueIdentifier string, pr pullR
 	if err != nil {
 		return false
 	}
-	if snapshot.Phase != "review_not_ready" || snapshot.NextAction != "wait_for_github_checks_then_retry" {
+	if snapshot.Phase != "review_not_ready" {
 		return false
 	}
 	if strings.TrimSpace(snapshot.PRURL) != "" && snapshot.PRURL != pr.URL {
@@ -424,7 +424,7 @@ func resumeReviewReadyRun(client linearClient, stateStore *state.Store, config r
 		notReady.NextAction = "wait_for_github_checks_then_retry"
 		notReady.Error = evidence.ChecksSummary
 		writeRunProgress(config.WorkspaceRoot, notReady)
-		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, runStarted, time.Now(), nil, nil, prURL, "review_not_ready", err.Error(), config.Budget.Active(), err.Error()))
+		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, runStarted, time.Now(), nil, nil, prURL, runAttemptStatusReviewNotReady, err.Error(), config.Budget.Active(), err.Error()))
 		return true, nil
 	}
 	reviewing := runProgressForIssue(candidate, workspace, "reviewing", progressStarted)

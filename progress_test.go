@@ -94,7 +94,7 @@ func TestRunProgressForRecordSummarizesTerminalOutcome(t *testing.T) {
 
 func TestReviewReadinessResumeWaitsForSuccessfulChecks(t *testing.T) {
 	workspaceRoot := filepath.Join(t.TempDir(), ".symphony", "workspaces")
-	snapshot := runProgressSnapshot{IssueIdentifier: "CAG-122", Phase: "review_not_ready", PRURL: "https://github.com/weskor/pi-symphony/pull/122", ChecksStatus: "unavailable", NextAction: "wait_for_github_checks_then_retry"}
+	snapshot := runProgressSnapshot{IssueIdentifier: "CAG-122", Phase: "review_not_ready", PRURL: "https://github.com/weskor/pi-symphony/pull/122", ChecksStatus: "unavailable", NextAction: "resolve_merge_gate_blocker"}
 	if err := writeRunProgressResult(workspaceRoot, snapshot); err != nil {
 		t.Fatalf("writeRunProgressResult() error = %v", err)
 	}
@@ -109,5 +109,17 @@ func TestReviewReadinessResumeWaitsForSuccessfulChecks(t *testing.T) {
 	pr.StatusCheckRollup = []statusCheck{{Typename: "CheckRun", Name: "go-ci", Status: "IN_PROGRESS"}}
 	if shouldResumeReviewReadiness(workspaceRoot, "CAG-122", pr) {
 		t.Fatalf("pending checks should continue waiting")
+	}
+}
+
+func TestRunProgressForRecordPreservesReviewNotReadyRetryAction(t *testing.T) {
+	workspace := filepath.Join(t.TempDir(), "CAG-122")
+	record := runRecord{IssueIdentifier: "CAG-122", Workspace: workspace, Status: runAttemptStatusReviewNotReady, PRURL: "https://github.com/weskor/pi-symphony/pull/122", Error: "review not ready", StartedAt: time.Date(2026, 5, 20, 21, 0, 0, 0, time.UTC), EndedAt: time.Date(2026, 5, 20, 21, 5, 0, 0, time.UTC), DurationMS: 300000}
+	evaluation := evaluationArtifact{Outcome: "waiting_for_checks", ChecksStatus: "waiting_for_checks", NextAction: "wait_for_github_checks_then_retry"}
+
+	snapshot := runProgressForRecord(workspace, record, evaluation)
+
+	if snapshot.Phase != "review_not_ready" || snapshot.NextAction != "wait_for_github_checks_then_retry" || snapshot.Outcome != "waiting_for_checks" {
+		t.Fatalf("unexpected review-not-ready snapshot: %#v", snapshot)
 	}
 }

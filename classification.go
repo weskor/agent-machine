@@ -71,6 +71,9 @@ func classifyOutcome(input runClassificationInput, classification runClassificat
 	if record.Status == "success" && record.ReviewStatus == "passed" {
 		return "handoff_ready"
 	}
+	if record.Status == runAttemptStatusReviewNotReady {
+		return "waiting_for_checks"
+	}
 	if input.NeedsInfoUsed {
 		return "needs_info"
 	}
@@ -96,12 +99,16 @@ func classifyBlockedBy(input runClassificationInput) []string {
 		blockers = append(blockers, "missing_pr_url")
 	}
 	if record.Status != "success" {
-		blockers = append(blockers, record.Status)
+		if record.Status == runAttemptStatusReviewNotReady {
+			blockers = append(blockers, "waiting_for_checks")
+		} else {
+			blockers = append(blockers, record.Status)
+		}
 	}
 	if record.ReviewStatus != "" && record.ReviewStatus != "passed" {
 		blockers = append(blockers, "review_"+record.ReviewStatus)
 	}
-	if input.MergeBlockReason != "" {
+	if input.MergeBlockReason != "" && record.Status != runAttemptStatusReviewNotReady {
 		blockers = append(blockers, "merge_blocked")
 	}
 	return uniqueStrings(blockers)
@@ -120,6 +127,9 @@ func classifyRootCause(input runClassificationInput, classification runClassific
 	}
 	if record.Status == "timeout" || record.Status == "budget_exceeded" {
 		return record.Status
+	}
+	if record.Status == runAttemptStatusReviewNotReady {
+		return "waiting_for_checks"
 	}
 	if hasString(classification.FrictionSignals, "operational_failure") {
 		return "runner_operational_failure"
@@ -147,6 +157,9 @@ func classifyNextAction(input runClassificationInput, classification runClassifi
 	if record.Status == "timeout" || record.Status == "budget_exceeded" {
 		return "split_or_reduce_issue_scope_then_retry"
 	}
+	if record.Status == runAttemptStatusReviewNotReady {
+		return "wait_for_github_checks_then_retry"
+	}
 	if record.PRURL == "" {
 		return "inspect_run_log_and_create_or_repair_pr"
 	}
@@ -164,11 +177,17 @@ func classifyShouldRetry(input runClassificationInput, classification runClassif
 	if record.ReviewClassification == reviewClassificationMissingEvidenceOnly {
 		return false
 	}
+	if record.Status == runAttemptStatusReviewNotReady {
+		return true
+	}
 	return record.Status == "review_failed" || record.Status == "timeout" || record.Status == "budget_exceeded" || hasString(classification.FrictionSignals, "operational_failure")
 }
 
 func classifyOperatorAttention(input runClassificationInput, classification runClassification) bool {
 	record := input.Record
+	if record.Status == runAttemptStatusReviewNotReady {
+		return false
+	}
 	return input.MergeBlockReason != "" || hasString(classification.FrictionSignals, "operational_failure") || hasString(classification.FrictionSignals, "out_of_scope_diff_findings") || (record.Status == "success" && record.ReviewStatus != "passed")
 }
 

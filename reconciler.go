@@ -163,7 +163,7 @@ func (d *reconciliationDecision) applyPRInvariants(config runnerConfig, candidat
 		d.ShouldRetry = true
 		return
 	}
-	if canRetryReviewReadiness(config, candidate, pr) {
+	if canRetryReviewReadiness(config, candidate, pr, d.RunRecord) {
 		d.Lifecycle = lifecycleRunning
 		d.CanRun = true
 		d.CanMerge = false
@@ -205,7 +205,7 @@ func (d *reconciliationDecision) block(state lifecycleState, reason, next string
 	d.NextAction = next
 }
 
-func canRetryReviewReadiness(config runnerConfig, candidate issue, pr pullRequestSummary) bool {
+func canRetryReviewReadiness(config runnerConfig, candidate issue, pr pullRequestSummary, record *runRecord) bool {
 	if !stateIsRunnable(candidate.State.Name, config) {
 		return false
 	}
@@ -213,10 +213,13 @@ func canRetryReviewReadiness(config runnerConfig, candidate issue, pr pullReques
 	if err != nil {
 		return false
 	}
-	if snapshot.Phase != "review_not_ready" || snapshot.NextAction != "wait_for_github_checks_then_retry" {
+	if snapshot.Phase != "review_not_ready" {
 		return false
 	}
 	if strings.TrimSpace(snapshot.PRURL) != "" && snapshot.PRURL != pr.URL {
+		return false
+	}
+	if record != nil && record.Status != runAttemptStatusReviewNotReady {
 		return false
 	}
 	status, _ := reviewChecksStatus(pr.StatusCheckRollup)

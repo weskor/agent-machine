@@ -9,6 +9,7 @@ const (
 	runAttemptStatusSuccess        = "success"
 	runAttemptStatusFailed         = "failed"
 	runAttemptStatusReviewFailed   = "review_failed"
+	runAttemptStatusReviewNotReady = "review_not_ready"
 	runAttemptStatusGitHubAppError = "github_app_error"
 	runAttemptStatusNeedsInfo      = "needs_info"
 	runAttemptStatusNeedsInfoFail  = "needs_info_failed"

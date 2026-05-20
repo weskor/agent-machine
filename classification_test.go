@@ -33,3 +33,20 @@ func TestClassifyRunCentralizesOperationalFriction(t *testing.T) {
 		t.Fatalf("unexpected operational classification: %#v", classification)
 	}
 }
+
+func TestClassifyRunReviewNotReadyWaitsWithoutOperatorAttention(t *testing.T) {
+	record := testRunRecord(runAttemptStatusReviewNotReady, "https://github.com/weskor/pi-symphony/pull/122")
+	record.Error = `review not ready: GitHub checks unavailable: check run "GitHub check runs" is status=UNKNOWN conclusion=UNKNOWN`
+
+	classification := classifyRun(runClassificationInput{Record: record, MergeBlockReason: record.Error})
+
+	if classification.Outcome != "waiting_for_checks" || classification.RootCause != "waiting_for_checks" || classification.NextAction != "wait_for_github_checks_then_retry" {
+		t.Fatalf("expected waiting-for-checks classification, got %#v", classification)
+	}
+	if !classification.ShouldRetry || classification.OperatorAttentionRequired {
+		t.Fatalf("expected retry without operator attention, got %#v", classification)
+	}
+	if hasString(classification.BlockedBy, "merge_blocked") || !hasString(classification.BlockedBy, "waiting_for_checks") {
+		t.Fatalf("expected waiting_for_checks blocker without merge_blocked, got %#v", classification.BlockedBy)
+	}
+}

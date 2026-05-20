@@ -92,7 +92,7 @@ func evaluationForRun(workspace string, record runRecord) evaluationArtifact {
 		passed := record.ReviewStatus == "passed"
 		evaluation.ReviewPassed = &passed
 	}
-	classification := classifyRun(runClassificationInput{Record: record, FeedbackRetryCount: evaluation.FeedbackRetryCount, NeedsInfoUsed: evaluation.NeedsInfoUsed, MergeBlockReason: evaluation.MergeBlockReason, TotalTokens: evaluation.TotalTokens})
+	classification := classifyRunRecord(workspace, record)
 	evaluation.BehaviorContractEvidence = classification.BehaviorContractEvidence
 	evaluation.TicketContractEvidence = classification.TicketContractEvidence
 	evaluation.FrictionSignals = classification.FrictionSignals

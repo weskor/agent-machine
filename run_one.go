@@ -267,7 +267,9 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	if prURL != "" {
 		validation := validationLines(piOutput)
 		logHandoffRunSummary(candidate.Identifier, prURL, review, validation)
-		summary := handoffSummary{IssueIdentifier: candidate.Identifier, IssueTitle: candidate.Title, IssueURL: candidate.URL, PRURL: prURL, PiUsage: piUsage, Review: review, Duration: time.Since(piStart), Validation: validation, FollowUps: followUpLines(review)}
+		classificationRecord := runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, runAttemptStatusSuccess, "", config.Budget.Active(), "")
+		classification := classifyRunRecord(workspace, classificationRecord)
+		summary := handoffSummary{IssueIdentifier: candidate.Identifier, IssueTitle: candidate.Title, IssueURL: candidate.URL, PRURL: prURL, PiUsage: piUsage, Review: review, Duration: time.Since(piStart), Validation: validation, FollowUps: followUpLines(review), Classification: &classification}
 		if err := postOrUpdatePRHandoffComment(summary); err != nil {
 			log("failed to post GitHub handoff comment for %s: %v", prURL, err)
 		}

@@ -45,6 +45,27 @@ func classifyRun(input runClassificationInput) runClassification {
 	return classification
 }
 
+func classifyRunRecord(workspace string, record runRecord) runClassification {
+	return classifyRun(runClassificationInput{
+		Record:             record,
+		FeedbackRetryCount: feedbackRetryCount(workspace),
+		NeedsInfoUsed:      strings.HasPrefix(record.Status, "needs_info"),
+		MergeBlockReason:   mergeBlockReason(record),
+		TotalTokens:        runRecordTotalTokens(record),
+	})
+}
+
+func runRecordTotalTokens(record runRecord) float64 {
+	var total float64
+	if record.PiUsage != nil {
+		total += record.PiUsage.TotalTokens
+	}
+	if record.ReviewUsage != nil {
+		total += record.ReviewUsage.TotalTokens
+	}
+	return total
+}
+
 func classifyOutcome(input runClassificationInput, classification runClassification) string {
 	record := input.Record
 	if record.Status == "success" && record.ReviewStatus == "passed" {

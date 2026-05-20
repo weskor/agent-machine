@@ -16,10 +16,11 @@ func TestRenderPRHandoffCommentIsReadableAndBounded(t *testing.T) {
 		Review:          &reviewResult{Status: "passed"},
 		Duration:        90 * time.Second,
 		Validation:      []string{"bun run symphony:pi:test", "git diff --check"},
+		Classification:  &runClassification{Outcome: "handoff_ready", NextAction: "await_approval_and_green_checks"},
 	}
 
 	markdown := renderPRHandoffComment(summary)
-	for _, expected := range []string{prSummaryMarker, "## Pi Symphony handoff", "### Validation", "### Behavior Contract Evidence", "docs/specs/harness-behavior.md", "docs/agents/review-policy.md", "Specs: preserved", "### Remaining follow-up", "bun run symphony:pi:test", "passed"} {
+	for _, expected := range []string{prSummaryMarker, "## Pi Symphony handoff", "### Validation", "### Behavior Contract Evidence", "docs/specs/harness-behavior.md", "docs/agents/review-policy.md", "Specs: preserved", "Run classification: outcome=handoff_ready", "### Remaining follow-up", "bun run symphony:pi:test", "passed"} {
 		if !strings.Contains(markdown, expected) {
 			t.Fatalf("expected %q in markdown:\n%s", expected, markdown)
 		}

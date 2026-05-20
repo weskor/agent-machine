@@ -17,13 +17,7 @@ func mergeConflictReason(pr pullRequestSummary) string {
 }
 
 func mergeGateBlockReason(pr pullRequestSummary) string {
-	if reason := mergeConflictReason(pr); reason != "" {
-		return reason
-	}
-	if !strings.EqualFold(pr.Mergeable, "MERGEABLE") {
-		return fmt.Sprintf("GitHub reports mergeable=%s; waiting for a fresh mergeable result before merging %s.", emptyAsUnknown(pr.Mergeable), pr.HeadRefName)
-	}
-	return checksBlockReason(pr.StatusCheckRollup)
+	return evaluatePullRequestMergeGate(pr).Reason()
 }
 
 // mergeApprovedPRs is intentionally conservative: it only merges Human Review
@@ -55,7 +49,9 @@ func mergeApprovedPRs(client linearClient, config runnerConfig) error {
 		if err != nil {
 			return err
 		}
-		if reason := mergeConflictReason(pr); reason != "" {
+		gate := evaluatePullRequestMergeGate(pr)
+		if hasString(gate.Codes(), "merge_conflict") {
+			reason := gate.Reason()
 			workspace := filepath.Join(config.WorkspaceRoot, candidate.Identifier)
 			if err := os.MkdirAll(workspace, 0o755); err != nil {
 				return err

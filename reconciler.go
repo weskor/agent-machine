@@ -167,21 +167,22 @@ func (d *reconciliationDecision) applyPRInvariants(config runnerConfig, candidat
 		d.block(lifecycleBlocked, fmt.Sprintf("PR exists while Linear state is %q", candidate.State.Name), "reconcile_linear_state")
 		return
 	}
-	if pr.ReviewDecision != "APPROVED" {
-		d.block(lifecycleHandoffReady, fmt.Sprintf("waiting for approval; reviewDecision=%s", emptyAsUnknown(pr.ReviewDecision)), "await_human_approval")
+	gate := evaluateMergeGate(config, candidate, pr)
+	if !gate.Eligible && hasString(gate.Codes(), "review_decision") {
+		d.block(lifecycleHandoffReady, gate.Reason(), "await_human_approval")
 		return
 	}
-	if reason := mergeGateBlockReason(pr); reason != "" {
-		d.block(lifecycleHandoffReady, reason, "wait_for_green_mergeable_pr")
+	if !gate.Eligible && (hasString(gate.Codes(), "merge_conflict") || hasString(gate.Codes(), "mergeable_unknown") || hasString(gate.Codes(), "status_checks")) {
+		d.block(lifecycleHandoffReady, gate.Reason(), "wait_for_green_mergeable_pr")
 		return
 	}
-	if reason := runArtifactMergeBlockReason(config.WorkspaceRoot, candidate.Identifier, pr.URL); reason != "" {
-		d.block(lifecycleQuarantined, reason, "repair_run_artifact_before_merge")
+	if !gate.Eligible && hasString(gate.Codes(), "run_artifact") {
+		d.block(lifecycleQuarantined, gate.Reason(), "repair_run_artifact_before_merge")
 		d.ShouldQuarantine = true
 		return
 	}
-	if locked, reason := workspaceLockedOrModified(config.WorkspaceRoot, candidate.Identifier, pr.HeadRefName); locked {
-		d.block(lifecycleBlocked, reason, "clear_workspace_lock_or_changes")
+	if !gate.Eligible && hasString(gate.Codes(), "workspace_state") {
+		d.block(lifecycleBlocked, gate.Reason(), "clear_workspace_lock_or_changes")
 		return
 	}
 	d.Lifecycle = lifecycleMergeReady

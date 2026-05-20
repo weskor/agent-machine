@@ -35,6 +35,7 @@ type evaluationArtifact struct {
 	FeedbackRetryCount           int      `json:"feedback_retry_count,omitempty"`
 	NeedsInfoUsed                bool     `json:"needs_info_used"`
 	MergeBlockReason             string   `json:"merge_block_reason,omitempty"`
+	MergeBlockerCodes            []string `json:"merge_blocker_codes,omitempty"`
 	WorkspaceCleanupEligible     bool     `json:"workspace_cleanup_eligible"`
 	FrictionSignals              []string `json:"friction_signals,omitempty"`
 	CandidateHarnessImprovements []string `json:"candidate_harness_improvements,omitempty"`
@@ -59,6 +60,7 @@ func writeEvaluationArtifact(workspace string, record runRecord) (string, evalua
 }
 
 func evaluationForRun(workspace string, record runRecord) evaluationArtifact {
+	mergeGate := evaluateRunRecordMergeGate(record)
 	evaluation := evaluationArtifact{
 		IssueIdentifier:          record.IssueIdentifier,
 		IssueID:                  record.IssueID,
@@ -70,7 +72,8 @@ func evaluationForRun(workspace string, record runRecord) evaluationArtifact {
 		ReviewClassification:     record.ReviewClassification,
 		FeedbackRetryCount:       feedbackRetryCount(workspace),
 		NeedsInfoUsed:            strings.HasPrefix(record.Status, "needs_info"),
-		MergeBlockReason:         mergeBlockReason(record),
+		MergeBlockReason:         mergeGate.Reason(),
+		MergeBlockerCodes:        mergeGate.Codes(),
 		WorkspaceCleanupEligible: terminalRunStatus(record.Status),
 	}
 	if record.PiUsage != nil {
@@ -230,13 +233,7 @@ func feedbackRetryCount(workspace string) int {
 }
 
 func mergeBlockReason(record runRecord) string {
-	if record.Status == "review_failed" {
-		return "review did not pass"
-	}
-	if strings.Contains(strings.ToLower(record.Error), "check") {
-		return record.Error
-	}
-	return ""
+	return evaluateRunRecordMergeGate(record).Reason()
 }
 
 func frictionSignals(record runRecord, evaluation evaluationArtifact) []string {

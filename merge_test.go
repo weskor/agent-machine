@@ -232,6 +232,85 @@ func TestMergeGateBlockReason(t *testing.T) {
 	}
 }
 
+func TestEvaluateMergeGateBlockers(t *testing.T) {
+	greenChecks := []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS", Name: "build"}}
+	basePR := pullRequestSummary{
+		Number:            470,
+		URL:               "https://github.com/weskor/pi-symphony/pull/470",
+		BaseRefName:       "main",
+		HeadRefName:       "symphony/CAG-70-workspace",
+		Author:            prAuthor{Login: "app/compound-symphony-bot"},
+		Mergeable:         "MERGEABLE",
+		MergeStateStatus:  "CLEAN",
+		ReviewDecision:    "APPROVED",
+		StatusCheckRollup: greenChecks,
+	}
+	tests := []struct {
+		name       string
+		mutatePR   func(*pullRequestSummary)
+		artifact   runRecord
+		wantCode   string
+		wantReason string
+		wantOK     bool
+	}{
+		{name: "eligible", wantOK: true},
+		{name: "author invariant", mutatePR: func(pr *pullRequestSummary) { pr.Author.Login = "octocat" }, wantCode: "pr_invariant", wantReason: "PR author"},
+		{name: "check failure", mutatePR: func(pr *pullRequestSummary) {
+			pr.StatusCheckRollup = []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "FAILURE", Name: "build"}}
+		}, wantCode: "status_checks", wantReason: `check run "build"`},
+		{name: "merge conflicts", mutatePR: func(pr *pullRequestSummary) { pr.Mergeable = "CONFLICTING"; pr.MergeStateStatus = "DIRTY" }, wantCode: "merge_conflict", wantReason: "has conflicts with the base branch"},
+		{name: "branch mapping", mutatePR: func(pr *pullRequestSummary) { pr.HeadRefName = "symphony/CAG-71-workspace" }, wantCode: "pr_invariant", wantReason: "PR head branch"},
+		{name: "review decision", mutatePR: func(pr *pullRequestSummary) { pr.ReviewDecision = "REVIEW_REQUIRED" }, wantCode: "review_decision", wantReason: "reviewDecision=REVIEW_REQUIRED"},
+		{name: "artifact gate", artifact: func() runRecord {
+			r := testRunRecord("review_failed", basePR.URL)
+			r.IssueIdentifier = "CAG-70"
+			r.ReviewStatus = "failed"
+			return r
+		}(), wantCode: "run_artifact", wantReason: "run status is review_failed"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			workspace := filepath.Join(root, "CAG-70")
+			if err := os.MkdirAll(workspace, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := sh.Run("git init && git config user.email test@example.com && git config user.name Test", workspace); err != nil {
+				t.Fatal(err)
+			}
+			pr := basePR
+			if tt.mutatePR != nil {
+				tt.mutatePR(&pr)
+			}
+			record := tt.artifact
+			if record.Status == "" {
+				record = testRunRecord("success", pr.URL)
+				record.IssueIdentifier = "CAG-70"
+				record.ReviewStatus = "passed"
+			}
+			data, err := json.Marshal(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			decision := evaluateMergeGate(runnerConfig{WorkspaceRoot: root, BaseBranch: "main", GitHubAppSlug: "compound-symphony-bot"}, testIssue("CAG-70", "Human Review"), pr)
+			if decision.Eligible != tt.wantOK {
+				t.Fatalf("Eligible=%t, want %t; blockers=%v", decision.Eligible, tt.wantOK, decision.Blockers)
+			}
+			if tt.wantCode != "" && !hasString(decision.Codes(), tt.wantCode) {
+				t.Fatalf("Codes()=%v, want %q", decision.Codes(), tt.wantCode)
+			}
+			if tt.wantReason != "" && !strings.Contains(decision.Reason(), tt.wantReason) {
+				t.Fatalf("Reason()=%q, want to contain %q", decision.Reason(), tt.wantReason)
+			}
+		})
+	}
+}
+
 func TestMergeApprovedPRsMovesConflictingPRBackToReady(t *testing.T) {
 	root := t.TempDir()
 	merged := map[int]bool{}

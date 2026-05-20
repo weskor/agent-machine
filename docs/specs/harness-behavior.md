@@ -57,6 +57,7 @@ CAG-105 adds the SQLite authority matrix and rollout plan to that contract. Curr
 - The agent must create or update exactly one PR from the expected workspace branch into the configured base branch.
 - The agent should stop after scoped diff, validation notes, and PR handoff.
 - The runner parses Pi usage and the first configured-repository GitHub PR URL from the output.
+- When a Linear issue includes machine-readable `Allowed paths:` or `Out of scope:` bullets, the runner checks changed files against that path contract before review and handoff. Scope violations are recorded as behavior/spec blockers and move the issue back to the configured Ready state. Issues without a machine-readable path contract continue with a warning so legacy tickets remain runnable.
 - Primary daemon logs record concise lifecycle summaries and do not print the raw Pi JSONL implementation or review stream during normal operation.
 - When `PI_SYMPHONY_DEBUG_RAW_OUTPUT=1` is set, raw agent output is written to capped local debug artifacts under `.pi-symphony-debug/*-raw.log`, and the primary log includes the artifact path.
 - If no PR URL is detected, the run fails unless a NEEDS_INFO path was detected.

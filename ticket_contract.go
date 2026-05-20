@@ -6,6 +6,7 @@ func ticketContractPrompt() string {
 	return `Ticket-contract preflight:
 - Restate the five Linear ticket sections before planning: Goal, Scope, Requirements, Acceptance Criteria, Validation.
 - Treat explicit MUST / MUST NOT statements, required packages or approaches, allowed paths, and out-of-scope items as hard constraints.
+- Prefer machine-readable path bullets under Allowed paths: and Out of scope:. Use exact paths or simple globs such as run_one.go, internal/state/*, or docs/specs/*.md.
 - For refactors, replacements, and rewrites, require behavior-preservation notes in Requirements or Acceptance Criteria before changing code.
 - If Scope, Requirements, or Acceptance Criteria are incomplete or unsafe for a new refactor/replacement ticket, output NEEDS_INFO with numbered questions instead of guessing.
 - Example hard constraint: MUST use github.com/google/go-github/v66/github; MUST NOT add bespoke net/http GitHub API wrappers.`

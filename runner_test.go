@@ -597,6 +597,81 @@ func TestRunOneFailsWhenPiFinishesWithoutPRURLOrNeedsInfo(t *testing.T) {
 	}
 }
 
+func TestRunOneBlocksOutOfScopeDiffBeforeReviewHandoff(t *testing.T) {
+	t.Setenv("GITHUB_APP_ID", "")
+	t.Setenv("GITHUB_APP_INSTALLATION_ID", "")
+	t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "")
+	root := t.TempDir()
+	var updatedStates []string
+	var comments []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		switch {
+		case strings.Contains(request.Query, "issues(first"):
+			candidate := testIssue("CAG-34", "Ready for Agent")
+			candidate.Description = "Allowed paths:\n\n* `docs/specs/*.md`\n\nOut of scope:\n\n* `state_projection.go`\n"
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issues": map[string]any{"nodes": []issue{candidate}}}})
+		case strings.Contains(request.Query, "workflowStates"):
+			states := []workflowState{{ID: "ready-id", Name: "Ready for Agent"}, {ID: "running-id", Name: "In Progress"}, {ID: "handoff-id", Name: "Human Review"}}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"workflowStates": map[string]any{"nodes": states}}})
+		case strings.Contains(request.Query, "issueUpdate"):
+			updatedStates = append(updatedStates, request.Variables["stateId"].(string))
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issueUpdate": map[string]any{"success": true}}})
+		case strings.Contains(request.Query, "commentCreate"):
+			comments = append(comments, request.Variables["body"].(string))
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"commentCreate": map[string]any{"success": true}}})
+		default:
+			t.Fatalf("unexpected Linear query: %s", request.Query)
+		}
+	}))
+	defer server.Close()
+
+	client := linearClient{apiKey: "test-key", endpoint: server.URL}
+	config := testRunnerConfig(root)
+	config.RunningState = "In Progress"
+	config.ReadyState = "Ready for Agent"
+	config.HandoffState = "Human Review"
+	config.BaseBranch = "main"
+	config.AfterCreate = "git init -q && git config user.email test@example.com && git config user.name Test && git checkout -q -b main && touch README.md && git add README.md && git commit -qm base && git update-ref refs/remotes/origin/main HEAD"
+	config.PiCommand = "sh -c 'echo drift > state_projection.go && git add state_projection.go && git commit -qm drift && echo https://github.com/weskor/pi-symphony/pull/999'"
+	config.ReviewCommand = "sh -c 'echo REVIEW_PASS && exit 1'"
+	wf := workflow{Body: "# Test workflow"}
+
+	didWork, err := runOne(client, wf, config)
+	if err != nil {
+		t.Fatalf("runOne returned error: %v", err)
+	}
+	if !didWork {
+		t.Fatal("expected runOne to process an issue")
+	}
+	if !reflect.DeepEqual(updatedStates, []string{"running-id", "ready-id"}) {
+		t.Fatalf("updated states = %#v", updatedStates)
+	}
+	if len(comments) != 1 || !strings.Contains(comments[0], "Scope guard failed") || !strings.Contains(comments[0], "state_projection.go") {
+		t.Fatalf("expected scope guard comment, got %#v", comments)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "CAG-34", ".pi-symphony-run.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record runRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != "review_failed" || record.ReviewStatus != "failed" || record.ReviewClassification != reviewClassificationBehaviorSpecBlocker {
+		t.Fatalf("unexpected run record: %#v", record)
+	}
+	if record.PRURL != "https://github.com/weskor/pi-symphony/pull/999" || !strings.Contains(record.ReviewFindings, "state_projection.go") {
+		t.Fatalf("scope guard evidence missing from run record: %#v", record)
+	}
+}
+
 func TestBehaviorContractPreflightPromptCoversGenericReplacementContracts(t *testing.T) {
 	prompt := behaviorContractPreflightPrompt()
 

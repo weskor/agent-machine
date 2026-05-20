@@ -151,6 +151,50 @@ func TestSummarizeRunningReconciliationIgnoresActiveLock(t *testing.T) {
 	}
 }
 
+func TestReconcileIssuesUsesOpenPRMapping(t *testing.T) {
+	config := testRunnerConfig(t.TempDir())
+	config.HandoffState = "Human Review"
+	config.BaseBranch = "develop"
+	candidate := testIssue("CAG-44", "Human Review")
+	pr := pullRequestSummary{Number: 444, URL: "https://github.com/pennywise-investments/compound-web/pull/444", BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-44"), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "COMMENTED"}
+
+	decisions := reconcileIssues(config, []issue{candidate}, indexPRsByIssue([]pullRequestSummary{pr}), nil)
+
+	if len(decisions) != 1 || decisions[0].PR == nil || decisions[0].PR.Number != 444 || decisions[0].Lifecycle != lifecycleHandoffReady {
+		t.Fatalf("expected open PR mapping to drive handoff reconciliation, got %#v", decisions)
+	}
+}
+
+func TestRunningReconciliationReportsDeletedWorkspace(t *testing.T) {
+	candidate := testIssue("CAG-45", "In Progress")
+	config := runnerConfig{WorkspaceRoot: t.TempDir(), RunningState: "In Progress"}
+
+	lines := summarizeRunningReconciliation([]issue{candidate}, nil, config)
+
+	joined := strings.Join(lines, "\n")
+	for _, expected := range []string{"Actionable In Progress reconciliation:", "CAG-45", "artifact_status=missing", "next=restart_runner_or_move_issue_ready"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("expected %q in %#v", expected, lines)
+		}
+	}
+}
+
+func TestReadyReconciliationReportsStaleTerminalArtifactWithoutWorkspaceRead(t *testing.T) {
+	candidate := testIssue("CAG-46", "Ready for Agent")
+	config := runnerConfig{WorkspaceRoot: t.TempDir(), ReadyState: "Ready for Agent"}
+	artifacts := map[string]artifactSummary{"CAG-46": {Issue: "CAG-46", Status: "success", Outcome: "handoff_ready", NextAction: "await_approval_and_green_checks", Cleanable: true, HasArtifact: true, PRURL: "https://github.com/pennywise-investments/compound-web/pull/446"}}
+
+	decisions := reconcileIssues(config, []issue{candidate}, nil, artifacts)
+	lines := summarizeReadyReconciliationDecisions(decisions, config.ReadyState)
+
+	joined := strings.Join(lines, "\n")
+	for _, expected := range []string{"Reconcile Ready issue with terminal artifact", "CAG-46", "status=success", "next=await_approval_and_green_checks"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("expected %q in %#v", expected, lines)
+		}
+	}
+}
+
 func TestSummarizeArtifactsReportsMissingArtifact(t *testing.T) {
 	lines := summarizeArtifacts([]artifactSummary{{Issue: "CAG-3"}})
 	if len(lines) != 1 || lines[0] != "CAG-3 missing artifact" {

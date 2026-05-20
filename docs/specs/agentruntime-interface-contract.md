@@ -3,8 +3,8 @@
 ## Goal
 
 Provide a machine-readable contract that allows Pi Symphony to drive Pi CLI today
-and future runtime adapters (ACP/MCP/app-server) without embedding orchestration
-logic in runtime execution code.
+and future runtime adapters (fake/test, API, app-server, ACP-style, or MCP-style)
+without embedding orchestration logic in runtime execution code.
 
 ## Scope
 
@@ -14,8 +14,9 @@ In this ticket, scope is limited to contract definition and docs/tests:
 - `internal/agentruntime/contract.go` (public interface and data types)
 - `internal/agentruntime/contract_test.go` (contract-level test coverage)
 
-No runtime behavior in `run_one.go`, `reconciler.go`, merge lane, or cleanup logic
-is changed in this ticket.
+This documentation slice preserves production behavior. No runtime behavior in
+`run_one.go`, `reconciler.go`, merge lane, or cleanup logic is changed in this
+ticket.
 
 ## Contract
 
@@ -23,6 +24,46 @@ is changed in this ticket.
 
 The `AgentRuntime` interface is an **execution adapter contract** only. It is
 not a policy engine.
+
+### Supported provider vocabulary
+
+Runtime provider names identify Adapter choices at the AgentRuntime seam. They
+must not be used as architecture names for the runner itself.
+
+- `pi_cli`: the current local Adapter. It shells to the local `pi` executable
+  and may remain the first/default local provider while the runner is local-first.
+  Users therefore need `pi` installed and configured on `PATH` for the current
+  production runtime. That dependency should fail during runner preflight before
+  claiming or mutating work, not after a workspace or Linear issue has been
+  changed.
+- `fake`: deterministic fake/test runtime used by tests and characterization
+  scenarios. It should exercise the same AgentRuntime contract and handoff
+  evidence paths without requiring network, auth, or an installed Agent CLI.
+- Future provider names may include `api`, `app_server`, `acp`, or `mcp` style
+  Adapters. Those names describe transport or process shape only; they must call
+  the same runner Modules for orchestration, ownership, validation, and handoff.
+
+`pi_cli` is an Adapter choice, not Pi Symphony's architecture. Adding another
+provider must not move issue claiming, branch/PR validation, lifecycle state,
+handoff comments, merge gates, or cleanup policy into provider-specific prompts.
+
+### Runtime preflight contract
+
+Before mutating a workspace, acquiring or externally claiming work, or moving a
+Linear issue, the selected runtime provider should expose a preflight result with
+actionable failures. For `pi_cli`, this includes:
+
+- binary availability and executable path for `pi`;
+- auth/config discoverability where feasible without leaking secrets;
+- selected provider/model visibility when the runtime can report it;
+- quota or account readiness when cheaply discoverable;
+- explicit failure messages that tell the operator what to install, configure,
+  login to, or select.
+
+Preflight must be best-effort where runtime CLIs do not expose stable auth/model
+inspection commands, but missing `pi` for `pi_cli` is a hard pre-claim failure.
+The runner should record the selected provider and visible model/config evidence
+in artifacts or orchestration state when available.
 
 The runtime adapter must implement:
 
@@ -32,6 +73,42 @@ The runtime adapter must implement:
 3. Review execution (`ReviewAttempt`) when available.
 4. Cancel/stop hooks (`Cancel`, `Stop`) where supported by the adapter.
 5. Event emission throughout execution.
+
+Runtime providers declare capabilities instead of relying on caller guesses:
+
+| Capability | Meaning |
+| --- | --- |
+| `implementation_run` | Can perform an implementation attempt. |
+| `review_run` | Can perform a semantic review attempt. |
+| `usage_cost_reporting` | Can report token, cost, or other usage telemetry. |
+| `timeout_cancellation` | Can enforce timeout and/or cancellation signals. |
+| `max_turns` | Can enforce turn/iteration limits inside one attempt. |
+| `structured_output` | Can emit typed outcomes/events without text scraping. |
+| `raw_debug_capture` | Can expose raw streams for capped debug artifacts. |
+| `deterministic_handoff_support` | Can provide machine-readable PR/handoff hints, while the runner still validates and owns handoff. |
+
+Unsupported capabilities must be explicit. A future `max_turns` implementation
+must check the provider capability first; it must not assume that `pi_cli` can
+enforce internal turn limits just because the workflow field exists.
+
+### Deterministic handoff boundary
+
+AgentRuntime output may include a PR URL, branch name, summary, usage, and debug
+evidence, but those are inputs to runner validation, not authority. Wherever the
+runner can perform the operation with configured Git/GitHub credentials and typed
+workflow facts, the runner owns:
+
+- commit creation or validation of the exact diff to hand off;
+- push to the expected `symphony/<issue>-workspace` branch;
+- PR create/update against the configured repository and base branch;
+- PR URL resolution and validation by repository, branch, base, issue identifier,
+  author/owner policy, and current attempt;
+- artifact recording for run result, usage, validation, review, PR identity, and
+  handoff evidence.
+
+The Agent should focus on code/test/doc changes and semantic explanation. Any PR
+URL or handoff instruction produced by an Agent or runtime is advisory until the
+runner validates it against GitHub facts.
 
 Unsupported operations must fail with a typed `UnsupportedOperation` error (for
 example `cancel` on a runtime that has no cancellation primitive).

@@ -50,6 +50,25 @@ Use the vocabulary in `LANGUAGE.md`. Favor Modules whose Interfaces hide real be
 - CLI mode dispatch
 - Protocol Adapters
 
+### Runtime providers as Adapters
+
+The current local runtime provider is `pi_cli`: Pi Symphony shells to a locally
+installed and configured `pi` CLI. That dependency is acceptable for the first
+local Adapter, but V1 should treat it as a provider choice rather than the
+runner architecture. The same AgentRuntime seam should support a deterministic
+fake/test provider and future API, app-server, ACP-style, or MCP-style providers.
+
+Provider preflight should fail early before claiming or mutating work when the
+selected runtime is unavailable or not configured. Runtime capabilities such as
+review support, usage reporting, cancellation, `max_turns`, structured output,
+raw debug capture, and handoff hints should be declared explicitly.
+
+Git/PR handoff remains a runner invariant: commit/push/PR create-update, branch
+and base validation, PR URL validation, and artifact recording should be
+runner-owned wherever possible. Agents and runtime providers contribute edits,
+semantic explanations, usage, and advisory PR hints; they do not own the final
+handoff decision.
+
 ### Durable orchestration state
 
 SQLite becomes the local source of truth for Pi Symphony orchestration decisions after the contract in `docs/specs/sqlite-orchestration-state.md` is implemented. Linear and GitHub remain external systems of record.

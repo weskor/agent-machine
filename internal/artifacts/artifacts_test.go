@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/weskor/pi-symphony/internal/domain"
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 func testManager() Manager {
@@ -36,6 +37,18 @@ func TestManagerWriteReadBackfillArtifacts(t *testing.T) {
 	if runPath != RunRecordPath(workspace) || evalPath != EvaluationPath(workspace) || evaluation.Outcome != "fallback" {
 		t.Fatalf("unexpected write result: %q %q %#v", runPath, evalPath, evaluation)
 	}
+	var writtenRun map[string]any
+	if data, err := os.ReadFile(runPath); err != nil {
+		t.Fatal(err)
+	} else if err := json.Unmarshal(data, &writtenRun); err != nil {
+		t.Fatal(err)
+	}
+	if writtenRun["schema_version"] != float64(CurrentArtifactSchemaVersion) || writtenRun["schema_source"] != ArtifactSchemaSourceCurrent {
+		t.Fatalf("run record missing schema metadata: %#v", writtenRun)
+	}
+	if evaluation.SchemaVersion != CurrentArtifactSchemaVersion || evaluation.SchemaSource != ArtifactSchemaSourceCurrent {
+		t.Fatalf("evaluation missing schema metadata: %#v", evaluation)
+	}
 
 	readRecord, readEvaluation, artifactTime, err := testManager().ReadBackfill(workspace, filepath.Dir(workspace))
 	if err != nil {
@@ -43,6 +56,44 @@ func TestManagerWriteReadBackfillArtifacts(t *testing.T) {
 	}
 	if readRecord.IssueIdentifier != "CAG-75" || readEvaluation.Outcome != "fallback" || !artifactTime.Equal(started) {
 		t.Fatalf("unexpected backfill read: %#v %#v %s", readRecord, readEvaluation, artifactTime)
+	}
+}
+
+func TestManagerReadBackfillTreatsUnversionedArtifactsAsLegacy(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(RunRecordPath(workspace), []byte(`{"issue_identifier":"CAG-75","workspace":"`+workspace+`","status":"success"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(EvaluationPath(workspace), []byte(`{"issue_identifier":"CAG-75","final_status":"success","outcome":"legacy"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, evaluation, _, err := testManager().ReadBackfill(workspace, filepath.Dir(workspace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evaluation.SchemaVersion != CurrentArtifactSchemaVersion || evaluation.SchemaSource != ArtifactSchemaSourceLegacy || evaluation.Outcome != "legacy" {
+		t.Fatalf("unexpected legacy evaluation metadata: %#v", evaluation)
+	}
+}
+
+func TestManagerReadBackfillRejectsUnsupportedSchemaVersion(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(RunRecordPath(workspace), []byte(`{"schema_version":99,"issue_identifier":"CAG-75","status":"success"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := testManager().ReadBackfill(workspace, filepath.Dir(workspace)); err == nil || err.Error() != "unsupported .pi-symphony-run.json schema_version 99" {
+		t.Fatalf("expected unsupported schema version error, got %v", err)
+	}
+}
+
+func TestManagerReadBackfillRejectsCorruptedSchemaVersion(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(RunRecordPath(workspace), []byte(`{"schema_version":"bad","issue_identifier":"CAG-75","status":"success"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := testManager().ReadBackfill(workspace, filepath.Dir(workspace)); err == nil {
+		t.Fatal("expected corrupted schema version error")
 	}
 }
 
@@ -57,6 +108,9 @@ func TestRunArtifactSnapshotMapsArtifactFields(t *testing.T) {
 
 	if snapshot.IssueKey != "CAG-75" || snapshot.Repository != "acme/repo" || snapshot.PRNumber != 75 || !snapshot.MergeEligible {
 		t.Fatalf("unexpected snapshot identity: %#v", snapshot)
+	}
+	if snapshot.SchemaVersion != state.CurrentSchemaVersion || snapshot.ArtifactSchemaVersion != CurrentArtifactSchemaVersion || snapshot.ArtifactSchemaSource != ArtifactSchemaSourceCurrent {
+		t.Fatalf("unexpected snapshot schema metadata: %#v", snapshot)
 	}
 	if snapshot.RunArtifactRef != RunRecordPath(workspace) || snapshot.EvaluationRef != EvaluationPath(workspace) || snapshot.ReviewOutputRef != EvaluationPath(workspace) {
 		t.Fatalf("unexpected artifact refs: %#v", snapshot)

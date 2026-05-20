@@ -134,35 +134,38 @@ type CleanupFacts struct {
 }
 
 type RunArtifactSnapshot struct {
-	IssueKey             string
-	IssueID              string
-	Attempt              int
-	WorkspacePath        string
-	BranchName           string
-	BaseBranch           string
-	Status               string
-	StartedAt            time.Time
-	UpdatedAt            time.Time
-	Repository           string
-	PRNumber             int
-	PRURL                string
-	ReviewStatus         string
-	ReviewPassed         bool
-	ReviewClassification string
-	ReviewOutputRef      string
-	ReviewOutputHash     string
-	MergeEligible        bool
-	FeedbackHash         string
-	FeedbackNextAction   string
-	RetryCount           int
-	RetryBudgetState     string
-	RetryReason          string
-	RetryInputHash       string
-	RetryNextState       string
-	TerminalOutcome      string
-	TerminalReason       string
-	RunArtifactRef       string
-	EvaluationRef        string
+	SchemaVersion         int
+	ArtifactSchemaVersion int
+	ArtifactSchemaSource  string
+	IssueKey              string
+	IssueID               string
+	Attempt               int
+	WorkspacePath         string
+	BranchName            string
+	BaseBranch            string
+	Status                string
+	StartedAt             time.Time
+	UpdatedAt             time.Time
+	Repository            string
+	PRNumber              int
+	PRURL                 string
+	ReviewStatus          string
+	ReviewPassed          bool
+	ReviewClassification  string
+	ReviewOutputRef       string
+	ReviewOutputHash      string
+	MergeEligible         bool
+	FeedbackHash          string
+	FeedbackNextAction    string
+	RetryCount            int
+	RetryBudgetState      string
+	RetryReason           string
+	RetryInputHash        string
+	RetryNextState        string
+	TerminalOutcome       string
+	TerminalReason        string
+	RunArtifactRef        string
+	EvaluationRef         string
 }
 
 func DefaultDBPath(workspaceRoot string) string {
@@ -524,6 +527,15 @@ func (s *Store) UpsertRunArtifact(ctx context.Context, snap RunArtifactSnapshot)
 	if snap.BaseBranch == "" {
 		snap.BaseBranch = "main"
 	}
+	if snap.SchemaVersion == 0 {
+		snap.SchemaVersion = CurrentSchemaVersion
+	}
+	if snap.ArtifactSchemaVersion == 0 {
+		snap.ArtifactSchemaVersion = 1
+	}
+	if snap.ArtifactSchemaSource == "" {
+		snap.ArtifactSchemaSource = "current"
+	}
 	now := snap.UpdatedAt.UTC()
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -587,7 +599,7 @@ ON CONFLICT(attempt_id) DO UPDATE SET outcome=excluded.outcome, reason=excluded.
 		if ref == "" {
 			continue
 		}
-		factJSON, err := json.Marshal(map[string]string{"ref": ref})
+		factJSON, err := json.Marshal(map[string]any{"ref": ref, "schema_version": snap.ArtifactSchemaVersion, "schema_source": snap.ArtifactSchemaSource, "projection_schema_version": snap.SchemaVersion})
 		if err != nil {
 			return fmt.Errorf("encode external artifact ref: %w", err)
 		}
@@ -608,6 +620,9 @@ func runArtifactEventInput(snap RunArtifactSnapshot, occurredAt time.Time) Event
 		eventType = EventAttemptFinished
 	}
 	payload := map[string]any{"status": snap.Status}
+	payload["schema_version"] = snap.SchemaVersion
+	payload["artifact_schema_version"] = snap.ArtifactSchemaVersion
+	payload["artifact_schema_source"] = snap.ArtifactSchemaSource
 	if snap.PRURL != "" {
 		payload["pr_url"] = snap.PRURL
 	}

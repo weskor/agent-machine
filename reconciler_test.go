@@ -49,6 +49,40 @@ func TestReconcileIssueAllowsChangesRequestedToSupersedeReviewFailedArtifact(t *
 	}
 }
 
+func TestReconcileIssueAllowsReviewReadinessRetryAfterChecksSucceed(t *testing.T) {
+	root := t.TempDir()
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	snapshot := runProgressSnapshot{IssueIdentifier: "CAG-122", Phase: "review_not_ready", PRURL: "https://github.com/pennywise-investments/compound-web/pull/522", ChecksStatus: "unavailable", NextAction: "wait_for_github_checks_then_retry"}
+	if err := writeRunProgressResult(root, snapshot); err != nil {
+		t.Fatalf("writeRunProgressResult() error = %v", err)
+	}
+	pr := pullRequestSummary{Number: 522, URL: snapshot.PRURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-122"), Author: prAuthor{Login: githubAppPRAuthorLogin}, StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS", Name: "build"}}}
+
+	decision := reconcileIssue(config, testIssue("CAG-122", "In Progress"), &pr)
+
+	if !decision.CanRun || !decision.ShouldRetry || decision.NextAction != "run_semantic_review_after_checks_ready" {
+		t.Fatalf("expected review readiness retry, got %#v", decision)
+	}
+}
+
+func TestReconcileIssueKeepsFailedChecksBlockedBeforeReview(t *testing.T) {
+	root := t.TempDir()
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	snapshot := runProgressSnapshot{IssueIdentifier: "CAG-122", Phase: "review_not_ready", PRURL: "https://github.com/pennywise-investments/compound-web/pull/522", ChecksStatus: "failed", NextAction: "fix_failing_github_checks_before_review"}
+	if err := writeRunProgressResult(root, snapshot); err != nil {
+		t.Fatalf("writeRunProgressResult() error = %v", err)
+	}
+	pr := pullRequestSummary{Number: 522, URL: snapshot.PRURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-122"), Author: prAuthor{Login: githubAppPRAuthorLogin}, StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "FAILURE", Name: "build"}}}
+
+	decision := reconcileIssue(config, testIssue("CAG-122", "In Progress"), &pr)
+
+	if decision.CanRun || decision.NextAction == "run_semantic_review_after_checks_ready" {
+		t.Fatalf("expected failed checks to remain blocked, got %#v", decision)
+	}
+}
+
 func TestReconcileIssueQuarantinesWrongBaseAuthorAndHead(t *testing.T) {
 	root := t.TempDir()
 	config := testRunnerConfig(root)

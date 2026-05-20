@@ -163,6 +163,14 @@ func (d *reconciliationDecision) applyPRInvariants(config runnerConfig, candidat
 		d.ShouldRetry = true
 		return
 	}
+	if canRetryReviewReadiness(config, candidate, pr) {
+		d.Lifecycle = lifecycleRunning
+		d.CanRun = true
+		d.CanMerge = false
+		d.NextAction = "run_semantic_review_after_checks_ready"
+		d.ShouldRetry = true
+		return
+	}
 	if candidate.State.Name != config.HandoffState {
 		d.block(lifecycleBlocked, fmt.Sprintf("PR exists while Linear state is %q", candidate.State.Name), "reconcile_linear_state")
 		return
@@ -195,6 +203,24 @@ func (d *reconciliationDecision) block(state lifecycleState, reason, next string
 	d.CanMerge = false
 	d.Blockers = append(d.Blockers, reason)
 	d.NextAction = next
+}
+
+func canRetryReviewReadiness(config runnerConfig, candidate issue, pr pullRequestSummary) bool {
+	if !stateIsRunnable(candidate.State.Name, config) {
+		return false
+	}
+	snapshot, err := readRunProgress(config.WorkspaceRoot, candidate.Identifier)
+	if err != nil {
+		return false
+	}
+	if snapshot.Phase != "review_not_ready" || snapshot.NextAction != "wait_for_github_checks_then_retry" {
+		return false
+	}
+	if strings.TrimSpace(snapshot.PRURL) != "" && snapshot.PRURL != pr.URL {
+		return false
+	}
+	status, _ := reviewChecksStatus(pr.StatusCheckRollup)
+	return status == "success"
 }
 
 func prInvariantBlockReason(config runnerConfig, candidate issue, pr pullRequestSummary) string {

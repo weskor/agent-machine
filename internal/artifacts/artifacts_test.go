@@ -25,7 +25,11 @@ func TestManagerWriteReadBackfillArtifacts(t *testing.T) {
 	started := time.Date(2026, 5, 20, 1, 0, 0, 0, time.UTC)
 	record := domain.RunRecord{IssueIdentifier: "CAG-75", Workspace: workspace, Status: "success", StartedAt: started}
 
-	runPath, evalPath, evaluation, err := testManager().WriteRunRecord(workspace, record)
+	runPath, err := testManager().WriteRunRecord(workspace, record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evalPath, evaluation, err := testManager().WriteEvaluation(workspace, record)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,6 +43,26 @@ func TestManagerWriteReadBackfillArtifacts(t *testing.T) {
 	}
 	if readRecord.IssueIdentifier != "CAG-75" || readEvaluation.Outcome != "fallback" || !artifactTime.Equal(started) {
 		t.Fatalf("unexpected backfill read: %#v %#v %s", readRecord, readEvaluation, artifactTime)
+	}
+}
+
+func TestRunArtifactSnapshotMapsArtifactFields(t *testing.T) {
+	workspace := t.TempDir()
+	started := time.Date(2026, 5, 20, 1, 0, 0, 0, time.UTC)
+	ended := started.Add(time.Minute)
+	record := domain.RunRecord{IssueIdentifier: "CAG-75", IssueID: "issue-id", Workspace: workspace, Status: "success", StartedAt: started, EndedAt: ended, PRURL: "https://github.com/acme/repo/pull/75", ReviewStatus: "passed", FeedbackHash: "feedback", BudgetExceeded: "ok"}
+	evaluation := EvaluationArtifact{Outcome: "handoff_ready", MergeEligible: true, NextAction: "await_approval", FeedbackRetryCount: 2, RootCause: "root"}
+
+	snapshot := RunArtifactSnapshot(workspace, record, evaluation, SnapshotOptions{BranchName: "symphony/CAG-75-workspace", BaseBranch: "main", Repository: "acme/repo", PRNumber: 75, ReviewOutputHash: "review", TerminalStatus: true})
+
+	if snapshot.IssueKey != "CAG-75" || snapshot.Repository != "acme/repo" || snapshot.PRNumber != 75 || !snapshot.MergeEligible {
+		t.Fatalf("unexpected snapshot identity: %#v", snapshot)
+	}
+	if snapshot.RunArtifactRef != RunRecordPath(workspace) || snapshot.EvaluationRef != EvaluationPath(workspace) || snapshot.ReviewOutputRef != EvaluationPath(workspace) {
+		t.Fatalf("unexpected artifact refs: %#v", snapshot)
+	}
+	if snapshot.TerminalOutcome != "handoff_ready" || snapshot.TerminalReason != "root" || snapshot.FeedbackNextAction != "await_approval" || snapshot.RetryCount != 2 {
+		t.Fatalf("unexpected snapshot classification: %#v", snapshot)
 	}
 }
 

@@ -55,13 +55,13 @@ func ensureIsolatedWorkspace(workspaceRoot, workspace, identifier string) error 
 }
 
 func writeRunRecord(workspace string, record runRecord) {
-	path, evaluationPath, evaluation, err := artifactManager().WriteRunRecord(workspace, record)
+	path, err := artifactManager().WriteRunRecord(workspace, record)
 	if err != nil {
 		log("failed to write run record: %v", err)
 		return
 	}
 	log("wrote run record: %s", path)
-	log("wrote evaluation artifact: %s", evaluationPath)
+	evaluationPath, evaluation := writeEvaluationArtifact(workspace, record)
 	logRunArtifactSummary(path, evaluationPath, record, evaluation)
 	mirrorRunRecordToState(workspace, record)
 }
@@ -69,7 +69,6 @@ func writeRunRecord(workspace string, record runRecord) {
 func artifactManager() artifactio.Manager {
 	return artifactio.Manager{
 		Evaluate:       evaluationForRun,
-		SnapshotFunc:   stateProjection{}.RunArtifact,
 		PRStateForURL:  prStateForURL,
 		TerminalStatus: terminalRunStatus,
 	}

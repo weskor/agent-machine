@@ -59,7 +59,6 @@ type EvaluationArtifact struct {
 
 type Manager struct {
 	Evaluate       func(workspace string, record domain.RunRecord) EvaluationArtifact
-	SnapshotFunc   func(workspace string, record domain.RunRecord, evaluation EvaluationArtifact) state.RunArtifactSnapshot
 	PRStateForURL  func(prURL string) (string, bool, error)
 	TerminalStatus func(status string) bool
 }
@@ -68,13 +67,12 @@ func RunRecordPath(workspace string) string  { return filepath.Join(workspace, R
 func EvaluationPath(workspace string) string { return filepath.Join(workspace, EvaluationName) }
 func FeedbackPath(workspace string) string   { return filepath.Join(workspace, FeedbackName) }
 
-func (m Manager) WriteRunRecord(workspace string, record domain.RunRecord) (string, string, EvaluationArtifact, error) {
+func (m Manager) WriteRunRecord(workspace string, record domain.RunRecord) (string, error) {
 	runPath := RunRecordPath(workspace)
 	if err := writeJSON(runPath, record); err != nil {
-		return runPath, "", EvaluationArtifact{}, err
+		return runPath, err
 	}
-	evalPath, evaluation, err := m.WriteEvaluation(workspace, record)
-	return runPath, evalPath, evaluation, err
+	return runPath, nil
 }
 
 func (m Manager) WriteEvaluation(workspace string, record domain.RunRecord) (string, EvaluationArtifact, error) {
@@ -136,8 +134,60 @@ func (m Manager) ReadBackfill(workspace, workspaceRoot string) (domain.RunRecord
 	return record, evaluation, artifactTime, nil
 }
 
-func (m Manager) Snapshot(workspace string, record domain.RunRecord, evaluation EvaluationArtifact) state.RunArtifactSnapshot {
-	return m.SnapshotFunc(workspace, record, evaluation)
+type SnapshotOptions struct {
+	BranchName       string
+	BaseBranch       string
+	Repository       string
+	PRNumber         int
+	ReviewOutputHash string
+	TerminalStatus   bool
+}
+
+func RunArtifactSnapshot(workspace string, record domain.RunRecord, evaluation EvaluationArtifact, options SnapshotOptions) state.RunArtifactSnapshot {
+	retryReason := ""
+	retryNextState := ""
+	if evaluation.ShouldRetry {
+		retryReason = evaluation.RootCause
+		if retryReason == "" {
+			retryReason = evaluation.Outcome
+		}
+		retryNextState = evaluation.NextAction
+	}
+	terminalOutcome := ""
+	if options.TerminalStatus {
+		terminalOutcome = evaluation.Outcome
+	}
+	return state.RunArtifactSnapshot{
+		IssueKey:             record.IssueIdentifier,
+		IssueID:              record.IssueID,
+		Attempt:              1,
+		WorkspacePath:        record.Workspace,
+		BranchName:           options.BranchName,
+		BaseBranch:           options.BaseBranch,
+		Status:               record.Status,
+		StartedAt:            record.StartedAt,
+		UpdatedAt:            record.EndedAt,
+		Repository:           options.Repository,
+		PRNumber:             options.PRNumber,
+		PRURL:                record.PRURL,
+		ReviewStatus:         record.ReviewStatus,
+		ReviewPassed:         record.ReviewStatus == "passed",
+		ReviewClassification: record.ReviewClassification,
+		ReviewOutputRef:      EvaluationPath(workspace),
+		ReviewOutputHash:     options.ReviewOutputHash,
+		MergeEligible:        evaluation.MergeEligible,
+		FeedbackHash:         record.FeedbackHash,
+		FeedbackNextAction:   evaluation.NextAction,
+		RetryCount:           evaluation.FeedbackRetryCount,
+		RetryBudgetState:     record.BudgetExceeded,
+		RetryReason:          retryReason,
+		RetryInputHash:       record.FeedbackHash,
+		RetryNextState:       retryNextState,
+		TerminalOutcome:      terminalOutcome,
+		TerminalReason:       evaluation.RootCause,
+		RunArtifactRef:       RunRecordPath(workspace),
+		EvaluationRef:        EvaluationPath(workspace),
+	}
 }
 
 var reviewPRNumberPattern = regexp.MustCompile(`(?i)actual .*PR is #([0-9]+)|PR is #([0-9]+)`)

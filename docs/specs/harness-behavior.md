@@ -18,6 +18,7 @@ The runner owns these checks and should fail closed, route to Needs Info/Human R
 - **Path scope validation:** compare changed files with machine-readable `Allowed paths:` and `Out of scope:` bullets before review and handoff.
 - **Branch and PR ownership:** verify the expected workspace branch, base branch, configured repository, Symphony ownership, author/commit-author policy, and issue identifier mapping.
 - **PR URL resolution:** resolve the current attempt PR from GitHub facts and configured repository/branch ownership; agent text may suggest a URL but must not be trusted without API validation.
+- **Git/PR handoff ownership:** commit, push, PR create/update, PR URL validation, branch/base validation, and handoff artifact recording are runner-owned wherever possible. Agent/runtime output may provide hints and semantic explanation, but must not be the final authority for GitHub identity or handoff state.
 - **Lifecycle state transitions:** compute legal Linear state moves for claimed, running, Needs Info, review failed, Human Review, Done, retry, reconciliation-needed, and terminal failure outcomes.
 - **Run outcome classification:** classify missing PR, NEEDS_INFO, validation failure, review failure, missing-evidence-only review failure, timeout, budget exhaustion, operational failure, success with PR handoff, and terminal failure from typed evidence.
 - **SQLite lease authority:** acquire, heartbeat, renew, release, and reclaim leases according to durable owner/process/heartbeat evidence instead of agent assertions.
@@ -45,6 +46,8 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 
 - Ticket-contract syntax is partly prompt-enforced; malformed or prose-only scope contracts are not fully normalized into a typed issue-contract model.
 - PR URL discovery still starts from agent output and then validates the first configured-repository URL; branch/repository lookup should become primary when possible.
+- Commit/push/PR create/update are still largely prompt-assigned to the Agent in the current `pi_cli` flow; the target contract makes those runner-owned once implementation slices add safe Git/GitHub operations.
+- Runtime readiness is implicit today: the current implementation shells to `pi`, so operators need a configured `pi` binary on `PATH`; missing binary/auth/model/provider issues should become pre-claim failures with actionable messages.
 - Missing-PR outcomes depend on parsing agent text for `NEEDS_INFO` versus failure; a typed outcome envelope would make classification less brittle.
 - Review output classification depends on text markers and reviewer wording; behavior/spec blockers versus missing-evidence-only should be structured.
 - Cleanup eligibility is specified but still spans SQLite state, artifacts, Linear state, and workspace facts; conflict reasons should be typed and reusable by status/explain.
@@ -55,11 +58,16 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 ### Prioritized follow-up implementation slices
 
 1. **Typed issue-contract parser and scope model** — allowed paths: `docs/specs/*.md`, parser code, and focused tests. Convert ticket sections, MUST/MUST NOT constraints, allowed/out-of-scope paths, and validation commands into typed evidence used by prompts and runner checks.
-2. **GitHub-first PR resolver** — resolve the attempt PR by configured repository, workspace branch, base branch, issue identifier, and ownership before falling back to agent-output URL parsing.
-3. **Structured attempt outcome envelope** — require implementation/review adapters to emit typed outcomes for PR handoff, Needs Info, validation failure, missing PR, retryable failure, and terminal failure; keep legacy text parsing as compatibility input.
-4. **Review classification schema** — replace marker-only review parsing with typed `behavior_spec_blocker`, `missing_evidence_only`, `scope_blocker`, and `human_review` classifications.
-5. **Gate-result schema for merge, cleanup, status, and explain** — make merge blockers, cleanup eligibility, lease blockers, and reconciliation-needed reasons share a typed result shape.
-6. **Evidence/debug artifact schema validation** — define and validate schemas for run records, evaluation artifacts, deterministic handoff comments, feedback files, and capped raw debug artifact metadata.
+2. **Runtime doctor/preflight** — validate selected provider, `pi` binary availability for `pi_cli`, auth/config/model visibility where feasible, and actionable pre-claim failure messages.
+3. **Runner-owned PR create/update and artifact recording** — move commit/push/PR create-update/URL recording toward typed runner operations while preserving current prompt-driven behavior until implemented.
+4. **Configurable runtime provider selection** — allow explicit provider selection (`pi_cli` default, `fake` for tests, future API/app-server/ACP-style Adapters) and persist selected provider/model evidence.
+5. **Fake runtime parity tests** — prove fake/test runtime behavior covers implementation, review, usage, timeout/cancellation, structured output, raw debug, and handoff evidence paths without needing an installed `pi`.
+6. **GitHub-first PR resolver** — resolve the attempt PR by configured repository, workspace branch, base branch, issue identifier, and ownership before falling back to agent-output URL parsing.
+7. **Structured attempt outcome envelope** — require implementation/review adapters to emit typed outcomes for PR handoff, Needs Info, validation failure, missing PR, retryable failure, and terminal failure; keep legacy text parsing as compatibility input.
+8. **Review classification schema** — replace marker-only review parsing with typed `behavior_spec_blocker`, `missing_evidence_only`, `scope_blocker`, and `human_review` classifications.
+9. **Gate-result schema for merge, cleanup, status, and explain** — make merge blockers, cleanup eligibility, lease blockers, and reconciliation-needed reasons share a typed result shape.
+10. **Evidence/debug artifact schema validation** — define and validate schemas for run records, evaluation artifacts, deterministic handoff comments, feedback files, and capped raw debug artifact metadata.
+11. **Provider-aware `max_turns` behavior** — only after provider selection, preflight, handoff ownership, and fake parity exist, specify and implement turn/iteration limits against explicit runtime capabilities.
 
 ## Configuration loading
 
@@ -144,6 +152,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 
 - The implementation prompt includes the workflow body, Linear issue description, ticket-contract preflight, behavior-contract preflight, PR feedback when present, and runner constraints.
 - The agent must create or update exactly one PR from the expected workspace branch into the configured base branch.
+- Current production behavior shells to the local `pi` CLI (`pi_cli` provider). Operators must have `pi` installed, discoverable on `PATH`, and configured for the desired auth/provider/model. Missing runtime setup currently surfaces as command failure; the target contract is to fail this during preflight before claim or workspace mutation.
 - The agent should stop after scoped diff, validation notes, and PR handoff.
 - The runner parses Pi usage and the first configured-repository GitHub PR URL from the output.
 - When a Linear issue includes machine-readable `Allowed paths:` or `Out of scope:` bullets, the runner checks changed files against that path contract before review and handoff. Scope violations are recorded as behavior/spec blockers and move the issue back to the configured Ready state. Issues without a machine-readable path contract continue with a warning so legacy tickets remain runnable.

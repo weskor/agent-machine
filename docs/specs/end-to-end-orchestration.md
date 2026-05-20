@@ -16,7 +16,7 @@ This spec describes the target end-to-end Pi Symphony behavior for V1. It does n
 - **GitHub** is the external system of record for repository state, PR identity, review decision, checks, mergeability, authorship, branches, and merge result.
 - **SQLite orchestration state** is the intended local source of truth for Pi Symphony decisions once the SQLite behavior contract is implemented.
 - **Workspace artifacts** are audit and evidence exports. They may seed backfill or repair, but after SQLite adoption they must not silently override newer local state.
-- **Agent sessions** perform bounded implementation or review attempts in isolated workspaces.
+- **Agent sessions** perform bounded implementation or review attempts in isolated workspaces through a selected AgentRuntime provider.
 - **Operators** configure workflows, inspect status, answer Needs Info, review PRs, and approve merge policy.
 
 The authority matrix in [SQLite Orchestration State Contract](./sqlite-orchestration-state.md#authority-matrix) defines which system owns each runner decision during the SQLite transition. Later implementation tickets must cite that matrix instead of re-deciding precedence between SQLite, Linear, GitHub, artifacts, and operator input.
@@ -30,6 +30,30 @@ The V1 orchestration target follows the boundary in [Harness Behavior Spec: Runn
 - Future Adapters, including ACP, MCP, web, and cloud surfaces, must not move orchestration policy into Adapter-specific prompts. They should call the same runner Modules and surface typed runner decisions.
 - When an LLM repeatedly makes the same check from parseable facts, treat that as a signal to add or prioritize a deterministic runner invariant slice.
 
+## AgentRuntime provider strategy
+
+Pi Symphony is a runner harness with an AgentRuntime Adapter seam. The current
+local production provider is `pi_cli`, which shells to the local `pi` executable.
+That means current users need `pi` installed on `PATH` and configured for auth,
+provider, model, and quota outside Pi Symphony. `pi_cli` may remain the first and
+default local provider, but it is not the runner architecture itself.
+
+Supported vocabulary:
+
+- `pi_cli`: local shell Adapter for the Pi CLI.
+- `fake`: deterministic fake/test Adapter for parity tests and contract coverage.
+- Future API, app-server, ACP-style, or MCP-style Adapters: transport choices
+  that must reuse runner Modules instead of owning orchestration policy.
+
+Before claiming or mutating work, the selected provider should preflight binary
+availability, auth/config discoverability where feasible, selected provider/model
+visibility, and actionable operator-facing failure messages. Missing `pi` for
+`pi_cli` is a hard pre-claim failure in the target contract.
+
+Provider capabilities should be explicit for implementation runs, review runs,
+usage/cost reporting, timeout/cancellation, `max_turns`/iteration limits,
+structured output, raw debug capture, and deterministic handoff support.
+
 ## Happy path
 
 1. A Linear issue is written with Goal, Scope, Requirements, Acceptance Criteria, and Validation.
@@ -40,8 +64,8 @@ The V1 orchestration target follows the boundary in [Harness Behavior Spec: Runn
 6. The Agent session writes or updates tests first when behavior is changed or characterized.
 7. The Agent session implements the smallest scoped change that satisfies the issue.
 8. Validation runs in the Workspace using the workflow-configured commands.
-9. The Agent session opens or updates a GitHub PR.
-10. Pi Symphony validates that the PR belongs to the configured repository, expected branch, expected author/owner policy, and current issue attempt.
+9. Pi Symphony owns Git/PR handoff wherever possible: commit or validate the exact diff, push the expected branch, create or update the PR, validate the PR URL, and record artifacts. Until those implementation slices land, the current `pi_cli` flow may still ask the Agent to open or update the PR and then treats its output as advisory evidence.
+10. Pi Symphony validates that the PR belongs to the configured repository, expected branch, expected base branch, expected author/owner policy, and current issue attempt.
 11. Review runs when configured and classifies the result.
 12. Pi Symphony posts deterministic PR and Linear Handoff comments with behavior-contract evidence.
 13. The Linear issue moves to Human Review, Needs Info, Done, or another configured state according to the outcome.

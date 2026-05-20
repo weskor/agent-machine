@@ -115,9 +115,10 @@ workflow facts, the runner owns:
 - artifact recording for run result, usage, validation, review, PR identity, and
   handoff evidence.
 
-The Agent should focus on code/test/doc changes and semantic explanation. Any PR
-URL or handoff instruction produced by an Agent or runtime is advisory until the
-runner validates it against GitHub facts.
+The Agent should focus on code/test/doc changes and semantic explanation, then
+stop without creating, pushing, updating, or commenting on a PR. Any PR URL or
+handoff instruction produced by an Agent or runtime is advisory compatibility
+input until the runner validates it against GitHub facts.
 
 Unsupported operations must fail with a typed `UnsupportedOperation` error (for
 example `cancel` on a runtime that has no cancellation primitive).

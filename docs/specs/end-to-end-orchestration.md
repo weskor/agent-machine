@@ -65,7 +65,7 @@ structured output, raw debug capture, and deterministic handoff support.
 6. The Agent session writes or updates tests first when behavior is changed or characterized.
 7. The Agent session implements the smallest scoped change that satisfies the issue.
 8. Validation runs in the Workspace using the workflow-configured commands.
-9. Pi Symphony owns Git/PR handoff wherever possible: commit or validate the exact diff, push the expected branch, create or update the PR, validate the PR URL, and record artifacts. Until those implementation slices land, the current `pi_cli` flow may still ask the Agent to open or update the PR and then treats its output as advisory evidence.
+9. Pi Symphony owns Git/PR handoff: commit or validate the exact scoped diff, push the expected branch, create or update exactly one PR, validate the PR URL, and record artifacts. The Agent stops after the scoped diff and validation notes; any Agent-emitted PR URL remains advisory compatibility input.
 10. Pi Symphony validates that the PR belongs to the configured repository, expected branch, expected base branch, expected author/owner policy, and current issue attempt.
 11. Review runs when configured and classifies the result.
 12. Pi Symphony posts deterministic PR and Linear Handoff comments with behavior-contract evidence.

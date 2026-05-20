@@ -605,9 +605,106 @@ func TestRunOneMovesNeedsInfoAndCommentsWithoutPRHandoff(t *testing.T) {
 			t.Fatalf("invocation %q missing %q", invocation, want)
 		}
 	}
+	prompt, err := os.ReadFile(filepath.Join(root, "CAG-9", ".pi-symphony-prompt.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Do not create, update, push, or comment on a GitHub PR",
+		"the Pi Symphony runner will commit, push, create or update exactly one PR",
+		"Stop after the scoped diff and validation notes.",
+	} {
+		if !strings.Contains(string(prompt), want) {
+			t.Fatalf("prompt missing runner-owned PR handoff instruction %q:\n%s", want, prompt)
+		}
+	}
 }
 
-func TestRunOneFailsWhenPiFinishesWithoutPRURLOrNeedsInfo(t *testing.T) {
+func TestRunOneCreatesRunnerOwnedPRWhenPiFinishesWithChangesAndNoPRURL(t *testing.T) {
+	t.Setenv("GITHUB_APP_ID", "")
+	t.Setenv("GITHUB_APP_INSTALLATION_ID", "")
+	t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	root := t.TempDir()
+	remote := filepath.Join(root, "remote.git")
+	if err := sh.Run("git init -q --bare "+sh.Quote(remote), ""); err != nil {
+		t.Fatal(err)
+	}
+	var updatedStates []string
+	var comments []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		switch {
+		case strings.Contains(request.Query, "issues(first"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issues": map[string]any{"nodes": []issue{testIssue("CAG-119", "Ready for Agent")}}}})
+		case strings.Contains(request.Query, "workflowStates"):
+			states := []workflowState{{ID: "running-id", Name: "In Progress"}, {ID: "handoff-id", Name: "Human Review"}}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"workflowStates": map[string]any{"nodes": states}}})
+		case strings.Contains(request.Query, "issueUpdate"):
+			updatedStates = append(updatedStates, request.Variables["stateId"].(string))
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issueUpdate": map[string]any{"success": true}}})
+		case strings.Contains(request.Query, "commentCreate"):
+			comments = append(comments, request.Variables["body"].(string))
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"commentCreate": map[string]any{"success": true}}})
+		default:
+			t.Fatalf("unexpected Linear query: %s", request.Query)
+		}
+	}))
+	defer server.Close()
+
+	createdPRComments := map[int]string{}
+	withFakeGitHubAPI(t, fakeGitHubAPI{createdComments: createdPRComments})
+	client := linearClient{apiKey: "test-key", endpoint: server.URL}
+	config := testRunnerConfig(root)
+	config.RunningState = "In Progress"
+	config.HandoffState = "Human Review"
+	config.BaseBranch = "main"
+	config.AfterCreate = "git init -q && git config user.email test@example.com && git config user.name Test && git checkout -q -b main && echo base > README.md && git add README.md && git commit -qm base && git remote add origin " + sh.Quote(remote) + " && git push -q -u origin main"
+	script := filepath.Join(root, "fake-pi-change")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho runner-owned > runner-owned.txt\nprintf 'validation: focused tests passed\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	config.PiCommand = sh.Quote(script)
+
+	didWork, err := runOne(client, workflow{Body: "# Test workflow"}, config)
+	if err != nil {
+		t.Fatalf("runOne returned error: %v", err)
+	}
+	if !didWork {
+		t.Fatal("expected runOne to process an issue")
+	}
+	if !reflect.DeepEqual(updatedStates, []string{"running-id", "handoff-id"}) {
+		t.Fatalf("updated states = %#v", updatedStates)
+	}
+	if len(comments) != 1 || !strings.Contains(comments[0], "https://github.com/weskor/pi-symphony/pull/900") {
+		t.Fatalf("expected Linear handoff comment with runner-owned PR URL, got %#v", comments)
+	}
+	if _, ok := createdPRComments[900]; !ok {
+		t.Fatalf("expected deterministic PR handoff comment on runner-created PR, got %#v", createdPRComments)
+	}
+	if err := sh.Run("git --git-dir "+sh.Quote(remote)+" rev-parse --verify refs/heads/"+sh.Quote(expectedWorkspaceBranch("CAG-119")), ""); err != nil {
+		t.Fatalf("expected runner to push handoff branch: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "CAG-119", ".pi-symphony-run.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record runRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != "success" || record.PRURL != "https://github.com/weskor/pi-symphony/pull/900" {
+		t.Fatalf("unexpected run record: %#v", record)
+	}
+}
+
+func TestRunOneFailsClearlyWhenPiFinishesWithoutChangesOrPRURL(t *testing.T) {
 	t.Setenv("GITHUB_APP_ID", "")
 	t.Setenv("GITHUB_APP_INSTALLATION_ID", "")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "")
@@ -640,7 +737,8 @@ func TestRunOneFailsWhenPiFinishesWithoutPRURLOrNeedsInfo(t *testing.T) {
 	config := testRunnerConfig(root)
 	config.RunningState = "In Progress"
 	config.HandoffState = "Human Review"
-	config.AfterCreate = "git init -q && git checkout -q -b develop"
+	config.BaseBranch = "develop"
+	config.AfterCreate = "git init -q && git config user.email test@example.com && git config user.name Test && git checkout -q -b develop && touch README.md && git add README.md && git commit -qm base && git update-ref refs/remotes/origin/develop HEAD"
 	t.Setenv("RAW_AGENT_OUTPUT", "completed scoped diff and validation, but no handoff URL\n")
 	config.PiCommand = `printf %s "$RAW_AGENT_OUTPUT"`
 	wf := workflow{Body: "# Test workflow"}
@@ -650,8 +748,8 @@ func TestRunOneFailsWhenPiFinishesWithoutPRURLOrNeedsInfo(t *testing.T) {
 	stdout := captureStdout(t, func() {
 		didWork, err = runOne(client, wf, config)
 	})
-	if err == nil || !strings.Contains(err.Error(), "missing PR URL") {
-		t.Fatalf("expected missing PR URL error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "no branch changes") {
+		t.Fatalf("expected no branch changes error, got %v", err)
 	}
 	if strings.Contains(stdout, "completed scoped diff and validation") {
 		t.Fatalf("primary log included raw Pi output: %q", stdout)
@@ -675,7 +773,7 @@ func TestRunOneFailsWhenPiFinishesWithoutPRURLOrNeedsInfo(t *testing.T) {
 	if err := json.Unmarshal(data, &record); err != nil {
 		t.Fatal(err)
 	}
-	if record.Status == "success" || record.Status != "failed" || record.PRURL != "" || !strings.Contains(record.Error, "missing PR URL") {
+	if record.Status == "success" || record.Status != "failed" || record.PRURL != "" || !strings.Contains(record.Error, "no branch changes") {
 		t.Fatalf("unexpected run record: %#v", record)
 	}
 	evaluationData, err := os.ReadFile(filepath.Join(root, "CAG-10", ".pi-symphony-evaluation.json"))
@@ -686,7 +784,7 @@ func TestRunOneFailsWhenPiFinishesWithoutPRURLOrNeedsInfo(t *testing.T) {
 	if err := json.Unmarshal(evaluationData, &evaluation); err != nil {
 		t.Fatal(err)
 	}
-	if evaluation.FinalStatus == "success" || evaluation.Outcome != "operational_failure" || !containsString(evaluation.BlockedBy, "missing_pr_url") {
+	if evaluation.FinalStatus == "success" || evaluation.Outcome != "operational_failure" {
 		t.Fatalf("unexpected evaluation: %#v", evaluation)
 	}
 }

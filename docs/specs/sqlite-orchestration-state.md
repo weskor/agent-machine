@@ -76,6 +76,8 @@ Later issues should wire one decision class at a time in this order, preserving 
 6. **Cleanup:** persist cleanup eligibility, deletion decisions/results, retained artifact pointers, and workspace/branch cleanup blockers.
 7. **Repair, backfill, and artifact compatibility removal:** convert artifacts into explicit backfill/repair inputs, remove file-based coordination paths, and keep exports as audit/debug outputs only.
 
+Cleanup implementation note: mutating workspace cleanup (`--cleanup-workspaces --apply`) fails closed when the SQLite state store cannot be opened. When SQLite is available, cleanup reads the latest durable issue attempt, PR mapping, terminal outcome, and cleanup row before choosing delete, dry-run, keep, failure, or reconciliation-needed. Missing durable attempt rows and artifact/DB disagreements are non-destructive reconciliation-needed keeps; dirty, unsafe, missing-artifact, and insufficient-artifact blockers remain non-destructive keeps.
+
 ## State domains to persist
 
 The SQLite model should persist enough data to make each daemon cycle idempotent and explainable:

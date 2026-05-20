@@ -211,14 +211,16 @@ func ensureRunnerPRHandoff(config runnerConfig, candidate *issue, workspace, age
 	}
 	defer cancel()
 	if strings.TrimSpace(agentPRURL) != "" {
-		resolved, reason, err := validatePRForHandoff(config, candidate, agentPRURL)
+		resolved, reason, used, err := validateAdvisoryPRForHandoff(ctx, github, config, candidate, agentPRURL)
 		if err != nil {
 			return "", err
 		}
 		if reason != "" {
 			return "", fmt.Errorf("PR handoff validation failed: %s", reason)
 		}
-		return resolved, nil
+		if used {
+			return resolved, nil
+		}
 	}
 	details, err := resolveHandoffPRByBranch(ctx, github, candidate)
 	if err != nil {
@@ -244,6 +246,41 @@ func ensureRunnerPRHandoff(config runnerConfig, candidate *issue, workspace, age
 		return "", fmt.Errorf("PR handoff validation failed: %s", reason)
 	}
 	return details.URL, nil
+}
+
+func validateAdvisoryPRForHandoff(ctx context.Context, github githubAPI, config runnerConfig, candidate *issue, prURL string) (string, string, bool, error) {
+	owner, repo, ok := parseGitHubPRRepository(prURL)
+	if !ok {
+		return prURL, "", false, fmt.Errorf("invalid GitHub PR URL %q", prURL)
+	}
+	expectedOwner, expectedRepo, err := currentGitHubRepo()
+	if err != nil {
+		return prURL, "", false, err
+	}
+	if !strings.EqualFold(owner, expectedOwner) || !strings.EqualFold(repo, expectedRepo) {
+		return prURL, "", false, fmt.Errorf("PR repository is %s/%s; expected %s/%s", owner, repo, expectedOwner, expectedRepo)
+	}
+
+	details, err := github.PullRequestHandoffDetails(ctx, prURL)
+	if err != nil {
+		if !isRecoverablePRLookupError(err) {
+			return prURL, "", false, fmt.Errorf("GitHub API PR handoff lookup failed for %s: %w", prURL, err)
+		}
+
+		fallback, fallbackErr := resolveHandoffPRByBranch(ctx, github, candidate)
+		if fallbackErr != nil {
+			if strings.Contains(fallbackErr.Error(), "no open PR found") {
+				return "", "", false, nil
+			}
+			return prURL, "", false, fmt.Errorf("GitHub API PR handoff lookup failed for %s: %w", prURL, fallbackErr)
+		}
+		details = fallback
+	}
+
+	if details.URL == "" {
+		details.URL = prURL
+	}
+	return details.URL, prHandoffBlockReason(config, candidate, details), true, nil
 }
 
 func handoffPRTitleBody(candidate *issue) (string, string) {

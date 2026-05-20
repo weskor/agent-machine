@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -42,11 +43,11 @@ func TestOpenInitializesDeterministicSchemaAndIsIdempotent(t *testing.T) {
 		t.Fatalf("SchemaVersion() = %d, %v; want %d, nil", version, err, CurrentSchemaVersion)
 	}
 
-	expectedTables := []string{"cleanup_states", "daemon_heartbeats", "external_fact_snapshots", "feedback_states", "issue_attempts", "leases", "merge_blockers", "pr_mappings", "retry_decisions", "review_states", "schema_migrations", "terminal_outcomes"}
+	expectedTables := []string{"cleanup_states", "daemon_heartbeats", "external_fact_snapshots", "feedback_states", "issue_attempts", "leases", "merge_blockers", "orchestration_events", "pr_mappings", "retry_decisions", "review_states", "schema_migrations", "terminal_outcomes"}
 	if !reflect.DeepEqual(firstTables, expectedTables) {
 		t.Fatalf("tables = %v; want %v", firstTables, expectedTables)
 	}
-	expectedIndexes := []string{"idx_daemon_heartbeats_lane", "idx_issue_attempts_status", "idx_leases_expires_at", "idx_merge_blockers_active", "idx_pr_mappings_pr_number"}
+	expectedIndexes := []string{"idx_daemon_heartbeats_lane", "idx_issue_attempts_status", "idx_leases_expires_at", "idx_merge_blockers_active", "idx_orchestration_events_issue", "idx_orchestration_events_type", "idx_pr_mappings_pr_number"}
 	for _, name := range expectedIndexes {
 		if !contains(firstIndexes, name) {
 			t.Fatalf("missing expected index %q in %v", name, firstIndexes)
@@ -75,6 +76,63 @@ func TestAcquireLeaseAllowsOnlyOneActiveOwner(t *testing.T) {
 	}
 	if acquired {
 		t.Fatal("second AcquireLease acquired active lease; want blocked")
+	}
+}
+
+func TestAppendEventOrdersAndRoundTripsPayload(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	now := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	first, err := s.AppendEvent(ctx, EventInput{OccurredAt: now, IssueKey: "CAG-87", IssueID: "issue-id", Attempt: 1, RunID: "run-1", Source: "test", Type: EventAttemptStarted, Payload: map[string]any{"status": "running"}})
+	if err != nil {
+		t.Fatalf("AppendEvent(first) error = %v", err)
+	}
+	second, err := s.AppendEvent(ctx, EventInput{OccurredAt: now.Add(time.Second), IssueKey: "CAG-87", Attempt: 1, Source: "test", Type: EventAttemptFinished, Payload: json.RawMessage(`{"status":"success","tokens":10}`)})
+	if err != nil {
+		t.Fatalf("AppendEvent(second) error = %v", err)
+	}
+	if first.ID == "" || second.ID == "" || first.ID == second.ID {
+		t.Fatalf("event IDs not stable unique values: first=%q second=%q", first.ID, second.ID)
+	}
+	events, err := s.RecentEvents(ctx, 10)
+	if err != nil {
+		t.Fatalf("RecentEvents() error = %v", err)
+	}
+	if len(events) != 2 || events[0].Type != EventAttemptStarted || events[1].Type != EventAttemptFinished {
+		t.Fatalf("events = %+v; want append order", events)
+	}
+	var payload struct {
+		Status string `json:"status"`
+		Tokens int    `json:"tokens"`
+	}
+	if err := json.Unmarshal(events[1].Payload, &payload); err != nil {
+		t.Fatalf("payload unmarshal error = %v", err)
+	}
+	if payload.Status != "success" || payload.Tokens != 10 {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestAppendEventRejectsInvalidPayloadWithoutMutatingLog(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	if _, err := s.AppendEvent(ctx, EventInput{Source: "test", Type: EventErrorRecorded, Payload: json.RawMessage(`{"unterminated"`)}); err == nil {
+		t.Fatal("AppendEvent() error = nil; want invalid payload error")
+	}
+	counts, err := s.Counts(ctx)
+	if err != nil {
+		t.Fatalf("Counts() error = %v", err)
+	}
+	if counts.Events != 0 {
+		t.Fatalf("events count = %d; want 0", counts.Events)
 	}
 }
 

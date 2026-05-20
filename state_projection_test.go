@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 func TestStateProjectionRunArtifactMatchesMirroringContract(t *testing.T) {
@@ -35,6 +39,29 @@ func TestStateProjectionRunArtifactMatchesMirroringContract(t *testing.T) {
 	}
 	if snapshot.RunArtifactRef != filepath.Join(workspace, ".pi-symphony-run.json") || snapshot.EvaluationRef != filepath.Join(workspace, evaluationArtifactName) {
 		t.Fatalf("unexpected artifact refs: %+v", snapshot)
+	}
+}
+
+func TestRecordRunAttemptEventEmitsFinishedEvent(t *testing.T) {
+	ctx := context.Background()
+	store, err := state.Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+	record := runRecord{IssueIdentifier: "CAG-87", IssueID: "issue-id", Workspace: t.TempDir(), Status: runAttemptStatusSuccess, PRURL: "https://github.com/weskor/pi-symphony/pull/87", ReviewStatus: "passed", EndedAt: time.Date(2026, 5, 20, 11, 0, 0, 0, time.UTC)}
+	if err := recordRunAttemptEvent(store, record); err != nil {
+		t.Fatalf("recordRunAttemptEvent() error = %v", err)
+	}
+	events, err := store.RecentEvents(ctx, 1)
+	if err != nil {
+		t.Fatalf("RecentEvents() error = %v", err)
+	}
+	if len(events) != 1 || events[0].IssueKey != "CAG-87" || events[0].Type != state.EventAttemptFinished {
+		t.Fatalf("events = %+v", events)
+	}
+	if !strings.Contains(string(events[0].Payload), `"pr_url"`) {
+		t.Fatalf("payload missing pr_url: %s", events[0].Payload)
 	}
 }
 

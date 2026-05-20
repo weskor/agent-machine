@@ -52,6 +52,7 @@ CAG-105 adds the SQLite authority matrix and rollout plan to that contract. Curr
 - `--cleanup-workspaces`: inspect workspace cleanup eligibility; `--apply` deletes eligible workspaces.
 - `--repair-artifacts`: repair local Symphony artifacts.
 - `--status`: print runner/workspace status for the workflow.
+- `--status` includes SQLite event-log counts when the durable orchestration event schema is available; these counts are diagnostic evidence only and do not replace artifact summaries or lifecycle decisions.
 
 ## Continuous scheduler
 

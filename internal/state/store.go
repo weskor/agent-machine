@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -9,13 +10,14 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
 
 const (
-	CurrentSchemaVersion = 1
+	CurrentSchemaVersion = 2
 	busyTimeoutMS        = 5000
 )
 
@@ -42,6 +44,45 @@ type Counts struct {
 	TerminalOutcomes int
 	DaemonHeartbeats int
 	CleanupStates    int
+	Events           int
+}
+
+const (
+	EventCandidateSelected = "candidate_selected"
+	EventCandidateSkipped  = "candidate_skipped"
+	EventAttemptStarted    = "attempt_started"
+	EventAttemptFinished   = "attempt_finished"
+	EventPRDetected        = "pr_detected"
+	EventReviewCompleted   = "review_completed"
+	EventMergeBlocked      = "merge_blocked"
+	EventMergeCompleted    = "merge_completed"
+	EventCleanupStarted    = "cleanup_started"
+	EventCleanupCompleted  = "cleanup_completed"
+	EventErrorRecorded     = "error_recorded"
+)
+
+type Event struct {
+	ID         string
+	Sequence   int64
+	OccurredAt time.Time
+	IssueKey   string
+	IssueID    string
+	Attempt    int
+	RunID      string
+	Source     string
+	Type       string
+	Payload    json.RawMessage
+}
+
+type EventInput struct {
+	OccurredAt time.Time
+	IssueKey   string
+	IssueID    string
+	Attempt    int
+	RunID      string
+	Source     string
+	Type       string
+	Payload    any
 }
 
 type DaemonHeartbeat struct {
@@ -544,6 +585,96 @@ func (s *Store) RecordArtifactExportFailure(ctx context.Context, issueKey string
 	return tx.Commit()
 }
 
+func (s *Store) AppendEvent(ctx context.Context, input EventInput) (Event, error) {
+	if s == nil || s.db == nil {
+		return Event{}, errors.New("append event: store is nil")
+	}
+	payload, err := normalizeEventPayload(input.Payload)
+	if err != nil {
+		return Event{}, fmt.Errorf("append event: %w", err)
+	}
+	event, err := normalizeEvent(input, payload)
+	if err != nil {
+		return Event{}, fmt.Errorf("append event: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO orchestration_events(event_id, occurred_at, issue_key, issue_id, attempt, run_id, source, event_type, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, event.ID, formatTime(event.OccurredAt), event.IssueKey, event.IssueID, nullZeroInt(event.Attempt), event.RunID, event.Source, event.Type, string(event.Payload))
+	if err != nil {
+		return Event{}, fmt.Errorf("append event: %w", err)
+	}
+	return event, nil
+}
+
+func (s *Store) RecentEvents(ctx context.Context, limit int) ([]Event, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT sequence, event_id, occurred_at, issue_key, issue_id, COALESCE(attempt, 0), run_id, source, event_type, payload_json FROM orchestration_events ORDER BY sequence DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("recent events: %w", err)
+	}
+	defer rows.Close()
+	var events []Event
+	for rows.Next() {
+		var event Event
+		var occurredRaw, payload string
+		if err := rows.Scan(&event.Sequence, &event.ID, &occurredRaw, &event.IssueKey, &event.IssueID, &event.Attempt, &event.RunID, &event.Source, &event.Type, &payload); err != nil {
+			return nil, fmt.Errorf("scan event: %w", err)
+		}
+		event.OccurredAt, err = parseTime(occurredRaw)
+		if err != nil {
+			return nil, fmt.Errorf("parse event occurred_at: %w", err)
+		}
+		event.Payload = json.RawMessage(payload)
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("recent events: %w", err)
+	}
+	for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
+		events[i], events[j] = events[j], events[i]
+	}
+	return events, nil
+}
+
+func normalizeEventPayload(payload any) ([]byte, error) {
+	if payload == nil {
+		return []byte(`{}`), nil
+	}
+	if raw, ok := payload.(json.RawMessage); ok {
+		if !json.Valid(raw) {
+			return nil, errors.New("payload must be valid JSON")
+		}
+		return raw, nil
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("encode payload: %w", err)
+	}
+	if !json.Valid(encoded) {
+		return nil, errors.New("payload must be valid JSON")
+	}
+	return encoded, nil
+}
+
+func normalizeEvent(input EventInput, payload []byte) (Event, error) {
+	if input.Source == "" {
+		return Event{}, errors.New("source is required")
+	}
+	if input.Type == "" {
+		return Event{}, errors.New("type is required")
+	}
+	occurredAt := input.OccurredAt.UTC()
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	if input.Attempt < 0 {
+		return Event{}, errors.New("attempt cannot be negative")
+	}
+	idInput := fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%d\x00%s\x00%s", formatTime(occurredAt), input.Source, input.Type, input.IssueKey, input.Attempt, input.RunID, string(payload))
+	sum := sha256.Sum256([]byte(idInput))
+	return Event{ID: fmt.Sprintf("evt_%x", sum[:16]), OccurredAt: occurredAt, IssueKey: input.IssueKey, IssueID: input.IssueID, Attempt: input.Attempt, RunID: input.RunID, Source: input.Source, Type: input.Type, Payload: append([]byte(nil), payload...)}, nil
+}
+
 func attemptID(ctx context.Context, tx *sql.Tx, issueKey string, attempt int) (int64, error) {
 	var id int64
 	if err := tx.QueryRowContext(ctx, `SELECT id FROM issue_attempts WHERE issue_key = ? AND attempt = ?`, issueKey, attempt).Scan(&id); err != nil {
@@ -626,14 +757,19 @@ func InspectHealth(ctx context.Context, path string) (Health, error) {
 func (s *Store) Counts(ctx context.Context) (Counts, error) {
 	var counts Counts
 	for table, dest := range map[string]*int{
-		"issue_attempts":    &counts.IssueAttempts,
-		"pr_mappings":       &counts.PRMappings,
-		"review_states":     &counts.ReviewStates,
-		"terminal_outcomes": &counts.TerminalOutcomes,
-		"daemon_heartbeats": &counts.DaemonHeartbeats,
-		"cleanup_states":    &counts.CleanupStates,
+		"issue_attempts":       &counts.IssueAttempts,
+		"pr_mappings":          &counts.PRMappings,
+		"review_states":        &counts.ReviewStates,
+		"terminal_outcomes":    &counts.TerminalOutcomes,
+		"daemon_heartbeats":    &counts.DaemonHeartbeats,
+		"cleanup_states":       &counts.CleanupStates,
+		"orchestration_events": &counts.Events,
 	} {
 		if err := s.db.QueryRowContext(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s`, table)).Scan(dest); err != nil {
+			if table == "orchestration_events" && strings.Contains(err.Error(), "no such table") {
+				*dest = 0
+				continue
+			}
 			return Counts{}, fmt.Errorf("count %s: %w", table, err)
 		}
 	}
@@ -665,6 +801,12 @@ func (s *Store) init(ctx context.Context) error {
 	}
 	if version < 1 {
 		if err := migrateV1(ctx, tx); err != nil {
+			return err
+		}
+		version = 1
+	}
+	if version < 2 {
+		if err := migrateV2(ctx, tx); err != nil {
 			return err
 		}
 	}
@@ -714,9 +856,22 @@ func migrateV1(ctx context.Context, tx *sql.Tx) error {
 			return fmt.Errorf("apply migration v1: %w", err)
 		}
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, checksum, applied_at, success) VALUES (?, ?, ?, ?, 1)`, CurrentSchemaVersion, "initial orchestration state", "v1", time.Now().UTC().Format(time.RFC3339Nano))
+	_, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, checksum, applied_at, success) VALUES (?, ?, ?, ?, 1)`, 1, "initial orchestration state", "v1", time.Now().UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return fmt.Errorf("record migration v1: %w", err)
+	}
+	return nil
+}
+
+func migrateV2(ctx context.Context, tx *sql.Tx) error {
+	for _, stmt := range v2Schema {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("apply migration v2: %w", err)
+		}
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, checksum, applied_at, success) VALUES (?, ?, ?, ?, 1)`, 2, "durable orchestration event log", "v2", time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("record migration v2: %w", err)
 	}
 	return nil
 }
@@ -738,4 +893,10 @@ var v1Schema = []string{
 	`CREATE INDEX idx_merge_blockers_active ON merge_blockers(active, code)`,
 	`CREATE INDEX idx_leases_expires_at ON leases(expires_at)`,
 	`CREATE INDEX idx_daemon_heartbeats_lane ON daemon_heartbeats(lane_name, updated_at)`,
+}
+
+var v2Schema = []string{
+	`CREATE TABLE orchestration_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, occurred_at TEXT NOT NULL, issue_key TEXT NOT NULL DEFAULT '', issue_id TEXT NOT NULL DEFAULT '', attempt INTEGER, run_id TEXT NOT NULL DEFAULT '', source TEXT NOT NULL, event_type TEXT NOT NULL, payload_json TEXT NOT NULL CHECK (json_valid(payload_json)))`,
+	`CREATE INDEX idx_orchestration_events_issue ON orchestration_events(issue_key, attempt, sequence)`,
+	`CREATE INDEX idx_orchestration_events_type ON orchestration_events(event_type, sequence)`,
 }

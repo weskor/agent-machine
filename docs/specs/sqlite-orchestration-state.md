@@ -132,6 +132,12 @@ The first implementation must define events for these orchestration facts at min
 
 Implementation tickets may add more specific event types, but they must not collapse the required events into an unstructured generic log message when the event affects scheduling, retry, handoff, merge, cleanup, or fail-closed behavior.
 
+Baseline implementation notes:
+
+- Schema version 2 adds `orchestration_events` as an append-only table with writer-generated `event_id`, SQLite `sequence`, UTC `occurred_at`, issue key/id, nullable attempt, run id, source, event type, and compact JSON payload.
+- The initial production emission records run-attempt artifact mirror updates as `attempt_started` or `attempt_finished` evidence from source `runner.run_attempt`.
+- Status consumes the event log only as a count in the SQLite health summary. Existing lifecycle decisions continue to use current tables and artifacts as before.
+
 ### Source precedence and replay expectations
 
 Current-state SQLite tables remain the source of truth for runner decisions. The durable event log is authoritative evidence of committed local orchestration decisions, but it is not the primary decision index during normal operation.
@@ -186,4 +192,5 @@ Current-state SQLite tables remain the source of truth for runner decisions. The
 - Candidate ordering, lane timing, handoff requirements, review classification semantics, merge gates, cleanup eligibility, and artifact fields from `harness-behavior.md` are preserved unless a future implementation ticket updates that spec.
 - SQLite adoption should initially replace where decisions are remembered, not what decisions are made.
 - During the additive rollout, mutating command modes should acquire a command-scoped SQLite store once at the orchestration boundary and pass it to mirror helpers where practical. If that store is unavailable, the command reports degraded mirroring and preserves the current non-blocking artifact/JSON behavior until an authority ticket flips the relevant decision class to fail closed.
+- The event-log baseline is additive: artifacts remain compatible and authoritative where they are authoritative today, and existing lifecycle decisions are unchanged.
 - Any future ticket that changes observable scheduling, merge, cleanup, retry, status, lock, or artifact behavior must update the relevant behavior spec and cite the ADR for this decision.

@@ -1,13 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	sh "github.com/weskor/pi-symphony/internal/shell"
+	"github.com/weskor/pi-symphony/internal/agentruntime"
 )
 
 const reviewPassMarker = "REVIEW_PASS"
@@ -95,20 +94,11 @@ func runReview(reviewCommand, workspace string, candidate *issue, prURL string, 
 		return nil, nil
 	}
 	prompt := reviewPrompt(candidate, prURL, workspace)
-	promptPath := filepath.Join(workspace, ".pi-symphony-review-prompt.md")
-	if err := os.WriteFile(promptPath, []byte(prompt), 0o600); err != nil {
-		return nil, err
-	}
 
 	started := time.Now()
-	output, err := captureAgentOutput(fmt.Sprintf("%s @%s", reviewCommandWithHighReasoning(reviewCommand), sh.Quote(promptPath)), workspace, env, timeout, "review")
+	runtimeResult, err := newPiCLIRuntime().ReviewAttempt(context.Background(), candidate.Identifier, agentruntime.ReviewAttemptInput{Command: reviewCommandWithHighReasoning(reviewCommand), WorkingDir: workspace, Prompt: prompt, PullRequest: prURL, Timeout: timeout, Environment: env}, agentruntime.NoopSink{})
 	log("review duration: %s", time.Since(started).Round(time.Second))
-	findings := assistantText(output)
-	if findings == "" {
-		findings = output
-	}
-	status := reviewStatus(findings)
-	result := &reviewResult{Status: status, Classification: reviewClassification(status, findings), Findings: strings.TrimSpace(findings), Usage: parseUsage(output)}
+	result := reviewResultFromRuntime(runtimeResult)
 	if result.Usage != nil {
 		log("review usage: input=%.0f output=%.0f cacheRead=%.0f total=%.0f cost=$%.4f", result.Usage.Input, result.Usage.Output, result.Usage.CacheRead, result.Usage.TotalTokens, result.Usage.TotalCost())
 	}

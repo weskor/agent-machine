@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weskor/pi-symphony/internal/agentruntime"
 	sh "github.com/weskor/pi-symphony/internal/shell"
 )
 
@@ -137,27 +138,33 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	}
 	heartbeatRunLockWithState(stateStore, workspace, time.Now())
 
-	piStart := time.Now()
-	piOutput, err := captureAgentOutput(fmt.Sprintf("%s @%s", config.PiCommand, sh.Quote(promptPath)), workspace, githubEnv, config.Budget.PiTimeout, "implementation")
-	piEnded := time.Now()
+	runtime := newPiCLIRuntime()
+	attempt, err := runtime.StartAttempt(context.Background(), agentruntime.StartAttemptInput{IssueID: candidate.ID, IssueIdentifier: candidate.Identifier, Workspace: workspace, Branch: branch, ExpectedBranch: expectedWorkspaceBranch(candidate.Identifier), Attempt: 1, WorkingDir: workspace, Command: config.PiCommand, PromptPath: promptPath, Timeouts: agentruntime.AttemptTimeouts{WallClock: config.Budget.WallClock, Command: config.Budget.CommandTimeout, Review: config.Budget.ReviewTimeout}, Environment: githubEnv})
+	if err != nil {
+		return true, err
+	}
+	piResult, err := runtime.RunAttempt(context.Background(), attempt.ID, agentruntime.RunAttemptInput{Command: config.PiCommand, PromptPath: promptPath, WorkingDir: workspace, Timeout: config.Budget.PiTimeout, Environment: githubEnv}, agentruntime.NoopSink{})
+	piStart := piResult.StartedAt
+	piEnded := piResult.EndedAt
+	piOutput := piResult.Output
 	if err != nil {
 		status := runAttemptStatusFailed
-		if errors.Is(err, sh.ErrCommandTimeout) {
+		if piResult.AttemptOutcome == agentruntime.AttemptOutcomeTimeout || errors.Is(err, sh.ErrCommandTimeout) {
 			status = runAttemptStatusTimeout
 			if commentErr := client.createComment(candidate.ID, renderBudgetFailureComment(err.Error())); commentErr != nil {
 				log("failed to comment on %s: %v", candidate.Identifier, commentErr)
 			}
 		}
-		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, piEnded, parseUsage(piOutput), nil, firstPRURL(piOutput), status, err.Error(), config.Budget.Active(), err.Error()))
+		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, piEnded, usageFromRuntime(piResult.Usage), nil, piResult.PRURL, status, err.Error(), config.Budget.Active(), err.Error()))
 		return true, err
 	}
-	piUsage := parseUsage(piOutput)
+	piUsage := usageFromRuntime(piResult.Usage)
 	if piUsage != nil {
 		log("pi usage: input=%.0f output=%.0f cacheRead=%.0f total=%.0f cost=$%.4f", piUsage.Input, piUsage.Output, piUsage.CacheRead, piUsage.TotalTokens, piUsage.TotalCost())
 	} else {
 		log("pi usage: unavailable")
 	}
-	prURL := firstPRURL(piOutput)
+	prURL := piResult.PRURL
 	log("pi run duration: %s", piEnded.Sub(piStart).Round(time.Second))
 	if exceeded := budgetExceeded(config.Budget, piStart, piUsage); exceeded != "" {
 		if err := client.createComment(candidate.ID, renderBudgetFailureComment(exceeded)); err != nil {

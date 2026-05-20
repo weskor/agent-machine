@@ -35,13 +35,20 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		return false, nil
 	}
 
+	progressStarted := time.Now().UTC()
 	log("picked %s: %s (%s)", candidate.Identifier, candidate.Title, candidateOrderReason(*candidate, config.ReadyState))
 	workspace, err := safeWorkspacePath(config.WorkspaceRoot, candidate.Identifier)
 	if err != nil {
 		return true, err
 	}
+	writeRunProgress(config.WorkspaceRoot, runProgressForIssue(candidate, workspace, "selected", progressStarted))
 	runtime := newPiCLIRuntime()
+	writeRunProgress(config.WorkspaceRoot, runProgressForIssue(candidate, workspace, "preflight", progressStarted))
 	if _, err := runtime.Preflight(context.Background(), agentruntime.PreflightInput{ImplementationCommand: config.PiCommand, ReviewCommand: config.ReviewCommand, MaxTurns: cfg.AgentMaxTurnsFromWorkflow(wf.YAML)}); err != nil {
+		snapshot := runProgressForIssue(candidate, workspace, "failed", progressStarted)
+		snapshot.Error = err.Error()
+		snapshot.NextAction = "fix_runtime_configuration_before_retry"
+		writeRunProgress(config.WorkspaceRoot, snapshot)
 		return true, err
 	}
 	branch, _ := currentGitBranch(workspace)
@@ -63,6 +70,9 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	}
 	defer releaseLock()
 	branch = lock.Branch
+	claimed := runProgressForIssue(candidate, workspace, "claimed", progressStarted)
+	claimed.Branch = branch
+	writeRunProgress(config.WorkspaceRoot, claimed)
 	states, err := client.workflowStates(candidate.Team.ID)
 	if err != nil {
 		return true, err
@@ -81,6 +91,9 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		return true, err
 	}
+	prepared := runProgressForIssue(candidate, workspace, "workspace_prepared", progressStarted)
+	prepared.Branch = branch
+	writeRunProgress(config.WorkspaceRoot, prepared)
 	if isEmptyIgnoringRunLock(workspace) && strings.TrimSpace(config.AfterCreate) != "" {
 		if err := sh.RunWithTimeout(config.AfterCreate, workspace, config.Budget.CommandTimeout); err != nil {
 			if errors.Is(err, sh.ErrCommandTimeout) {
@@ -147,6 +160,9 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	if err != nil {
 		return true, err
 	}
+	implementing := runProgressForIssue(candidate, workspace, "implementing", progressStarted)
+	implementing.Branch = branch
+	writeRunProgress(config.WorkspaceRoot, implementing)
 	piResult, err := runtime.RunAttempt(context.Background(), attempt.ID, agentruntime.RunAttemptInput{Command: config.PiCommand, PromptPath: promptPath, WorkingDir: workspace, Timeout: config.Budget.PiTimeout, Environment: githubEnv}, agentruntime.NoopSink{})
 	piStart := piResult.StartedAt
 	piEnded := piResult.EndedAt
@@ -169,6 +185,10 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		log("pi usage: unavailable")
 	}
 	prURL := piResult.PRURL
+	validating := runProgressForIssue(candidate, workspace, "validating", progressStarted)
+	validating.Branch = branch
+	validating.PRURL = prURL
+	writeRunProgress(config.WorkspaceRoot, validating)
 	log("pi run duration: %s", piEnded.Sub(piStart).Round(time.Second))
 	if exceeded := budgetExceeded(config.Budget, piStart, piUsage); exceeded != "" {
 		if err := client.createComment(candidate.ID, renderBudgetFailureComment(exceeded)); err != nil {
@@ -243,9 +263,17 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
 		return true, err
 	}
+	handoff := runProgressForIssue(candidate, workspace, "handoff_pr", progressStarted)
+	handoff.Branch = branch
+	handoff.PRURL = prURL
+	writeRunProgress(config.WorkspaceRoot, handoff)
 
 	var review *reviewResult
 	if prURL != "" && config.ReviewCommand != "" {
+		reviewing := runProgressForIssue(candidate, workspace, "reviewing", progressStarted)
+		reviewing.Branch = branch
+		reviewing.PRURL = prURL
+		writeRunProgress(config.WorkspaceRoot, reviewing)
 		reviewResult, err := runReview(config.ReviewCommand, workspace, candidate, prURL, githubEnv, config.Budget.ReviewTimeout)
 		review = reviewResult
 		if err != nil {

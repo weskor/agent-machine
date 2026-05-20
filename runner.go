@@ -41,6 +41,9 @@ func cliDependencies() cli.Dependencies[linearClient] {
 		PrintStatus: func(client linearClient, config cli.Config) error {
 			return printStatus(client, runnerConfigFromCLI(config))
 		},
+		PrintRunProgress: func(workspaceRoot, issueIdentifier string) error {
+			return printRunProgress(workspaceRoot, issueIdentifier)
+		},
 		Explain: func(client linearClient, config cli.Config) error {
 			return printExplain(client, runnerConfigFromCLI(config))
 		},

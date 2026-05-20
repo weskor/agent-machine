@@ -46,6 +46,7 @@ From this repository:
 
 ```bash
 go run . --status WORKFLOW.md
+go run . --run-status=CAG-123 WORKFLOW.md
 go run . --explain WORKFLOW.md
 go run . --continuous WORKFLOW.md
 go run . --status /path/to/target/WORKFLOW.md
@@ -58,6 +59,8 @@ go run . --repair-artifacts /path/to/target/WORKFLOW.md
 ```
 
 `--explain` (alias `--dry-run`) prints structured JSON describing the next candidate Symphony would run, merge blockers for open Symphony PRs, and cleanup eligibility. It does not claim issues, merge PRs, delete workspaces, or update local orchestration state.
+
+`--run-status=<issue>` prints a single compact local progress line from `.symphony/state/run-progress/<issue>/progress.json` and does not require Linear or GitHub access.
 
 ## Development
 

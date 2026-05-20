@@ -27,6 +27,7 @@ func TestRunDispatchesRepresentativeArgCombinations(t *testing.T) {
 		{name: "default once", args: []string{workflowPath}, wantMode: modeOnce},
 		{name: "explicit once", args: []string{"--once", workflowPath}, wantMode: modeOnce},
 		{name: "status", args: []string{"--status", workflowPath}, wantMode: modeStatus},
+		{name: "run status", args: []string{"--run-status=CAG-119", workflowPath}, wantMode: modeRunStatus},
 		{name: "explain", args: []string{"--explain", workflowPath}, wantMode: modeExplain},
 		{name: "dry run alias", args: []string{"--dry-run", workflowPath}, wantMode: modeExplain},
 		{name: "continuous cycles", args: []string{"--continuous", "--cycles=3", workflowPath}, wantMode: modeContinuous, wantCycles: 3},
@@ -40,6 +41,7 @@ func TestRunDispatchesRepresentativeArgCombinations(t *testing.T) {
 		{name: "cleanup wins over later daemon", args: []string{"--daemon", "--cleanup-workspaces", workflowPath}, wantMode: modeCleanup},
 		{name: "backfill wins over repair", args: []string{"--repair-artifacts", "--backfill-state", workflowPath}, wantMode: modeBackfill},
 		{name: "explain wins over backfill", args: []string{"--backfill-state", "--explain", workflowPath}, wantMode: modeExplain},
+		{name: "backfill wins over run status", args: []string{"--run-status=CAG-119", "--backfill-state", workflowPath}, wantMode: modeBackfill},
 	}
 
 	for _, tt := range tests {
@@ -61,6 +63,33 @@ func TestRunDispatchesRepresentativeArgCombinations(t *testing.T) {
 				t.Fatalf("cycles = %d, want %d", gotCycles, tt.wantCycles)
 			}
 		})
+	}
+}
+
+func TestRunStatusDoesNotRequireLinearClient(t *testing.T) {
+	workflowPath := writeWorkflow(t, "tracker:\n  api_key: \"\"\n")
+	calledClient := false
+	var gotRoot string
+	var gotIssue string
+	deps := testDeps(t, nil, nil, nil)
+	deps.NewLinearClient = func(apiKey, endpoint string) fakeClient {
+		calledClient = true
+		return fakeClient{}
+	}
+	deps.PrintRunProgress = func(workspaceRoot, issueIdentifier string) error {
+		gotRoot = workspaceRoot
+		gotIssue = issueIdentifier
+		return nil
+	}
+
+	if err := Run([]string{"--run-status=CAG-119", workflowPath}, deps); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if calledClient {
+		t.Fatal("NewLinearClient called for run progress status")
+	}
+	if gotRoot != "/tmp/pi-symphony-test-workspaces" || gotIssue != "CAG-119" {
+		t.Fatalf("PrintRunProgress(%q, %q)", gotRoot, gotIssue)
 	}
 }
 
@@ -225,6 +254,10 @@ func testDeps(t *testing.T, gotMode *string, gotApply *bool, gotCycles *int) Dep
 		},
 		PrintStatus: func(fakeClient, Config) error {
 			setMode(modeStatus)
+			return nil
+		},
+		PrintRunProgress: func(string, string) error {
+			setMode(modeRunStatus)
 			return nil
 		},
 		Explain: func(fakeClient, Config) error {

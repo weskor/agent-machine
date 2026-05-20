@@ -22,6 +22,11 @@ Before planning, read:
 - Update specs when behavior changes.
 - Add an ADR when the design decision is durable, surprising, or trade-off heavy.
 - Avoid broad mechanical moves in the same PR as behavior changes.
+- Do not ask the Agent to decide runner-owned invariants that can be computed from typed state or external facts. Use the runner-vs-Agent boundary in `docs/specs/harness-behavior.md` when deciding whether a check belongs in code, tests, or reviewer judgment.
+
+## Agent-owned judgment
+
+Implementation Agents own non-deterministic work: choosing the implementation approach, editing code/tests/docs, deciding useful characterization coverage, assessing abstraction quality, and explaining ambiguous repair options. They may cite deterministic evidence, but should not be the final authority for issue contract syntax, path scope, PR ownership, PR URL validity, lifecycle transitions, outcome classification, leases, merge gates, cleanup eligibility, artifact locations, or evidence schema validity.
 
 ## Behavior Contract Evidence
 

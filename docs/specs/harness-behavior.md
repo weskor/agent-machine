@@ -6,6 +6,61 @@ Future SQLite-backed orchestration state work is specified in [SQLite Orchestrat
 
 CAG-105 adds the SQLite authority matrix and rollout plan to that contract. Current file-based behavior in this spec remains the observable contract until a later implementation ticket wires a specific decision class to SQLite and updates this spec.
 
+## Runner and Agent responsibility boundary
+
+Principle: the Agent handles ambiguity; the runner owns invariants. A runner invariant is a fact or transition Pi Symphony can compute from the workflow, Linear, GitHub, SQLite, workspace metadata, or typed artifacts without asking an LLM to judge intent. Agent output may provide evidence, explanations, and edits, but it must not be the only authority for runner-owned invariants.
+
+### Runner-owned deterministic invariants
+
+The runner owns these checks and should fail closed, route to Needs Info/Human Review, or mark reconciliation-needed when the facts are missing or contradictory:
+
+- **Issue contract parsing:** detect the five ticket sections (`Goal`, `Scope`, `Requirements`, `Acceptance Criteria`, `Validation`), explicit MUST/MUST NOT constraints, allowed paths, out-of-scope paths, required validation commands, and hard package/approach constraints.
+- **Path scope validation:** compare changed files with machine-readable `Allowed paths:` and `Out of scope:` bullets before review and handoff.
+- **Branch and PR ownership:** verify the expected workspace branch, base branch, configured repository, Symphony ownership, author/commit-author policy, and issue identifier mapping.
+- **PR URL resolution:** resolve the current attempt PR from GitHub facts and configured repository/branch ownership; agent text may suggest a URL but must not be trusted without API validation.
+- **Lifecycle state transitions:** compute legal Linear state moves for claimed, running, Needs Info, review failed, Human Review, Done, retry, reconciliation-needed, and terminal failure outcomes.
+- **Run outcome classification:** classify missing PR, NEEDS_INFO, validation failure, review failure, missing-evidence-only review failure, timeout, budget exhaustion, operational failure, success with PR handoff, and terminal failure from typed evidence.
+- **SQLite lease authority:** acquire, heartbeat, renew, release, and reclaim leases according to durable owner/process/heartbeat evidence instead of agent assertions.
+- **Merge gates:** evaluate PR state, mergeability, review decision, checks, branch/issue mapping, repository ownership, app author forms, commit author policy, active leases, and workflow ownership expectations.
+- **Cleanup eligibility:** delete only workspaces whose Linear/GitHub/SQLite/workspace facts satisfy the cleanup policy; conflicts or missing durable rows are reconciliation blockers, not agent judgment calls.
+- **Artifact and debug locations:** write run records, evaluation artifacts, feedback files, deterministic comments, and capped raw debug output to the specified workspace or `.symphony/debug/<issue>/` locations.
+- **Evidence artifact schema validation:** validate run records, evaluation artifacts, handoff evidence, review classifications, and debug artifact metadata against typed schemas before using them for runner decisions.
+
+### Agent-owned non-deterministic responsibilities
+
+Agent sessions own work that requires judgment, design taste, or semantic understanding:
+
+- choose the implementation approach within the issue contract;
+- make code, test, workflow example, and documentation edits;
+- decide where characterization or TDD gives the best behavior evidence;
+- evaluate semantic correctness, abstraction quality, naming, depth, locality, and maintainability;
+- explain ambiguous repair options, trade-offs, and why Needs Info or Human Review is appropriate;
+- perform semantic review of whether a scoped diff satisfies the Goal and Acceptance Criteria.
+
+Agent judgment may inform review comments and handoff summaries, but the runner should convert any repeatable, typed, or externally verifiable judgment into a deterministic check in a follow-up slice.
+
+### Current ambiguous seams to reduce
+
+These seams still rely too much on Agent or reviewer interpretation and should be converted gradually without changing current behavior in this documentation slice:
+
+- Ticket-contract syntax is partly prompt-enforced; malformed or prose-only scope contracts are not fully normalized into a typed issue-contract model.
+- PR URL discovery still starts from agent output and then validates the first configured-repository URL; branch/repository lookup should become primary when possible.
+- Missing-PR outcomes depend on parsing agent text for `NEEDS_INFO` versus failure; a typed outcome envelope would make classification less brittle.
+- Review output classification depends on text markers and reviewer wording; behavior/spec blockers versus missing-evidence-only should be structured.
+- Cleanup eligibility is specified but still spans SQLite state, artifacts, Linear state, and workspace facts; conflict reasons should be typed and reusable by status/explain.
+- Raw debug artifact caps, names, and retention are described operationally but not represented as a schema the runner can validate.
+- Lease stale/reclaim policy depends on durable facts plus process checks; status/explain should expose the exact typed blocker rather than requiring log interpretation.
+- Merge and cleanup gates are deterministic in intent, but their evidence should be emitted in a common gate-result schema for handoff, status, and repair.
+
+### Prioritized follow-up implementation slices
+
+1. **Typed issue-contract parser and scope model** — allowed paths: `docs/specs/*.md`, parser code, and focused tests. Convert ticket sections, MUST/MUST NOT constraints, allowed/out-of-scope paths, and validation commands into typed evidence used by prompts and runner checks.
+2. **GitHub-first PR resolver** — resolve the attempt PR by configured repository, workspace branch, base branch, issue identifier, and ownership before falling back to agent-output URL parsing.
+3. **Structured attempt outcome envelope** — require implementation/review adapters to emit typed outcomes for PR handoff, Needs Info, validation failure, missing PR, retryable failure, and terminal failure; keep legacy text parsing as compatibility input.
+4. **Review classification schema** — replace marker-only review parsing with typed `behavior_spec_blocker`, `missing_evidence_only`, `scope_blocker`, and `human_review` classifications.
+5. **Gate-result schema for merge, cleanup, status, and explain** — make merge blockers, cleanup eligibility, lease blockers, and reconciliation-needed reasons share a typed result shape.
+6. **Evidence/debug artifact schema validation** — define and validate schemas for run records, evaluation artifacts, deterministic handoff comments, feedback files, and capped raw debug artifact metadata.
+
 ## Configuration loading
 
 - The CLI defaults to `WORKFLOW.md` unless another workflow path is supplied.

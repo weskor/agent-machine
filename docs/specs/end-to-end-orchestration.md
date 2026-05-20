@@ -21,6 +21,15 @@ This spec describes the target end-to-end Pi Symphony behavior for V1. It does n
 
 The authority matrix in [SQLite Orchestration State Contract](./sqlite-orchestration-state.md#authority-matrix) defines which system owns each runner decision during the SQLite transition. Later implementation tickets must cite that matrix instead of re-deciding precedence between SQLite, Linear, GitHub, artifacts, and operator input.
 
+## Deterministic runner boundary
+
+The V1 orchestration target follows the boundary in [Harness Behavior Spec: Runner and Agent responsibility boundary](./harness-behavior.md#runner-and-agent-responsibility-boundary): the Agent handles ambiguity; the runner owns invariants.
+
+- Runner Modules should compute issue contract parsing, path scope, branch/PR ownership, PR URL resolution, lifecycle transitions, outcome classification, leases, merge gates, cleanup eligibility, artifact/debug locations, and evidence schema validity from typed state and external system facts.
+- Agent sessions should make implementation choices, edit code/tests/docs, perform semantic review, judge abstraction quality, and explain ambiguous repair options.
+- Future Adapters, including ACP, MCP, web, and cloud surfaces, must not move orchestration policy into Adapter-specific prompts. They should call the same runner Modules and surface typed runner decisions.
+- When an LLM repeatedly makes the same check from parseable facts, treat that as a signal to add or prioritize a deterministic runner invariant slice.
+
 ## Happy path
 
 1. A Linear issue is written with Goal, Scope, Requirements, Acceptance Criteria, and Validation.

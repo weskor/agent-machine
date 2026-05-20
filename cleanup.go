@@ -231,9 +231,9 @@ func cleanupDecisionFromSQLite(ctx context.Context, store *orchstate.Store, work
 		artifactDecision.IssueIdentifier = facts.IssueKey
 		return artifactDecision, nil
 	}
-	status := facts.TerminalOutcome
+	status := facts.Status
 	if status == "" {
-		status = facts.Status
+		status = facts.TerminalOutcome
 	}
 	category := cleanupCategoryForTerminalStatus(status)
 	if !terminalRunStatus(status) {

@@ -195,6 +195,36 @@ func TestCleanupWorkspacesUsesSQLiteStatusWhenArtifactIsStale(t *testing.T) {
 	}
 }
 
+func TestCleanupWorkspacesUsesSQLiteRunStatusWhenTerminalOutcomeIsHandoffReady(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-114")
+	writeCleanRunArtifact(t, workspace, "success")
+	seedCleanupAttemptWithOutcome(t, root, workspace, "CAG-114", "success", "handoff_ready")
+
+	if err := cleanupWorkspaces(root, cleanupOptions{DoneIssues: map[string]bool{"CAG-114": true}}); err != nil {
+		t.Fatal(err)
+	}
+	row := readCleanupState(t, root, "CAG-114")
+	if row.decision != "completed" || row.deletionResult != "dry_run" {
+		t.Fatalf("expected SQLite run status success to drive dry-run decision, got %+v", row)
+	}
+}
+
+func TestCleanupWorkspacesUsesSQLiteRunStatusWhenTerminalOutcomeIsOperationalFailure(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-115")
+	writeCleanRunArtifact(t, workspace, "failed")
+	seedCleanupAttemptWithOutcome(t, root, workspace, "CAG-115", "failed", "operational_failure")
+
+	if err := cleanupWorkspaces(root, cleanupOptions{DoneIssues: map[string]bool{"CAG-115": true}}); err != nil {
+		t.Fatal(err)
+	}
+	row := readCleanupState(t, root, "CAG-115")
+	if row.decision != "failed" || row.deletionResult != "dry_run" {
+		t.Fatalf("expected SQLite run status failed to drive dry-run decision, got %+v", row)
+	}
+}
+
 func TestCleanupDecisionPreservesDirtyDoneWorkspaces(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "CAG-3")
@@ -355,6 +385,10 @@ func runArtifactJSON(workspace, status string) string {
 }
 
 func seedCleanupAttempt(t *testing.T, workspaceRoot, workspace, issueKey, status string) {
+	seedCleanupAttemptWithOutcome(t, workspaceRoot, workspace, issueKey, status, "")
+}
+
+func seedCleanupAttemptWithOutcome(t *testing.T, workspaceRoot, workspace, issueKey, status, outcome string) {
 	t.Helper()
 	ctx := context.Background()
 	store, err := state.Open(ctx, state.DefaultDBPath(workspaceRoot))
@@ -363,7 +397,7 @@ func seedCleanupAttempt(t *testing.T, workspaceRoot, workspace, issueKey, status
 	}
 	defer store.Close()
 	now := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
-	if err := store.UpsertRunArtifact(ctx, state.RunArtifactSnapshot{IssueKey: issueKey, Attempt: 1, WorkspacePath: workspace, BranchName: "symphony/" + issueKey, BaseBranch: "main", Status: status, StartedAt: now, UpdatedAt: now, RunArtifactRef: filepath.Join(workspace, ".pi-symphony-run.json")}); err != nil {
+	if err := store.UpsertRunArtifact(ctx, state.RunArtifactSnapshot{IssueKey: issueKey, Attempt: 1, WorkspacePath: workspace, BranchName: "symphony/" + issueKey, BaseBranch: "main", Status: status, StartedAt: now, UpdatedAt: now, TerminalOutcome: outcome, TerminalReason: "test terminal outcome", RunArtifactRef: filepath.Join(workspace, ".pi-symphony-run.json")}); err != nil {
 		t.Fatal(err)
 	}
 }

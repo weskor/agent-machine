@@ -185,6 +185,32 @@ type RunArtifactSnapshot struct {
 	EvaluationRef         string
 }
 
+type SnapshotAttempt struct {
+	IssueKey         string
+	Attempt          int
+	WorkspacePath    string
+	BranchName       string
+	Status           string
+	ReviewStatus     string
+	ReviewPassed     bool
+	PRURL            string
+	TerminalOutcome  string
+	RetryBudgetState string
+	RetryNextState   string
+	UpdatedAt        time.Time
+}
+
+type SnapshotHeartbeat struct {
+	ProcessID        string
+	LaneName         string
+	WorkflowPath     string
+	CycleNumber      int
+	LastSuccessAt    time.Time
+	LastError        string
+	RecoveryRequired bool
+	UpdatedAt        time.Time
+}
+
 func DefaultDBPath(workspaceRoot string) string {
 	if workspaceRoot == "" {
 		return ""
@@ -657,6 +683,62 @@ ON CONFLICT(attempt_id) DO UPDATE SET outcome=excluded.outcome, reason=excluded.
 		return fmt.Errorf("append run artifact event: %w", err)
 	}
 	return tx.Commit()
+}
+
+func (s *Store) SnapshotAttempts(ctx context.Context) ([]SnapshotAttempt, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT ia.issue_key, ia.attempt, ia.workspace_path, ia.branch_name, ia.status, ia.updated_at,
+COALESCE(rs.command_status, ''), COALESCE(rs.passed, 0), COALESCE(pm.pr_url, ''), COALESCE(t.term_outcome, ''), COALESCE(rd.budget_state, ''), COALESCE(rd.next_state, '')
+FROM issue_attempts ia
+LEFT JOIN review_states rs ON rs.attempt_id = ia.id
+LEFT JOIN pr_mappings pm ON pm.attempt_id = ia.id
+LEFT JOIN (SELECT attempt_id, outcome AS term_outcome FROM terminal_outcomes) t ON t.attempt_id = ia.id
+LEFT JOIN retry_decisions rd ON rd.attempt_id = ia.id
+ORDER BY ia.issue_key, ia.attempt`)
+	if err != nil {
+		return nil, fmt.Errorf("query snapshot attempts: %w", err)
+	}
+	defer rows.Close()
+	var attempts []SnapshotAttempt
+	for rows.Next() {
+		var attempt SnapshotAttempt
+		var updated string
+		var passed int
+		if err := rows.Scan(&attempt.IssueKey, &attempt.Attempt, &attempt.WorkspacePath, &attempt.BranchName, &attempt.Status, &updated, &attempt.ReviewStatus, &passed, &attempt.PRURL, &attempt.TerminalOutcome, &attempt.RetryBudgetState, &attempt.RetryNextState); err != nil {
+			return nil, fmt.Errorf("scan snapshot attempt: %w", err)
+		}
+		attempt.ReviewPassed = passed == 1
+		attempt.UpdatedAt, _ = parseTime(updated)
+		attempts = append(attempts, attempt)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate snapshot attempts: %w", err)
+	}
+	return attempts, nil
+}
+
+func (s *Store) SnapshotHeartbeats(ctx context.Context) ([]SnapshotHeartbeat, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT process_id, lane_name, workflow_path, cycle_number, last_success_at, last_error, recovery_required, updated_at FROM daemon_heartbeats ORDER BY lane_name, updated_at`)
+	if err != nil {
+		return nil, fmt.Errorf("query snapshot heartbeats: %w", err)
+	}
+	defer rows.Close()
+	var heartbeats []SnapshotHeartbeat
+	for rows.Next() {
+		var heartbeat SnapshotHeartbeat
+		var lastSuccessAt, updatedAt string
+		var recoveryRequired int
+		if err := rows.Scan(&heartbeat.ProcessID, &heartbeat.LaneName, &heartbeat.WorkflowPath, &heartbeat.CycleNumber, &lastSuccessAt, &heartbeat.LastError, &recoveryRequired, &updatedAt); err != nil {
+			return nil, fmt.Errorf("scan snapshot heartbeat: %w", err)
+		}
+		heartbeat.LastSuccessAt, _ = parseTime(lastSuccessAt)
+		heartbeat.UpdatedAt, _ = parseTime(updatedAt)
+		heartbeat.RecoveryRequired = recoveryRequired == 1
+		heartbeats = append(heartbeats, heartbeat)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate snapshot heartbeats: %w", err)
+	}
+	return heartbeats, nil
 }
 
 func runArtifactEventInput(snap RunArtifactSnapshot, occurredAt time.Time) EventInput {

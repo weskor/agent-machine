@@ -16,6 +16,62 @@ This spec defines the intended behavior contract for CAG-49: moving Pi Symphony 
 - Workspace JSON/Markdown files, including `.pi-symphony-run.json`, `.pi-symphony-evaluation.json`, PR bodies, and deterministic comments, are audit and evidence exports. They may be backfill inputs during migration or repair, but after SQLite adoption they must not silently override newer database state.
 - When local SQLite state conflicts with Linear or GitHub, the runner must reconcile using explicit rules in this spec rather than assuming either side is always current.
 
+## Authority matrix
+
+This matrix is the implementation-ready precedence contract for later SQLite adoption tickets. It defines the authority for each runner decision without changing current runner behavior.
+
+| Decision class | Authority | Fresh external facts required | Artifact role | Fail-closed behavior |
+| --- | --- | --- | --- | --- |
+| Candidate eligibility and claim | SQLite for active attempts, leases, retry blocks, and reconciliation blockers; fresh Linear for issue identity, current workflow state, labels, assignee/ownership, priority, and ticket text | Linear must be read before claim; SQLite lease must commit before state movement or workspace mutation | Historical run files may explain prior attempts only | Do not claim, move Linear, or create/mutate workspace when SQLite is unavailable, a lease cannot commit, Linear cannot verify eligibility, or artifacts/DB/external facts conflict |
+| Linear state movement | SQLite for the local decision that a transition should be attempted; fresh Linear for allowed/current workflow state and transition result | Linear must be read immediately before transition and after transition attempt when possible | Deterministic comments and run records are evidence exports | Do not move Linear from stale DB state, stale artifacts, or unverified workflow state; record reconciliation-needed or fail closed |
+| Workspace mutation | SQLite for attempt identity, expected path, branch, active workspace lease, and mutation phase | Git/GitHub facts may be refreshed when validating branch/PR invariants | Workspace files are outputs of the active attempt, not coordination locks | Do not clone, reset, checkout, delete, or write attempt artifacts unless the SQLite attempt and workspace lease are current |
+| Retry decision | SQLite for retry count, budget, processed feedback hash, previous terminal/failure state, and chosen next action; fresh GitHub/Linear for new feedback or issue state | GitHub review/comment facts and Linear state must be current before deciding feedback-driven retries | Prior run/evaluation files may seed repair/backfill only | Do not retry from artifacts alone, duplicate a processed feedback retry, or retry a Done/Needs Info/Human Review issue without explicit operator/Linear evidence |
+| PR handoff | SQLite for attempt identity, PR mapping, review classification, merge eligibility blocker state, and handoff decision; fresh GitHub for PR identity and branch/base/ownership; fresh Linear for target handoff state | GitHub PR details and Linear issue state must be current before handoff | PR body, deterministic comments, run/evaluation files are evidence exports | Do not report success or move to Human Review when PR validation, review classification, or DB commit is missing/ambiguous |
+| Merge | SQLite for merge blockers, review classification, Symphony ownership expectations, processed feedback state, and merge lane lease; fresh GitHub for PR state, mergeability, checks, reviews, authorship, branch metadata, and merge result; fresh Linear for Done transition result | GitHub must be read immediately before merge; Linear must be read before Done transition | Artifacts may explain why a PR was created but cannot approve merge | Do not merge when SQLite is unavailable, ownership is unproven, current GitHub gates fail, Linear state is incompatible, or any reconciliation-needed blocker exists |
+| Cleanup | SQLite for cleanup eligibility, active leases, terminal outcome, retained artifact pointers, deletion decision, and deletion result; fresh Linear/GitHub for Done/PR status when those facts gate cleanup | Linear/GitHub must be refreshed for cleanup that depends on issue Done or PR merged/closed state | Workspace artifacts are retained/debug exports and may be deleted only according to the cleanup decision | Do not delete workspaces or branches from stale artifacts, missing DB terminal state, active leases, open/unverified PRs, or reconciliation-needed rows |
+| Repair and backfill | Operator input starts repair; SQLite records the repaired current state and synthetic migration/reconciliation events; fresh Linear/GitHub resolve identity conflicts | External facts must be refreshed before repair changes scheduling, retry, merge, or cleanup eligibility | Artifacts are compatibility inputs and evidence pointers | Do not silently repair by preferring artifacts over SQLite or external facts; unresolved conflicts remain reconciliation-needed |
+| Status and diagnostics | SQLite current-state rows for decision status, event log for explanation, fresh Linear/GitHub only when the status mode explicitly refreshes external facts | Optional unless status claims current external state | Artifacts may be displayed as evidence/debug exports | Degraded read-only output is allowed, but status must not imply a decision was made when SQLite cannot be read or facts conflict |
+
+## Source precedence and disagreement handling
+
+When SQLite, fresh external facts, artifacts, and operator input disagree, the runner must use this order:
+
+1. **Safety and ownership invariants win first.** Any uncertain lease, workspace ownership, PR ownership, branch ownership, or schema/transaction state blocks destructive and externally visible actions.
+2. **Fresh external systems own their domains.** Linear decides current issue workflow state and available transitions. GitHub decides current PR, branch, review, check, mergeability, authorship, and merge result facts.
+3. **SQLite owns Pi Symphony decisions.** Candidate claims, local attempt status, retry/no-retry decisions, processed feedback hashes, review classifications, merge blockers, cleanup decisions, leases, heartbeats, and terminal outcomes come from current-state SQLite rows.
+4. **The SQLite event log explains committed local decisions.** It may support reconciliation or verified repair, but normal scheduling, retry, merge, and cleanup read current-state rows first.
+5. **Workspace artifacts are evidence exports.** They can seed initial migration, compatibility repair, diagnostics, or missing export regeneration; they must not override newer SQLite rows or fresh external facts.
+6. **Operator input is required for policy choices or unsafe ambiguity.** Operators may approve repair, answer Needs Info, or change workflow configuration, but operator input must be recorded in SQLite before it affects later automated decisions.
+
+Disagreements that cannot be resolved by the authority above must create or keep an explicit reconciliation-needed state. The runner must not guess based on newest file mtime, branch name alone, stale comments, or partial logs.
+
+## Artifact export boundary
+
+After SQLite adoption, these files remain evidence/debug exports: `.pi-symphony-run.json`, `.pi-symphony-evaluation.json`, deterministic PR comments, deterministic Linear comments, PR bodies, capped debug logs under `.pi-symphony-debug/`, validation summaries, and future status/report exports. They may contain hashes, pointers, summaries, URLs, and behavior-contract evidence suitable for audit.
+
+These file-based coordination mechanisms are deprecated or compatibility-only once the corresponding SQLite decision class is implemented:
+
+- run records as the source for active attempt status, retry status, terminal outcome, cleanup eligibility, or PR mapping;
+- evaluation artifacts as the source for review pass/fail, review classification, merge eligibility, or next action;
+- workspace directory existence as proof that an attempt is active or inactive;
+- branch names or workspace paths as sufficient issue/PR identity without Linear/GitHub anchors;
+- on-disk run locks as durable ownership without a SQLite lease and heartbeat;
+- deterministic comments or PR body text as the source for processed feedback, handoff state, or merge approval.
+
+Compatibility readers may use these artifacts only for migration, repair, diagnostics, or export regeneration, and must label any artifact-derived state as backfilled or reconstructed until SQLite and fresh external facts verify it.
+
+## Rollout phases
+
+Later issues should wire one decision class at a time in this order, preserving behavior unless the ticket updates the behavior spec:
+
+1. **Schema and event baseline:** create versioned current-state tables, event log, read-only status support, and fail-closed startup/schema checks.
+2. **Candidate claim and leases:** move active attempt detection, claim leases, workspace mutation leases, heartbeats, stale lease handling, and reconciliation-needed blockers into SQLite.
+3. **Attempt, PR mapping, and handoff:** persist attempt lifecycle, PR mapping, review classification, handoff decisions, terminal outcomes, and artifact export pointers.
+4. **Retry and feedback:** persist processed feedback hashes, retry budgets, retry/no-retry decisions, and Needs Info/Human Review routing.
+5. **Merge gates:** persist merge blockers and merge lane leases while continuing to refresh GitHub/Linear facts for every merge/Done decision.
+6. **Cleanup:** persist cleanup eligibility, deletion decisions/results, retained artifact pointers, and workspace/branch cleanup blockers.
+7. **Repair, backfill, and artifact compatibility removal:** convert artifacts into explicit backfill/repair inputs, remove file-based coordination paths, and keep exports as audit/debug outputs only.
+
 ## State domains to persist
 
 The SQLite model should persist enough data to make each daemon cycle idempotent and explainable:

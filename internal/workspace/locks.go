@@ -41,6 +41,9 @@ func (m LockManager) Acquire(workspace string, candidate *domain.Issue, branch s
 		return nil, nil, err
 	}
 	lock := domain.RunLock{Owner: Owner(), PID: os.Getpid(), Host: Hostname(), IssueIdentifier: candidate.Identifier, IssueID: candidate.ID, Branch: branch, Workspace: workspace, StartedAt: now, HeartbeatAt: now}
+	if m.StateStore != nil {
+		return m.acquireSQLiteLease(workspace, lock, now)
+	}
 	data, err := json.MarshalIndent(lock, "", "  ")
 	if err != nil {
 		return nil, nil, err
@@ -76,14 +79,69 @@ func (m LockManager) Acquire(workspace string, candidate *domain.Issue, branch s
 	return &lock, release, nil
 }
 
+func (m LockManager) acquireSQLiteLease(workspace string, lock domain.RunLock, now time.Time) (*domain.RunLock, func(), error) {
+	acquired, err := m.StateStore.AcquireLease(context.Background(), RunLockLease(lock, now), now)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !acquired {
+		return nil, nil, fmt.Errorf("%w: active SQLite lease %s", ErrRunLocked, RunLockLeaseName(lock))
+	}
+	path := Path(workspace)
+	if err := writeExportedLock(path, lock); err != nil {
+		m.logf("failed to write run lock export %s: %v", path, err)
+	}
+	m.logf("acquired SQLite run lease: %s", RunLockLeaseName(lock))
+	release := func() {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			m.logf("failed to release run lock export %s: %v", path, err)
+		}
+		if err := m.StateStore.ReleaseLease(context.Background(), RunLockLeaseName(lock), time.Now(), "released"); err != nil {
+			m.logf("failed to release SQLite run lease %s: %v", RunLockLeaseName(lock), err)
+		}
+	}
+	return &lock, release, nil
+}
+
+func writeExportedLock(path string, lock domain.RunLock) error {
+	data, err := json.MarshalIndent(lock, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o600)
+}
+
 func (m LockManager) Heartbeat(workspace string, at time.Time) {
 	path := Path(workspace)
 	data, err := os.ReadFile(path)
-	if err != nil {
+	if err != nil && m.StateStore == nil {
 		m.logf("failed to read run lock for heartbeat: %v", err)
 		return
 	}
 	var lock domain.RunLock
+	if err == nil {
+		if err := json.Unmarshal(data, &lock); err != nil && m.StateStore == nil {
+			m.logf("failed to decode run lock for heartbeat: %v", err)
+			return
+		}
+	}
+	if lock.Workspace == "" {
+		lock = domain.RunLock{Owner: Owner(), PID: os.Getpid(), Host: Hostname(), IssueIdentifier: filepath.Base(workspace), Workspace: workspace, StartedAt: at}
+	}
+	if m.StateStore != nil {
+		lock.HeartbeatAt = at
+		if err := m.StateStore.RenewLease(context.Background(), RunLockLeaseName(lock), at, at.Add(RunLockStaleAfter)); err != nil {
+			m.logf("failed to renew SQLite run lease %s: %v", RunLockLeaseName(lock), err)
+			return
+		}
+		if err := writeExportedLock(path, lock); err != nil {
+			m.logf("failed to write run lock heartbeat export: %v", err)
+		}
+		return
+	}
 	if err := json.Unmarshal(data, &lock); err != nil {
 		m.logf("failed to decode run lock for heartbeat: %v", err)
 		return
@@ -137,6 +195,14 @@ func (m LockManager) CleanupStale(root string, now time.Time) (int, error) {
 			return removed, err
 		}
 		removed++
+		if m.StateStore != nil {
+			if deadOwner {
+				m.logf("removed dead-owner run lock export: %s", path)
+			} else {
+				m.logf("removed stale run lock export: %s", path)
+			}
+			continue
+		}
 		if deadOwner {
 			m.logf("removed dead-owner run lock: %s", path)
 			m.MirrorRelease(lock, now, "dead_owner")
@@ -201,6 +267,12 @@ func RunLockLease(lock domain.RunLock, observedAt time.Time) state.Lease {
 	owner := strings.TrimSpace(lock.Owner)
 	if owner == "" {
 		owner = "unknown"
+	}
+	if host := strings.TrimSpace(lock.Host); host != "" && host != "unknown" {
+		owner = owner + "@" + host
+	}
+	if lock.PID > 0 {
+		owner = fmt.Sprintf("%s#%d", owner, lock.PID)
 	}
 	acquiredAt := lock.StartedAt
 	if acquiredAt.IsZero() {

@@ -62,6 +62,8 @@ These file-based coordination mechanisms are deprecated or compatibility-only on
 
 Compatibility readers may use these artifacts only for migration, repair, diagnostics, or export regeneration, and must label any artifact-derived state as backfilled or reconstructed until SQLite and fresh external facts verify it.
 
+For run claims, the SQLite lease is authoritative once the mutating runner has opened a command-scoped Store. JSON run-lock files, when written, are compatibility/debug exports: they may be refreshed or removed after SQLite lease acquisition, but they must not block a healthy SQLite lease claim or release a healthy SQLite lease by themselves.
+
 ## Rollout phases
 
 Later issues should wire one decision class at a time in this order, preserving behavior unless the ticket updates the behavior spec:

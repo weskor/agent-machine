@@ -52,6 +52,7 @@ CAG-105 adds the SQLite authority matrix and rollout plan to that contract. Curr
 - `--cleanup-workspaces`: inspect workspace cleanup eligibility; `--apply` deletes eligible workspaces.
 - `--repair-artifacts`: repair local Symphony artifacts.
 - `--status`: print runner/workspace status for the workflow.
+- `--explain` / `--dry-run`: print structured JSON for the next scheduling decision, merge blockers, and cleanup eligibility without mutating Linear, GitHub, workspaces, artifacts, or orchestration state.
 - `--status` includes SQLite event-log counts when the durable orchestration event schema is available; these counts are diagnostic evidence only and do not replace artifact summaries or lifecycle decisions.
 
 ## Continuous scheduler
@@ -69,6 +70,7 @@ CAG-105 adds the SQLite authority matrix and rollout plan to that contract. Curr
 - Safety labels rank before unlabeled work: runner-safety/harness first, docs-only/low-risk next, all others after.
 - Priority and older creation time break ties after state and safety ranking.
 - Before claiming work, stale/dead run locks are cleaned up.
+- Explain mode reuses candidate ordering and reconciliation policy to report ordered candidates, the selected candidate when one is runnable, and skip/block reasons.
 - A claimed issue is moved to the configured running state, usually `In Progress`.
 - If the implementation outputs `NEEDS_INFO`, the issue moves to the configured needs-info state and receives the questions as a Linear comment.
 
@@ -81,6 +83,7 @@ CAG-105 adds the SQLite authority matrix and rollout plan to that contract. Curr
 - Configured pre-run and post-run validation hooks execute in the workspace.
 - Completed workspaces become cleanup candidates when the Linear issue is Done and SQLite-backed durable run state indicates completion, failure, or review failure according to cleanup policy. Local artifacts remain compatibility evidence and safety blockers, but missing DB rows or artifact/DB conflicts keep the workspace for reconciliation instead of guessing.
 - Mutating cleanup fails closed when SQLite cannot be opened. Read-only cleanup may report degraded artifact-backed decisions without deleting.
+- Explain mode reports cleanup eligibility using artifact-backed cleanup decisions only and does not delete workspaces or mirror dry-run cleanup rows into SQLite.
 
 ## Pi implementation attempt
 
@@ -109,6 +112,7 @@ CAG-105 adds the SQLite authority matrix and rollout plan to that contract. Curr
 - The PR author invariant derives accepted GitHub App author forms from the configured app slug (`app/<slug>` and `<slug>[bot]`) or an explicit workflow PR author override; if neither source is available, merge automation fails closed with a clear ownership blocker.
 - Successful merge deletes the Symphony workspace branch and moves the Linear issue to Done.
 - Blocked merges should explain the gate reason instead of forcing a merge.
+- Explain mode uses the same pull-request merge gate evaluator as merge automation and reports blockers without merging, deleting branches, moving Linear issues, or writing feedback artifacts.
 
 ## Failure and artifact behavior
 

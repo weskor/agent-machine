@@ -46,14 +46,18 @@ From this repository:
 
 ```bash
 go run . --status WORKFLOW.md
+go run . --explain WORKFLOW.md
 go run . --continuous WORKFLOW.md
 go run . --status /path/to/target/WORKFLOW.md
 go run . --once /path/to/target/WORKFLOW.md
 go run . --continuous /path/to/target/WORKFLOW.md
 go run . --merge-approved /path/to/target/WORKFLOW.md
+go run . --dry-run /path/to/target/WORKFLOW.md
 go run . --cleanup-workspaces --apply /path/to/target/WORKFLOW.md
 go run . --repair-artifacts /path/to/target/WORKFLOW.md
 ```
+
+`--explain` (alias `--dry-run`) prints structured JSON describing the next candidate Symphony would run, merge blockers for open Symphony PRs, and cleanup eligibility. It does not claim issues, merge PRs, delete workspaces, or update local orchestration state.
 
 ## Development
 

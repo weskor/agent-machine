@@ -87,9 +87,6 @@ func writeRunRecordWithStateFallback(store *state.Store, fallbackOpen bool, work
 			log("failed to persist run record into SQLite state before artifact export: %v", err)
 			return err
 		}
-		if err := recordRunAttemptEvent(stateStore, record); err != nil {
-			log("failed to append SQLite run attempt event; continuing artifact export: %v", err)
-		}
 	}
 	path, err := artifactManager().WriteRunRecord(workspace, record)
 	if err != nil {
@@ -106,40 +103,6 @@ func writeRunRecordWithStateFallback(store *state.Store, fallbackOpen bool, work
 	logRunArtifactSummary(path, evaluationPath, record, evaluation)
 	return nil
 }
-
-func recordRunAttemptEvent(store *state.Store, record runRecord) error {
-	if store == nil {
-		return nil
-	}
-	eventType := state.EventAttemptStarted
-	if terminalRunStatus(record.Status) {
-		eventType = state.EventAttemptFinished
-	}
-	payload := map[string]any{
-		"status": record.Status,
-	}
-	if record.PRURL != "" {
-		payload["pr_url"] = record.PRURL
-	}
-	if record.ReviewStatus != "" {
-		payload["review_status"] = record.ReviewStatus
-	}
-	if record.Error != "" {
-		payload["error"] = record.Error
-	}
-	_, err := store.AppendEvent(context.Background(), state.EventInput{
-		OccurredAt: record.EndedAt,
-		IssueKey:   record.IssueIdentifier,
-		IssueID:    record.IssueID,
-		Attempt:    1,
-		RunID:      record.Workspace,
-		Source:     "runner.run_attempt",
-		Type:       eventType,
-		Payload:    payload,
-	})
-	return err
-}
-
 func stateStoreForRunRecordExport(store *state.Store, fallbackOpen bool, workspaceRoot string) (*state.Store, string, func(), error) {
 	if store != nil {
 		return store, "", nil, nil

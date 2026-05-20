@@ -549,7 +549,46 @@ ON CONFLICT(attempt_id) DO UPDATE SET outcome=excluded.outcome, reason=excluded.
 			return fmt.Errorf("record external artifact ref: %w", err)
 		}
 	}
+	if _, err := appendEvent(ctx, tx, runArtifactEventInput(snap, now)); err != nil {
+		return fmt.Errorf("append run artifact event: %w", err)
+	}
 	return tx.Commit()
+}
+
+func runArtifactEventInput(snap RunArtifactSnapshot, occurredAt time.Time) EventInput {
+	eventType := EventAttemptStarted
+	if snap.TerminalOutcome != "" {
+		eventType = EventAttemptFinished
+	}
+	payload := map[string]any{"status": snap.Status}
+	if snap.PRURL != "" {
+		payload["pr_url"] = snap.PRURL
+	}
+	if snap.ReviewStatus != "" {
+		payload["review_status"] = snap.ReviewStatus
+	}
+	if snap.ReviewClassification != "" {
+		payload["review_classification"] = snap.ReviewClassification
+	}
+	if snap.TerminalOutcome != "" {
+		payload["terminal_outcome"] = snap.TerminalOutcome
+	}
+	if snap.TerminalReason != "" {
+		payload["terminal_reason"] = snap.TerminalReason
+	}
+	if snap.FeedbackNextAction != "" {
+		payload["next_action"] = snap.FeedbackNextAction
+	}
+	return EventInput{
+		OccurredAt: occurredAt,
+		IssueKey:   snap.IssueKey,
+		IssueID:    snap.IssueID,
+		Attempt:    snap.Attempt,
+		RunID:      snap.WorkspacePath,
+		Source:     "runner.run_attempt",
+		Type:       eventType,
+		Payload:    payload,
+	}
 }
 
 func (s *Store) RecordArtifactExportFailure(ctx context.Context, issueKey string, attempt int, artifact string, message string, capturedAt time.Time) error {
@@ -589,6 +628,14 @@ func (s *Store) AppendEvent(ctx context.Context, input EventInput) (Event, error
 	if s == nil || s.db == nil {
 		return Event{}, errors.New("append event: store is nil")
 	}
+	return appendEvent(ctx, s.db, input)
+}
+
+type eventExecer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func appendEvent(ctx context.Context, execer eventExecer, input EventInput) (Event, error) {
 	payload, err := normalizeEventPayload(input.Payload)
 	if err != nil {
 		return Event{}, fmt.Errorf("append event: %w", err)
@@ -597,7 +644,7 @@ func (s *Store) AppendEvent(ctx context.Context, input EventInput) (Event, error
 	if err != nil {
 		return Event{}, fmt.Errorf("append event: %w", err)
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO orchestration_events(event_id, occurred_at, issue_key, issue_id, attempt, run_id, source, event_type, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, event.ID, formatTime(event.OccurredAt), event.IssueKey, event.IssueID, nullZeroInt(event.Attempt), event.RunID, event.Source, event.Type, string(event.Payload))
+	_, err = execer.ExecContext(ctx, `INSERT OR IGNORE INTO orchestration_events(event_id, occurred_at, issue_key, issue_id, attempt, run_id, source, event_type, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, event.ID, formatTime(event.OccurredAt), event.IssueKey, event.IssueID, nullZeroInt(event.Attempt), event.RunID, event.Source, event.Type, string(event.Payload))
 	if err != nil {
 		return Event{}, fmt.Errorf("append event: %w", err)
 	}

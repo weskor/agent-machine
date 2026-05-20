@@ -58,9 +58,6 @@ func TestSummarizeStateStoreReportsHealthyDB(t *testing.T) {
 	if err := store.UpsertDaemonHeartbeat(ctx, state.DaemonHeartbeat{ProcessID: "host:123", LaneName: "merge", WorkflowPath: "/repo/WORKFLOW.md", CycleNumber: 1}); err != nil {
 		t.Fatalf("UpsertDaemonHeartbeat() error = %v", err)
 	}
-	if _, err := store.AppendEvent(ctx, state.EventInput{IssueKey: "CAG-62", Attempt: 1, Source: "test", Type: state.EventAttemptFinished, Payload: map[string]string{"status": "success"}}); err != nil {
-		t.Fatalf("AppendEvent() error = %v", err)
-	}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}

@@ -42,16 +42,18 @@ func TestStateProjectionRunArtifactMatchesMirroringContract(t *testing.T) {
 	}
 }
 
-func TestRecordRunAttemptEventEmitsFinishedEvent(t *testing.T) {
+func TestRunArtifactProjectionPersistsFinishedEventWithAttemptState(t *testing.T) {
 	ctx := context.Background()
 	store, err := state.Open(ctx, filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
 	defer store.Close()
-	record := runRecord{IssueIdentifier: "CAG-87", IssueID: "issue-id", Workspace: t.TempDir(), Status: runAttemptStatusSuccess, PRURL: "https://github.com/weskor/pi-symphony/pull/87", ReviewStatus: "passed", EndedAt: time.Date(2026, 5, 20, 11, 0, 0, 0, time.UTC)}
-	if err := recordRunAttemptEvent(store, record); err != nil {
-		t.Fatalf("recordRunAttemptEvent() error = %v", err)
+	workspace := t.TempDir()
+	record := runRecord{IssueIdentifier: "CAG-87", IssueID: "issue-id", Workspace: workspace, Status: runAttemptStatusSuccess, PRURL: "https://github.com/weskor/pi-symphony/pull/87", ReviewStatus: "passed", EndedAt: time.Date(2026, 5, 20, 11, 0, 0, 0, time.UTC)}
+	evaluation := evaluationArtifact{Outcome: "handoff_ready", MergeEligible: true}
+	if err := store.UpsertRunArtifact(ctx, stateProjection{}.RunArtifact(workspace, record, evaluation)); err != nil {
+		t.Fatalf("UpsertRunArtifact() error = %v", err)
 	}
 	events, err := store.RecentEvents(ctx, 1)
 	if err != nil {

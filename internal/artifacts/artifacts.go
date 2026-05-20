@@ -21,9 +21,15 @@ const (
 	RunRecordName  = ".pi-symphony-run.json"
 	EvaluationName = ".pi-symphony-evaluation.json"
 	FeedbackName   = ".pi-symphony-feedback.md"
+
+	CurrentArtifactSchemaVersion = 1
+	ArtifactSchemaSourceCurrent  = "current"
+	ArtifactSchemaSourceLegacy   = "legacy"
 )
 
 type EvaluationArtifact struct {
+	SchemaVersion                int      `json:"schema_version"`
+	SchemaSource                 string   `json:"schema_source,omitempty"`
 	IssueIdentifier              string   `json:"issue_identifier"`
 	IssueID                      string   `json:"issue_id,omitempty"`
 	PRURL                        string   `json:"pr_url,omitempty"`
@@ -69,7 +75,7 @@ func FeedbackPath(workspace string) string   { return filepath.Join(workspace, F
 
 func (m Manager) WriteRunRecord(workspace string, record domain.RunRecord) (string, error) {
 	runPath := RunRecordPath(workspace)
-	if err := writeJSON(runPath, record); err != nil {
+	if err := writeVersionedRunRecord(runPath, record); err != nil {
 		return runPath, err
 	}
 	return runPath, nil
@@ -77,8 +83,53 @@ func (m Manager) WriteRunRecord(workspace string, record domain.RunRecord) (stri
 
 func (m Manager) WriteEvaluation(workspace string, record domain.RunRecord) (string, EvaluationArtifact, error) {
 	evaluation := m.Evaluate(workspace, record)
+	markCurrentEvaluation(&evaluation)
 	path := EvaluationPath(workspace)
 	return path, evaluation, writeJSON(path, evaluation)
+}
+
+func writeVersionedRunRecord(path string, record domain.RunRecord) error {
+	data, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	var artifact map[string]any
+	if err := json.Unmarshal(data, &artifact); err != nil {
+		return err
+	}
+	artifact["schema_version"] = CurrentArtifactSchemaVersion
+	artifact["schema_source"] = ArtifactSchemaSourceCurrent
+	return writeJSON(path, artifact)
+}
+
+func markCurrentEvaluation(evaluation *EvaluationArtifact) {
+	if evaluation.SchemaVersion == 0 {
+		evaluation.SchemaVersion = CurrentArtifactSchemaVersion
+	}
+	if evaluation.SchemaSource == "" {
+		evaluation.SchemaSource = ArtifactSchemaSourceCurrent
+	}
+}
+
+func inferArtifactSchema(data []byte, artifactName string) (int, string, error) {
+	var envelope struct {
+		SchemaVersion *int   `json:"schema_version"`
+		SchemaSource  string `json:"schema_source"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return 0, "", fmt.Errorf("malformed %s schema metadata: %w", artifactName, err)
+	}
+	if envelope.SchemaVersion == nil || *envelope.SchemaVersion == 0 {
+		return CurrentArtifactSchemaVersion, ArtifactSchemaSourceLegacy, nil
+	}
+	if *envelope.SchemaVersion != CurrentArtifactSchemaVersion {
+		return 0, "", fmt.Errorf("unsupported %s schema_version %d", artifactName, *envelope.SchemaVersion)
+	}
+	source := strings.TrimSpace(envelope.SchemaSource)
+	if source == "" {
+		source = ArtifactSchemaSourceCurrent
+	}
+	return *envelope.SchemaVersion, source, nil
 }
 
 func writeJSON(path string, value any) error {
@@ -98,6 +149,10 @@ func (m Manager) ReadBackfill(workspace, workspaceRoot string) (domain.RunRecord
 		}
 		return domain.RunRecord{}, EvaluationArtifact{}, time.Time{}, fmt.Errorf("read run record: %w", err)
 	}
+	_, runSchemaSource, err := inferArtifactSchema(data, RunRecordName)
+	if err != nil {
+		return domain.RunRecord{}, EvaluationArtifact{}, time.Time{}, err
+	}
 	var record domain.RunRecord
 	if err := json.Unmarshal(data, &record); err != nil {
 		return domain.RunRecord{}, EvaluationArtifact{}, time.Time{}, fmt.Errorf("malformed %s: %w", RunRecordName, err)
@@ -115,12 +170,21 @@ func (m Manager) ReadBackfill(workspace, workspaceRoot string) (domain.RunRecord
 		record.WorkspaceRoot = workspaceRoot
 	}
 	evaluation := m.Evaluate(workspace, record)
+	markCurrentEvaluation(&evaluation)
 	if evalData, err := os.ReadFile(EvaluationPath(workspace)); err == nil {
+		evalVersion, evalSource, err := inferArtifactSchema(evalData, EvaluationName)
+		if err != nil {
+			return domain.RunRecord{}, EvaluationArtifact{}, time.Time{}, err
+		}
 		if err := json.Unmarshal(evalData, &evaluation); err != nil {
 			return domain.RunRecord{}, EvaluationArtifact{}, time.Time{}, fmt.Errorf("malformed %s: %w", EvaluationName, err)
 		}
+		evaluation.SchemaVersion = evalVersion
+		evaluation.SchemaSource = evalSource
 	} else if err != nil && !os.IsNotExist(err) {
 		return domain.RunRecord{}, EvaluationArtifact{}, time.Time{}, fmt.Errorf("read %s: %w", EvaluationName, err)
+	} else {
+		evaluation.SchemaSource = runSchemaSource
 	}
 	artifactTime := record.EndedAt
 	if artifactTime.IsZero() {
@@ -144,6 +208,12 @@ type SnapshotOptions struct {
 }
 
 func RunArtifactSnapshot(workspace string, record domain.RunRecord, evaluation EvaluationArtifact, options SnapshotOptions) state.RunArtifactSnapshot {
+	if evaluation.SchemaVersion == 0 {
+		evaluation.SchemaVersion = CurrentArtifactSchemaVersion
+	}
+	if evaluation.SchemaSource == "" {
+		evaluation.SchemaSource = ArtifactSchemaSourceCurrent
+	}
 	retryReason := ""
 	retryNextState := ""
 	if evaluation.ShouldRetry {
@@ -158,35 +228,38 @@ func RunArtifactSnapshot(workspace string, record domain.RunRecord, evaluation E
 		terminalOutcome = evaluation.Outcome
 	}
 	return state.RunArtifactSnapshot{
-		IssueKey:             record.IssueIdentifier,
-		IssueID:              record.IssueID,
-		Attempt:              1,
-		WorkspacePath:        record.Workspace,
-		BranchName:           options.BranchName,
-		BaseBranch:           options.BaseBranch,
-		Status:               record.Status,
-		StartedAt:            record.StartedAt,
-		UpdatedAt:            record.EndedAt,
-		Repository:           options.Repository,
-		PRNumber:             options.PRNumber,
-		PRURL:                record.PRURL,
-		ReviewStatus:         record.ReviewStatus,
-		ReviewPassed:         record.ReviewStatus == "passed",
-		ReviewClassification: record.ReviewClassification,
-		ReviewOutputRef:      EvaluationPath(workspace),
-		ReviewOutputHash:     options.ReviewOutputHash,
-		MergeEligible:        evaluation.MergeEligible,
-		FeedbackHash:         record.FeedbackHash,
-		FeedbackNextAction:   evaluation.NextAction,
-		RetryCount:           evaluation.FeedbackRetryCount,
-		RetryBudgetState:     record.BudgetExceeded,
-		RetryReason:          retryReason,
-		RetryInputHash:       record.FeedbackHash,
-		RetryNextState:       retryNextState,
-		TerminalOutcome:      terminalOutcome,
-		TerminalReason:       evaluation.RootCause,
-		RunArtifactRef:       RunRecordPath(workspace),
-		EvaluationRef:        EvaluationPath(workspace),
+		SchemaVersion:         state.CurrentSchemaVersion,
+		ArtifactSchemaVersion: evaluation.SchemaVersion,
+		ArtifactSchemaSource:  evaluation.SchemaSource,
+		IssueKey:              record.IssueIdentifier,
+		IssueID:               record.IssueID,
+		Attempt:               1,
+		WorkspacePath:         record.Workspace,
+		BranchName:            options.BranchName,
+		BaseBranch:            options.BaseBranch,
+		Status:                record.Status,
+		StartedAt:             record.StartedAt,
+		UpdatedAt:             record.EndedAt,
+		Repository:            options.Repository,
+		PRNumber:              options.PRNumber,
+		PRURL:                 record.PRURL,
+		ReviewStatus:          record.ReviewStatus,
+		ReviewPassed:          record.ReviewStatus == "passed",
+		ReviewClassification:  record.ReviewClassification,
+		ReviewOutputRef:       EvaluationPath(workspace),
+		ReviewOutputHash:      options.ReviewOutputHash,
+		MergeEligible:         evaluation.MergeEligible,
+		FeedbackHash:          record.FeedbackHash,
+		FeedbackNextAction:    evaluation.NextAction,
+		RetryCount:            evaluation.FeedbackRetryCount,
+		RetryBudgetState:      record.BudgetExceeded,
+		RetryReason:           retryReason,
+		RetryInputHash:        record.FeedbackHash,
+		RetryNextState:        retryNextState,
+		TerminalOutcome:       terminalOutcome,
+		TerminalReason:        evaluation.RootCause,
+		RunArtifactRef:        RunRecordPath(workspace),
+		EvaluationRef:         EvaluationPath(workspace),
 	}
 }
 
@@ -225,7 +298,7 @@ func (m Manager) Repair(path string) (bool, domain.RunRecord, error) {
 	if !changed {
 		return false, record, nil
 	}
-	if err := writeJSON(path, record); err != nil {
+	if err := writeVersionedRunRecord(path, record); err != nil {
 		return false, domain.RunRecord{}, err
 	}
 	return true, record, nil

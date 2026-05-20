@@ -191,7 +191,9 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 ## Failure and artifact behavior
 
 - Every attempt writes a run record with issue, workspace, branch, timing, usage, review, PR URL, status, budget, and behavior-contract evidence fields when possible.
-- Evaluation artifacts classify dogfood outcomes and suggested improvements.
+- Run records include `schema_version` and `schema_source` metadata. Existing unversioned run records are treated as schema version 1 with `schema_source: legacy`; current writers emit schema version 1 with `schema_source: current`.
+- Evaluation artifacts classify dogfood outcomes and suggested improvements, and include the same schema metadata. Existing unversioned evaluation artifacts are accepted as schema version 1 legacy artifacts.
+- Repair and backfill paths preserve compatibility with unversioned schema version 1 artifacts, reject unsupported or malformed explicit schema versions, and project legacy/current provenance into SQLite artifact references.
 - Active and terminal attempts write a compact progress snapshot outside the cloned issue workspace. The snapshot is observability-only evidence for polling/status efficiency; it must not drive candidate selection, Linear/GitHub transitions, leases, merge gates, cleanup eligibility, or review classification.
 - Under the SQLite transition plan, run records, evaluation artifacts, deterministic comments, PR bodies, and capped debug logs become evidence/debug exports rather than primary coordination state as each decision class is migrated.
 - Command timeouts and budget failures produce failure status and, when possible, Linear comments.

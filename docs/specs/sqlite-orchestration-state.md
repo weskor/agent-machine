@@ -14,6 +14,8 @@ This spec defines the intended behavior contract for CAG-49: moving Pi Symphony 
 - Linear remains the external system of record for issue identity, issue workflow state, comments, assignee/ownership where configured, labels, priority, and Done/Needs Info/Human Review state transitions.
 - GitHub remains the external system of record for PR identity, PR state, review decision, mergeability, checks, branch metadata, authorship, and merge result.
 - Workspace JSON/Markdown files, including `.pi-symphony-run.json`, `.pi-symphony-evaluation.json`, PR bodies, and deterministic comments, are audit and evidence exports. They may be backfill inputs during migration or repair, but after SQLite adoption they must not silently override newer database state.
+- SQLite current-state projections and event payloads carry explicit projection schema metadata. Run-artifact projection payloads include the SQLite projection schema version plus artifact schema version/source so status, repair, and future migrations can distinguish current exports from legacy unversioned artifacts.
+- Backfill from unversioned `.pi-symphony-run.json` or `.pi-symphony-evaluation.json` treats those files as schema version 1 with legacy provenance; unsupported or malformed explicit schema versions are reconciliation failures rather than silently inferred state.
 - When local SQLite state conflicts with Linear or GitHub, the runner must reconcile using explicit rules in this spec rather than assuming either side is always current.
 
 ## Authority matrix

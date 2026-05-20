@@ -19,10 +19,12 @@ This spec describes the target end-to-end Pi Symphony behavior for V1. It does n
 - **Agent sessions** perform bounded implementation or review attempts in isolated workspaces.
 - **Operators** configure workflows, inspect status, answer Needs Info, review PRs, and approve merge policy.
 
+The authority matrix in [SQLite Orchestration State Contract](./sqlite-orchestration-state.md#authority-matrix) defines which system owns each runner decision during the SQLite transition. Later implementation tickets must cite that matrix instead of re-deciding precedence between SQLite, Linear, GitHub, artifacts, and operator input.
+
 ## Happy path
 
 1. A Linear issue is written with Goal, Scope, Requirements, Acceptance Criteria, and Validation.
-2. The Candidate reconciliation Module determines that the issue is runnable and not blocked by active attempts, open PRs, stale artifacts, or missing external facts.
+2. The Candidate reconciliation Module determines that the issue is runnable and not blocked by active attempts, open PRs, stale artifacts, or missing external facts. After the relevant SQLite rollout phase, it uses SQLite for local claim/retry/reconciliation decisions, fresh Linear/GitHub for their external facts, and artifacts only as evidence exports or verified backfill inputs.
 3. Pi Symphony claims the issue by recording a lease and heartbeat before mutating external state.
 4. Pi Symphony creates or refreshes an isolated Workspace for the attempt.
 5. The Agent session reads `AGENTS.md`, `CONTEXT.md`, `LANGUAGE.md`, relevant specs, relevant ADRs, and the Linear issue contract.

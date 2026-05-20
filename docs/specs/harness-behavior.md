@@ -4,6 +4,8 @@ This spec captures current observable Pi Symphony runner behavior. Update it whe
 
 Future SQLite-backed orchestration state work is specified in [SQLite Orchestration State Contract](./sqlite-orchestration-state.md). That contract is for CAG-49 implementation planning and does not change the current behavior described here until an implementation ticket updates this spec.
 
+CAG-105 adds the SQLite authority matrix and rollout plan to that contract. Current file-based behavior in this spec remains the observable contract until a later implementation ticket wires a specific decision class to SQLite and updates this spec.
+
 ## Configuration loading
 
 - The CLI defaults to `WORKFLOW.md` unless another workflow path is supplied.
@@ -80,6 +82,7 @@ Future SQLite-backed orchestration state work is specified in [SQLite Orchestrat
 
 - Every attempt writes a run record with issue, workspace, branch, timing, usage, review, PR URL, status, budget, and behavior-contract evidence fields when possible.
 - Evaluation artifacts classify dogfood outcomes and suggested improvements.
+- Under the SQLite transition plan, run records, evaluation artifacts, deterministic comments, PR bodies, and capped debug logs become evidence/debug exports rather than primary coordination state as each decision class is migrated.
 - Command timeouts and budget failures produce failure status and, when possible, Linear comments.
 - Run locks are released when the attempt exits.
 - Secrets, GitHub App private keys, and `.env.local` files must stay untracked.

@@ -67,11 +67,12 @@ structured output, raw debug capture, and deterministic handoff support.
 8. Validation runs in the Workspace using the workflow-configured commands.
 9. Pi Symphony owns Git/PR handoff: commit or validate the exact scoped diff, push the expected branch, create or update exactly one PR, validate the PR URL, and record artifacts. The Agent stops after the scoped diff and validation notes; any Agent-emitted PR URL remains advisory compatibility input.
 10. Pi Symphony validates that the PR belongs to the configured repository, expected branch, expected base branch, expected author/owner policy, and current issue attempt.
-11. Review runs when configured and classifies the result.
-12. Pi Symphony posts deterministic PR and Linear Handoff comments with behavior-contract evidence.
-13. The Linear issue moves to Human Review, Needs Info, Done, or another configured state according to the outcome.
-14. The merge lane merges only Symphony-owned PRs that pass all configured gates.
-15. Cleanup deletes only workspaces that are safe by current cleanup policy and records cleanup state.
+11. When review is configured, Pi Symphony refreshes PR/check/scope evidence, confirms the run is ready for semantic review, and passes that deterministic evidence packet into the review prompt.
+12. Review runs when configured and classifies the semantic/spec result.
+13. Pi Symphony posts deterministic PR and Linear Handoff comments with behavior-contract evidence.
+14. The Linear issue moves to Human Review, Needs Info, Done, or another configured state according to the outcome.
+15. The merge lane merges only Symphony-owned PRs that pass all configured gates.
+16. Cleanup deletes only workspaces that are safe by current cleanup policy and records cleanup state.
 
 During the attempt, Pi Symphony updates a compact local progress snapshot for the
 issue so operators can inspect current phase, PR URL, review/check state, next

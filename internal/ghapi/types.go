@@ -76,11 +76,13 @@ type IssueComment struct {
 }
 
 type PRHandoffDetails struct {
-	Number       int    `json:"number"`
-	URL          string `json:"url"`
-	BaseRefName  string `json:"baseRefName"`
-	HeadRefName  string `json:"headRefName"`
-	ChangedFiles int    `json:"changedFiles"`
-	Additions    int    `json:"additions"`
-	Deletions    int    `json:"deletions"`
+	Number            int           `json:"number"`
+	URL               string        `json:"url"`
+	BaseRefName       string        `json:"baseRefName"`
+	HeadRefName       string        `json:"headRefName"`
+	HeadSHA           string        `json:"headSha,omitempty"`
+	ChangedFiles      int           `json:"changedFiles"`
+	Additions         int           `json:"additions"`
+	Deletions         int           `json:"deletions"`
+	StatusCheckRollup []StatusCheck `json:"statusCheckRollup,omitempty"`
 }

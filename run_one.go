@@ -268,13 +268,44 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	handoff.PRURL = prURL
 	writeRunProgress(config.WorkspaceRoot, handoff)
 
+	validation := validationLines(piOutput)
+	if strings.TrimSpace(scopeResult.Summary()) != "" {
+		validation = append(validation, "Scope guard: "+scopeResult.Summary())
+	} else if scopeResult.Checked {
+		validation = append(validation, "Scope guard: changed files matched the Linear ticket path contract.")
+	}
+
+	var reviewEvidence *reviewEvidence
+	if prURL != "" && config.ReviewCommand != "" {
+		evidence, err := collectReviewEvidence(config, candidate, workspace, prURL, scopeResult, validation)
+		if err != nil {
+			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), err.Error()))
+			return true, err
+		}
+		reviewEvidence = &evidence
+		if err := reviewEvidenceNotReadyError(*reviewEvidence); err != nil {
+			notReady := runProgressForIssue(candidate, workspace, "review_not_ready", progressStarted)
+			notReady.Branch = branch
+			notReady.PRURL = prURL
+			notReady.ChecksStatus = reviewEvidence.ChecksStatus
+			notReady.NextAction = "wait_for_github_checks_then_retry"
+			notReady.Error = reviewEvidence.ChecksSummary
+			writeRunProgress(config.WorkspaceRoot, notReady)
+			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), err.Error()))
+			return true, err
+		}
+	}
+
 	var review *reviewResult
 	if prURL != "" && config.ReviewCommand != "" {
 		reviewing := runProgressForIssue(candidate, workspace, "reviewing", progressStarted)
 		reviewing.Branch = branch
 		reviewing.PRURL = prURL
+		if reviewEvidence != nil {
+			reviewing.ChecksStatus = reviewEvidence.ChecksStatus
+		}
 		writeRunProgress(config.WorkspaceRoot, reviewing)
-		reviewResult, err := runReview(config.ReviewCommand, workspace, candidate, prURL, githubEnv, config.Budget.ReviewTimeout)
+		reviewResult, err := runReview(config.ReviewCommand, workspace, candidate, prURL, githubEnv, config.Budget.ReviewTimeout, reviewEvidence)
 		review = reviewResult
 		if err != nil {
 			status := runAttemptStatusReviewFailed
@@ -316,12 +347,6 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		}
 	}
 	if prURL != "" {
-		validation := validationLines(piOutput)
-		if strings.TrimSpace(scopeResult.Summary()) != "" {
-			validation = append(validation, "Scope guard: "+scopeResult.Summary())
-		} else if scopeResult.Checked {
-			validation = append(validation, "Scope guard: changed files matched the Linear ticket path contract.")
-		}
 		logHandoffRunSummary(candidate.Identifier, prURL, review, validation)
 		classificationRecord := runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, runAttemptStatusSuccess, "", config.Budget.Active(), "")
 		classification := classifyRunRecord(workspace, classificationRecord)

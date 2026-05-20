@@ -9,6 +9,141 @@ import (
 	"github.com/weskor/pi-symphony/internal/agentruntime"
 )
 
+type reviewEvidence struct {
+	IssueIdentifier string
+	IssueTitle      string
+	PRURL           string
+	Workspace       string
+	BaseBranch      string
+	HeadBranch      string
+	HeadSHA         string
+	ChangedFiles    int
+	Additions       int
+	Deletions       int
+	ChecksStatus    string
+	ChecksSummary   string
+	ScopeSummary    string
+	Validation      []string
+	ProgressPath    string
+}
+
+func (e reviewEvidence) PromptBlock() string {
+	var b strings.Builder
+	b.WriteString("Runner-owned deterministic review evidence:\n")
+	writeEvidenceLine(&b, "Issue", strings.TrimSpace(e.IssueIdentifier+" "+e.IssueTitle))
+	writeEvidenceLine(&b, "PR", e.PRURL)
+	writeEvidenceLine(&b, "Workspace", e.Workspace)
+	writeEvidenceLine(&b, "Base branch", e.BaseBranch)
+	writeEvidenceLine(&b, "Head branch", e.HeadBranch)
+	writeEvidenceLine(&b, "Head SHA", e.HeadSHA)
+	if e.ChangedFiles > 0 || e.Additions > 0 || e.Deletions > 0 {
+		writeEvidenceLine(&b, "Diff size", fmt.Sprintf("files=%d additions=%d deletions=%d", e.ChangedFiles, e.Additions, e.Deletions))
+	}
+	writeEvidenceLine(&b, "GitHub checks", emptyAsUnknown(e.ChecksStatus)+" — "+emptyAsUnknown(e.ChecksSummary))
+	writeEvidenceLine(&b, "Scope guard", e.ScopeSummary)
+	if len(e.Validation) > 0 {
+		b.WriteString("- Validation:\n")
+		for _, line := range e.Validation {
+			if trimmed := strings.TrimSpace(line); trimmed != "" {
+				b.WriteString("  - " + trimmed + "\n")
+			}
+		}
+	}
+	writeEvidenceLine(&b, "Progress snapshot", e.ProgressPath)
+	b.WriteString("\nUse this packet as the source of truth for deterministic PR/check/scope facts. Focus review findings on semantic/spec quality that the runner cannot compute deterministically.\n")
+	return b.String()
+}
+
+func writeEvidenceLine(b *strings.Builder, label, value string) {
+	if strings.TrimSpace(value) == "" {
+		return
+	}
+	b.WriteString(fmt.Sprintf("- %s: %s\n", label, strings.TrimSpace(value)))
+}
+
+func reviewEvidenceFromPRDetails(candidate *issue, workspace string, details prHandoffDetails, scopeResult scopeGuardResult, validation []string, workspaceRoot string) reviewEvidence {
+	progressPath, _ := runProgressPath(workspaceRoot, candidate.Identifier)
+	scopeSummary := strings.TrimSpace(scopeResult.Summary())
+	if scopeSummary == "" && scopeResult.Checked {
+		scopeSummary = "changed files matched the Linear ticket path contract"
+	}
+	status, summary := reviewChecksStatus(details.StatusCheckRollup)
+	return reviewEvidence{IssueIdentifier: candidate.Identifier, IssueTitle: candidate.Title, PRURL: details.URL, Workspace: workspace, BaseBranch: details.BaseRefName, HeadBranch: details.HeadRefName, HeadSHA: details.HeadSHA, ChangedFiles: details.ChangedFiles, Additions: details.Additions, Deletions: details.Deletions, ChecksStatus: status, ChecksSummary: summary, ScopeSummary: scopeSummary, Validation: validation, ProgressPath: progressPath}
+}
+
+func collectReviewEvidence(config runnerConfig, candidate *issue, workspace, prURL string, scopeResult scopeGuardResult, validation []string) (reviewEvidence, error) {
+	github, ctx, cancel, err := githubClientWithTimeout(config.Budget.GitHubTimeout)
+	if err != nil {
+		return reviewEvidence{}, err
+	}
+	defer cancel()
+	for {
+		details, err := github.PullRequestHandoffDetails(ctx, prURL)
+		if err != nil {
+			return reviewEvidence{}, fmt.Errorf("refresh PR review evidence: %w", err)
+		}
+		if reason := prHandoffBlockReason(config, candidate, details); reason != "" {
+			return reviewEvidence{}, fmt.Errorf("refresh PR review evidence: %s", reason)
+		}
+		evidence := reviewEvidenceFromPRDetails(candidate, workspace, details, scopeResult, validation, config.WorkspaceRoot)
+		if evidence.ChecksStatus == "success" || evidence.ChecksStatus == "failed" {
+			return evidence, nil
+		}
+		select {
+		case <-ctx.Done():
+			return evidence, nil
+		case <-time.After(reviewEvidencePollInterval):
+		}
+	}
+}
+
+func reviewChecksStatus(checks []statusCheck) (string, string) {
+	if len(checks) == 0 {
+		return "unavailable", "no status checks were reported by GitHub"
+	}
+	if reason := checksBlockReason(checks); reason == "" {
+		return "success", summarizeStatusChecks(checks)
+	}
+	for _, check := range checks {
+		if check.Typename == "CheckRun" && (strings.EqualFold(check.Status, "UNKNOWN") || strings.EqualFold(check.Conclusion, "UNKNOWN")) {
+			return "unavailable", checksBlockReason(checks)
+		}
+		if check.Typename == "StatusContext" && strings.EqualFold(check.State, "UNKNOWN") {
+			return "unavailable", checksBlockReason(checks)
+		}
+		if check.Typename == "CheckRun" && !strings.EqualFold(check.Status, "COMPLETED") {
+			return "pending", checksBlockReason(checks)
+		}
+		if check.Typename == "StatusContext" && strings.EqualFold(check.State, "PENDING") {
+			return "pending", checksBlockReason(checks)
+		}
+	}
+	return "failed", checksBlockReason(checks)
+}
+
+func summarizeStatusChecks(checks []statusCheck) string {
+	parts := make([]string, 0, len(checks))
+	for _, check := range checks {
+		label := checkLabel(check)
+		switch check.Typename {
+		case "CheckRun":
+			parts = append(parts, fmt.Sprintf("%s=%s/%s", label, emptyAsUnknown(check.Status), emptyAsUnknown(check.Conclusion)))
+		case "StatusContext":
+			parts = append(parts, fmt.Sprintf("%s=%s", label, emptyAsUnknown(check.State)))
+		default:
+			parts = append(parts, fmt.Sprintf("%s=%s", label, emptyAsUnknown(check.Typename)))
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+func reviewEvidenceNotReadyError(e reviewEvidence) error {
+	if e.ChecksStatus == "" || e.ChecksStatus == "success" {
+		return nil
+	}
+	return fmt.Errorf("review not ready: GitHub checks %s: %s", e.ChecksStatus, e.ChecksSummary)
+}
+
 const reviewPassMarker = "REVIEW_PASS"
 const reviewFailMarker = "REVIEW_FAIL"
 
@@ -18,11 +153,19 @@ const (
 	reviewClassificationUnknown             = "unknown"
 )
 
-func reviewPrompt(candidate *issue, prURL, workspace string) string {
+var reviewEvidencePollInterval = 5 * time.Second
+
+func reviewPrompt(candidate *issue, prURL, workspace string, evidence *reviewEvidence) string {
+	evidenceBlock := "Runner-owned deterministic review evidence: unavailable; use the local git diff and PR details available in the workspace."
+	if evidence != nil {
+		evidenceBlock = evidence.PromptBlock()
+	}
 	return fmt.Sprintf(`Review the final Symphony/Pi runner output for %s.
 
 PR: %s
 Workspace: %s
+
+%s
 
 Review only. Do not edit files, commit, push, merge, or comment on GitHub/Linear.
 
@@ -67,7 +210,7 @@ Classification rules:
 - unknown: malformed, ambiguous, or mixed findings. Use unknown unless missing_evidence_only is clearly the only issue.
 
 Then add concise findings.
-`, candidate.Identifier, prURL, workspace, ticketContractReviewPrompt(), reviewPassMarker, reviewFailMarker, reviewFailMarker)
+`, candidate.Identifier, prURL, workspace, evidenceBlock, ticketContractReviewPrompt(), reviewPassMarker, reviewFailMarker, reviewFailMarker)
 }
 
 func reviewCommandWithHighReasoning(command string) string {
@@ -89,11 +232,11 @@ func reviewCommandWithHighReasoning(command string) string {
 
 // runReview performs a separate read-only Pi pass over the final diff before
 // the runner hands the Linear issue to Human Review.
-func runReview(reviewCommand, workspace string, candidate *issue, prURL string, env map[string]string, timeout time.Duration) (*reviewResult, error) {
+func runReview(reviewCommand, workspace string, candidate *issue, prURL string, env map[string]string, timeout time.Duration, evidence *reviewEvidence) (*reviewResult, error) {
 	if strings.TrimSpace(reviewCommand) == "" {
 		return nil, nil
 	}
-	prompt := reviewPrompt(candidate, prURL, workspace)
+	prompt := reviewPrompt(candidate, prURL, workspace, evidence)
 
 	started := time.Now()
 	runtimeResult, err := newPiCLIRuntime().ReviewAttempt(context.Background(), candidate.Identifier, agentruntime.ReviewAttemptInput{Command: reviewCommandWithHighReasoning(reviewCommand), WorkingDir: workspace, Prompt: prompt, PullRequest: prURL, Timeout: timeout, Environment: env}, agentruntime.NoopSink{})

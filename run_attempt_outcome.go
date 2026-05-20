@@ -53,25 +53,13 @@ func (o runAttemptOutcome) Record(candidate *issue, workspace, piCommand string)
 }
 
 func (o runAttemptOutcome) TerminalOutcomeIntent() string {
-	if o.Status == runAttemptStatusSuccess && o.Review != nil && o.Review.Status == "passed" {
-		return "handoff_ready"
+	record := runRecord{Status: o.Status, Error: o.Error, PRURL: o.PRURL}
+	if o.Review != nil {
+		record.ReviewStatus = o.Review.Status
+		record.ReviewClassification = o.Review.Classification
 	}
-	if o.Status == runAttemptStatusNeedsInfo || o.Status == runAttemptStatusNeedsInfoFail {
-		return "needs_info"
-	}
-	if o.Review != nil && o.Review.Status == "failed" && o.Review.Classification == reviewClassificationMissingEvidenceOnly {
-		return "human_review"
-	}
-	if o.Status == runAttemptStatusReviewFailed || (o.Review != nil && o.Review.Status == "failed") {
-		return "review_failed"
-	}
-	if o.Status == runAttemptStatusTimeout || o.Status == runAttemptStatusBudgetExceeded {
-		return o.Status
-	}
-	if o.Error != "" || o.Status == runAttemptStatusFailed || o.Status == runAttemptStatusGitHubAppError || o.Status == runAttemptStatusNeedsInfoFail {
-		return "operational_failure"
-	}
-	return o.Status
+	classification := classifyRun(runClassificationInput{Record: record, NeedsInfoUsed: o.Status == runAttemptStatusNeedsInfo || o.Status == runAttemptStatusNeedsInfoFail})
+	return classification.Outcome
 }
 
 func runRecordFor(candidate *issue, workspace, piCommand, githubAuth string, startedAt, endedAt time.Time, piUsage *usage, review *reviewResult, prURL, status, errorMessage string, budget *runBudget, budgetExceeded string) runRecord {

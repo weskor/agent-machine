@@ -92,118 +92,19 @@ func evaluationForRun(workspace string, record runRecord) evaluationArtifact {
 		passed := record.ReviewStatus == "passed"
 		evaluation.ReviewPassed = &passed
 	}
-	evaluation.BehaviorContractEvidence = behaviorContractEvidenceForRun(record)
-	evaluation.TicketContractEvidence = ticketContractEvidenceForRun(record)
-	evaluation.FrictionSignals = frictionSignals(record, evaluation)
-	evaluation.CandidateHarnessImprovements = harnessImprovements(evaluation.FrictionSignals)
-	evaluation.Outcome = outcomeForRun(record, evaluation)
-	evaluation.MergeEligible = record.Status == "success" && record.ReviewStatus == "passed" && record.PRURL != ""
-	evaluation.BlockedBy = blockedByForRun(record, evaluation)
-	evaluation.RootCause = rootCauseForRun(record, evaluation)
-	evaluation.NextAction = nextActionForRun(record, evaluation)
-	evaluation.ShouldRetry = shouldRetryRun(record, evaluation)
-	evaluation.OperatorAttentionRequired = operatorAttentionRequired(record, evaluation)
+	classification := classifyRunRecord(workspace, record)
+	evaluation.BehaviorContractEvidence = classification.BehaviorContractEvidence
+	evaluation.TicketContractEvidence = classification.TicketContractEvidence
+	evaluation.FrictionSignals = classification.FrictionSignals
+	evaluation.CandidateHarnessImprovements = classification.CandidateHarnessImprovements
+	evaluation.Outcome = classification.Outcome
+	evaluation.MergeEligible = classification.MergeEligible
+	evaluation.BlockedBy = classification.BlockedBy
+	evaluation.RootCause = classification.RootCause
+	evaluation.NextAction = classification.NextAction
+	evaluation.ShouldRetry = classification.ShouldRetry
+	evaluation.OperatorAttentionRequired = classification.OperatorAttentionRequired
 	return evaluation
-}
-
-func outcomeForRun(record runRecord, evaluation evaluationArtifact) string {
-	if record.Status == "success" && record.ReviewStatus == "passed" {
-		return "handoff_ready"
-	}
-	if evaluation.NeedsInfoUsed {
-		return "needs_info"
-	}
-	if record.ReviewStatus == "failed" && record.ReviewClassification == reviewClassificationMissingEvidenceOnly {
-		return "human_review"
-	}
-	if record.Status == "review_failed" || record.ReviewStatus == "failed" {
-		return "review_failed"
-	}
-	if record.Status == "timeout" || record.Status == "budget_exceeded" {
-		return record.Status
-	}
-	if strings.TrimSpace(record.Error) != "" || strings.HasSuffix(record.Status, "_failed") || record.Status == "failed" {
-		return "operational_failure"
-	}
-	return record.Status
-}
-
-func blockedByForRun(record runRecord, evaluation evaluationArtifact) []string {
-	var blockers []string
-	if record.PRURL == "" && !evaluation.NeedsInfoUsed {
-		blockers = append(blockers, "missing_pr_url")
-	}
-	if record.Status != "success" {
-		blockers = append(blockers, record.Status)
-	}
-	if record.ReviewStatus != "" && record.ReviewStatus != "passed" {
-		blockers = append(blockers, "review_"+record.ReviewStatus)
-	}
-	if evaluation.MergeBlockReason != "" {
-		blockers = append(blockers, "merge_blocked")
-	}
-	return uniqueStrings(blockers)
-}
-
-func rootCauseForRun(record runRecord, evaluation evaluationArtifact) string {
-	if hasString(evaluation.FrictionSignals, "out_of_scope_diff_findings") {
-		return "out_of_scope_diff"
-	}
-	if record.Status == "review_failed" || record.ReviewStatus == "failed" {
-		if record.ReviewClassification == reviewClassificationMissingEvidenceOnly {
-			return "missing_behavior_contract_evidence"
-		}
-		return "pre_handoff_review_failed"
-	}
-	if record.Status == "timeout" || record.Status == "budget_exceeded" {
-		return record.Status
-	}
-	if hasString(evaluation.FrictionSignals, "operational_failure") {
-		return "runner_operational_failure"
-	}
-	if evaluation.MergeBlockReason != "" {
-		return "merge_gate_blocked"
-	}
-	return ""
-}
-
-func nextActionForRun(record runRecord, evaluation evaluationArtifact) string {
-	if evaluation.MergeEligible {
-		return "await_approval_and_green_checks"
-	}
-	if evaluation.NeedsInfoUsed {
-		return "answer_needs_info_questions"
-	}
-	if record.Status == "review_failed" || record.ReviewStatus == "failed" {
-		if record.ReviewClassification == reviewClassificationMissingEvidenceOnly {
-			return "await_human_review_for_behavior_contract_evidence"
-		}
-		return "repair_review_findings_before_handoff"
-	}
-	if record.Status == "timeout" || record.Status == "budget_exceeded" {
-		return "split_or_reduce_issue_scope_then_retry"
-	}
-	if record.PRURL == "" {
-		return "inspect_run_log_and_create_or_repair_pr"
-	}
-	if evaluation.MergeBlockReason != "" {
-		return "resolve_merge_gate_blocker"
-	}
-	return "inspect_run_artifact"
-}
-
-func shouldRetryRun(record runRecord, evaluation evaluationArtifact) bool {
-	if evaluation.NeedsInfoUsed || evaluation.MergeEligible {
-		return false
-	}
-	if record.ReviewClassification == reviewClassificationMissingEvidenceOnly {
-		return false
-	}
-	return record.Status == "review_failed" || record.Status == "timeout" || record.Status == "budget_exceeded" || hasString(evaluation.FrictionSignals, "operational_failure")
-}
-
-func operatorAttentionRequired(record runRecord, evaluation evaluationArtifact) bool {
-	return evaluation.MergeBlockReason != "" || hasString(evaluation.FrictionSignals, "operational_failure") || hasString(evaluation.FrictionSignals, "out_of_scope_diff_findings") || (record.Status == "success" && record.ReviewStatus != "passed")
 }
 
 func hasString(values []string, needle string) bool {
@@ -234,76 +135,4 @@ func feedbackRetryCount(workspace string) int {
 
 func mergeBlockReason(record runRecord) string {
 	return evaluateRunRecordMergeGate(record).Reason()
-}
-
-func frictionSignals(record runRecord, evaluation evaluationArtifact) []string {
-	var signals []string
-	add := func(signal string) {
-		for _, existing := range signals {
-			if existing == signal {
-				return
-			}
-		}
-		signals = append(signals, signal)
-	}
-	if record.Status == "review_failed" {
-		add("review_failed")
-	}
-	if record.ReviewClassification == reviewClassificationMissingEvidenceOnly {
-		add("missing_behavior_contract_evidence")
-	}
-	if evaluation.FeedbackRetryCount > 0 {
-		add("changes_requested")
-	}
-	if evaluation.NeedsInfoUsed {
-		add("needs_info")
-	}
-	if record.PRURL == "" && !evaluation.NeedsInfoUsed {
-		add("missing_pr_url")
-	}
-	if record.Status == "failed" || record.Status == "timeout" || record.Status == "budget_exceeded" || strings.HasSuffix(record.Status, "_failed") {
-		add("operational_failure")
-	}
-	if record.Status == "timeout" || record.Status == "budget_exceeded" {
-		add(record.Status)
-	}
-	if strings.Contains(strings.ToLower(record.Error), "validation") {
-		add("validation_failure")
-	}
-	if strings.Contains(strings.ToLower(record.Error), "check") {
-		add("check_failure_or_pending")
-	}
-	if evaluation.TotalTokens >= 200000 || record.DurationMS >= 45*60*1000 {
-		add("high_token_or_time_use")
-	}
-	if strings.Contains(strings.ToLower(record.ReviewFindings), "out-of-scope") || strings.Contains(strings.ToLower(record.ReviewFindings), "scope drift") {
-		add("out_of_scope_diff_findings")
-	}
-	findings := strings.ToLower(record.ReviewFindings + "\n" + record.Error)
-	if strings.Contains(findings, "must") || strings.Contains(findings, "acceptance criteria") || strings.Contains(findings, "go-github") || strings.Contains(findings, "bespoke net/http") {
-		add("ticket_contract_findings")
-	}
-	return signals
-}
-
-func harnessImprovements(signals []string) []string {
-	improvementsBySignal := map[string]string{
-		"review_failed":              "tighten implementation prompt or pre-handoff self-review checks",
-		"changes_requested":          "surface captured PR feedback prominently on retry",
-		"needs_info":                 "clarify issue requirements before agent pickup",
-		"missing_pr_url":             "make PR URL extraction or creation failure more deterministic",
-		"validation_failure":         "promote validation command failures into the handoff summary",
-		"check_failure_or_pending":   "summarize blocking checks before merge attempts",
-		"high_token_or_time_use":     "consider smaller issue slices or higher-signal prompts",
-		"out_of_scope_diff_findings": "add stronger scoped-diff guardrails",
-		"operational_failure":        "inspect runner logs and external service availability",
-		"ticket_contract_findings":   "clarify or enforce the five-section ticket contract before retry",
-	}
-	var improvements []string
-	for _, signal := range signals {
-		if improvement := improvementsBySignal[signal]; improvement != "" {
-			improvements = append(improvements, improvement)
-		}
-	}
-	return improvements
 }

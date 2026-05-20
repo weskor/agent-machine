@@ -24,6 +24,7 @@ type handoffSummary struct {
 	Duration        time.Duration
 	Validation      []string
 	FollowUps       []string
+	Classification  *runClassification
 }
 
 func renderPRHandoffComment(summary handoffSummary) string {
@@ -48,11 +49,15 @@ func renderPRHandoffComment(summary handoffSummary) string {
 }
 
 func behaviorContractEvidenceNotes(summary handoffSummary) []string {
-	return []string{
+	notes := []string{
 		"References: docs/specs/harness-behavior.md and docs/agents/review-policy.md.",
 		"Specs: preserved unless explicitly changed in this PR.",
 		"Review classification: " + reviewClassificationSummary(summary.Review),
 	}
+	if summary.Classification != nil {
+		notes = append(notes, "Run classification: outcome="+summary.Classification.Outcome+", root="+emptyAsNA(summary.Classification.RootCause)+", next="+emptyAsNA(summary.Classification.NextAction)+".")
+	}
+	return notes
 }
 
 func reviewClassificationSummary(review *reviewResult) string {

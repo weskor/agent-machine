@@ -310,7 +310,18 @@ func summarizeReadyReconciliation(issues []issue, artifacts map[string]artifactS
 func summarizeReadyReconciliationDecisions(decisions []reconciliationDecision, readyState string) []string {
 	var lines []string
 	for _, decision := range decisions {
-		if decision.StateName != readyState || decision.Artifact == nil {
+		if decision.StateName != readyState {
+			continue
+		}
+		if decision.Artifact == nil {
+			if !decision.ReconciliationNeeded {
+				continue
+			}
+			next := decision.NextAction
+			if next == "" {
+				next = "reconcile_sqlite_external_facts"
+			}
+			lines = append(lines, fmt.Sprintf("Reconcile Ready issue from durable state: %s status=%s pr=%s next=%s reconciliation_needed=true", decision.IssueIdentifier, emptyAsNA(sqliteFactStatus(decision.DBFacts)), emptyAsNA(sqliteFactPRURL(decision.DBFacts)), next))
 			continue
 		}
 		artifact := *decision.Artifact
@@ -335,6 +346,20 @@ func summarizeReadyReconciliationDecisions(decisions []reconciliationDecision, r
 	}
 	sort.Strings(lines)
 	return append([]string{"Actionable reconciliation:"}, lines...)
+}
+
+func sqliteFactStatus(facts *state.ReconciliationFacts) string {
+	if facts == nil {
+		return ""
+	}
+	return facts.Status
+}
+
+func sqliteFactPRURL(facts *state.ReconciliationFacts) string {
+	if facts == nil {
+		return ""
+	}
+	return facts.PRURL
 }
 
 func summarizeRunningReconciliation(issues []issue, artifacts map[string]artifactSummary, config runnerConfig) []string {

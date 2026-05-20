@@ -8,6 +8,10 @@ import (
 	"testing"
 )
 
+func rawOutputPath(workspace, phase string) string {
+	return filepath.Join(filepath.Dir(workspace), ".symphony", "debug", filepath.Base(workspace), phase+"-raw.log")
+}
+
 func TestCaptureAgentOutputDoesNotPrintRawOutputByDefault(t *testing.T) {
 	t.Setenv("PI_SYMPHONY_DEBUG_RAW_OUTPUT", "")
 	t.Setenv("PI_SYMPHONY_DEBUG_RAW_OUTPUT_LIMIT_BYTES", "")
@@ -25,7 +29,7 @@ func TestCaptureAgentOutputDoesNotPrintRawOutputByDefault(t *testing.T) {
 	if strings.Contains(stdout, "raw-jsonl-stream") {
 		t.Fatalf("primary log included raw agent output: %q", stdout)
 	}
-	if _, err := os.Stat(filepath.Join(workspace, ".pi-symphony-debug", "implementation-raw.log")); !os.IsNotExist(err) {
+	if _, err := os.Stat(rawOutputPath(workspace, "implementation")); !os.IsNotExist(err) {
 		t.Fatalf("debug artifact should not exist by default, stat err=%v", err)
 	}
 }
@@ -49,7 +53,7 @@ func TestCaptureAgentOutputWritesCappedDebugArtifactWhenEnabled(t *testing.T) {
 	if !strings.Contains(stdout, "raw review output debug artifact:") {
 		t.Fatalf("primary log did not include debug artifact pointer: %q", stdout)
 	}
-	data, err := os.ReadFile(filepath.Join(workspace, ".pi-symphony-debug", "review-raw.log"))
+	data, err := os.ReadFile(rawOutputPath(workspace, "review"))
 	if err != nil {
 		t.Fatalf("read debug artifact: %v", err)
 	}

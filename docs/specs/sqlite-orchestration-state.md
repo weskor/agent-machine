@@ -49,6 +49,8 @@ Disagreements that cannot be resolved by the authority above must create or keep
 
 After SQLite adoption, these files remain evidence/debug exports: `.pi-symphony-run.json`, `.pi-symphony-evaluation.json`, deterministic PR comments, deterministic Linear comments, PR bodies, capped debug logs under `.pi-symphony-debug/`, validation summaries, and future status/report exports. They may contain hashes, pointers, summaries, URLs, and behavior-contract evidence suitable for audit.
 
+Run-attempt writers that own a command-scoped Store must commit the attempt projection and derived evaluation classification to SQLite before writing `.pi-symphony-run.json` or `.pi-symphony-evaluation.json`. If that SQLite transaction cannot commit, the runner must fail closed for that terminal path and must not publish clean success artifacts. If a JSON export fails after the SQLite commit, the durable attempt outcome remains authoritative and the export failure is recorded as artifact evidence for diagnostics/reconciliation.
+
 These file-based coordination mechanisms are deprecated or compatibility-only once the corresponding SQLite decision class is implemented:
 
 - run records as the source for active attempt status, retry status, terminal outcome, cleanup eligibility, or PR mapping;

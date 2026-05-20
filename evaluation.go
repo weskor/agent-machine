@@ -11,13 +11,18 @@ const evaluationArtifactName = artifactio.EvaluationName
 type evaluationArtifact = artifactio.EvaluationArtifact
 
 func writeEvaluationArtifact(workspace string, record runRecord) (string, evaluationArtifact) {
+	path, evaluation, _ := writeEvaluationArtifactResult(workspace, record)
+	return path, evaluation
+}
+
+func writeEvaluationArtifactResult(workspace string, record runRecord) (string, evaluationArtifact, error) {
 	path, evaluation, err := artifactManager().WriteEvaluation(workspace, record)
 	if err != nil {
 		log("failed to write evaluation artifact: %v", err)
-		return "", evaluation
+		return "", evaluation, err
 	}
 	log("wrote evaluation artifact: %s", path)
-	return path, evaluation
+	return path, evaluation, nil
 }
 
 func evaluationForRun(workspace string, record runRecord) evaluationArtifact {

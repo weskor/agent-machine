@@ -27,6 +27,8 @@ hooks:
   before_remove: null
 agent:
   max_concurrent_agents: 1
+  # pi_cli supports only the default single implementation attempt; values >1
+  # require a future session runtime with continuation support.
   max_turns: 1
   max_retry_backoff_ms: 300000
 pi:

@@ -80,7 +80,8 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 - `agent.max_concurrent_agents` and `agent.max_turns` are parsed from workflow YAML, defaulting to `1` when omitted.
 - `agent.max_retry_backoff_ms` is parsed as a non-negative integer millisecond duration, defaulting to `300000`.
 - Invalid values are handled per parser behavior:
-  - `max_concurrent_agents` / `max_turns`: missing, malformed, or negative values fall back to `1` without failing CLI startup.
+  - `max_concurrent_agents`: missing, malformed, or negative values fall back to `1` without failing CLI startup.
+  - `max_turns`: missing, malformed, zero, or negative values fall back to `1` without failing CLI startup.
   - `max_retry_backoff_ms`: missing values default to `300000`; malformed or negative values fail workflow load with `non-negative millisecond integer` validation error.
 
 ### Scheduler parameter behavior (current runnable contract)
@@ -88,8 +89,9 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 - Current runtime behavior is effectively single-attempt, single-worker:
   - `--continuous` starts one work lane and one merge lane;
   - the work lane performs `runOne` for at most one candidate per iteration and then yields.
-- `agent.max_concurrent_agents` and `agent.max_turns` are currently accepted but not enforced by scheduler logic.
-- `max_turns` therefore currently does not gate or stop an attempt by turn count in the Pi CLI runtime.
+- `agent.max_concurrent_agents` is currently accepted but not enforced by scheduler logic.
+- `agent.max_turns` is enforced at the AgentRuntime/config preflight boundary for `pi_cli`: normalized `1` preserves the single implementation attempt, while values greater than `1` fail before claim, lease acquisition, workspace mutation, Linear state movement, or Agent execution.
+- `pi_cli` does not gate or stop an in-flight attempt by turn count; future session-runtime Adapters must declare and enforce a `max_turns` capability rather than relying on scheduler guesses.
 - `max_retry_backoff_ms` is currently parsed and stored but not used to gate retry timing.
 - Duplicate dispatch prevention relies on workspace-level run lock artifacts and SQLite lease acquisition when available.
 - For duplicate-claim safety, the runner:

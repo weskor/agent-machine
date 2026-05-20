@@ -46,6 +46,39 @@ func TestPiCLIAdapterPreflightChecksReviewCommandWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestPiCLIAdapterPreflightRejectsUnsupportedMaxTurns(t *testing.T) {
+	dir := t.TempDir()
+	impl := filepath.Join(dir, "pi-ok")
+	if err := os.WriteFile(impl, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runtime := PiCLIAdapter{}
+	result, err := runtime.Preflight(context.Background(), PreflightInput{ImplementationCommand: impl, MaxTurns: 2})
+	if err == nil {
+		t.Fatal("expected max_turns preflight error")
+	}
+	if len(result.Checks) == 0 || result.Checks[0].Name != "max_turns" || result.Checks[0].OK {
+		t.Fatalf("max_turns check was not first actionable failure: %+v", result)
+	}
+	if !strings.Contains(err.Error(), "agent.max_turns=2") || !strings.Contains(err.Error(), "session runtime") || !strings.Contains(err.Error(), "agent.max_turns: 1") {
+		t.Fatalf("error was not actionable: %v", err)
+	}
+}
+
+func TestPiCLIAdapterPreflightAllowsDefaultAndOneMaxTurns(t *testing.T) {
+	dir := t.TempDir()
+	impl := filepath.Join(dir, "pi-ok")
+	if err := os.WriteFile(impl, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runtime := PiCLIAdapter{}
+	for _, maxTurns := range []int{0, 1} {
+		if _, err := runtime.Preflight(context.Background(), PreflightInput{ImplementationCommand: impl, MaxTurns: maxTurns}); err != nil {
+			t.Fatalf("max_turns=%d should preserve single-attempt behavior: %v", maxTurns, err)
+		}
+	}
+}
+
 func TestPiCLIAdapterRunAttemptPreservesCommandShapeAndParsesOutput(t *testing.T) {
 	var gotCommand, gotPhase string
 	runtime := PiCLIAdapter{

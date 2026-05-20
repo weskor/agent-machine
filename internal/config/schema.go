@@ -116,7 +116,7 @@ func ParseConfig(yaml string) (Config, error) {
 		},
 		Agent: AgentConfig{
 			MaxConcurrentAgents: intFromYAML(agentYAML, "max_concurrent_agents", 1),
-			MaxTurns:            intFromYAML(agentYAML, "max_turns", 1),
+			MaxTurns:            AgentMaxTurnsFromWorkflow(yaml),
 		},
 		Pi: PiConfig{
 			Command:       CommandUnder(piYAML, "command", "pi --print --no-session --thinking low"),
@@ -159,6 +159,17 @@ func ParseConfig(yaml string) (Config, error) {
 		return Config{}, err
 	}
 	return config, nil
+}
+
+// AgentMaxTurnsFromWorkflow returns the normalized agent.max_turns value used
+// by the current runtime boundary. Missing, malformed, zero, or negative values
+// preserve the historical single-attempt behavior by resolving to 1.
+func AgentMaxTurnsFromWorkflow(yaml string) int {
+	value := intFromYAML(Section(yaml, "agent"), "max_turns", 1)
+	if value < 1 {
+		return 1
+	}
+	return value
 }
 
 func durationMS(dst *time.Duration, text *string, yaml, key, path string, fallback time.Duration) error {

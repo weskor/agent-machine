@@ -100,6 +100,16 @@ Unsupported capabilities must be explicit. A future `max_turns` implementation
 must check the provider capability first; it must not assume that `pi_cli` can
 enforce internal turn limits just because the workflow field exists.
 
+Current `pi_cli` semantics for `agent.max_turns` are intentionally narrow:
+missing, invalid, zero, or `1` resolves to the historical single implementation
+attempt, and any normalized value greater than `1` is a runtime configuration
+preflight failure before claim, lease acquisition, workspace mutation, or Linear
+state movement. The actionable failure must tell the operator to use
+`agent.max_turns: 1` or a future session runtime that supports continuation.
+A future app-server/session-runtime Adapter may support `max_turns` by declaring
+the capability and enforcing continuation inside the session lifecycle; the
+runner must not emulate continuation by repeatedly shelling out to `pi_cli`.
+
 ### Deterministic handoff boundary
 
 AgentRuntime output may include a PR URL, branch name, summary, usage, and debug

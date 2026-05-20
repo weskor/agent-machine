@@ -12,9 +12,9 @@ import (
 	"github.com/weskor/pi-symphony/internal/state"
 )
 
-// stateProjection owns domain object to SQLite row projection. Callers keep
-// JSON/Markdown artifact writes and lifecycle decisions first, then delegate
-// best-effort SQLite mirroring here.
+// stateProjection owns domain object to SQLite row projection. Attempt writers
+// persist this projection before exporting JSON evidence artifacts; compatibility
+// and non-authoritative mirrors may still call it best-effort.
 type stateProjection struct{}
 
 func (stateProjection) RunArtifact(workspace string, record runRecord, evaluation evaluationArtifact) state.RunArtifactSnapshot {

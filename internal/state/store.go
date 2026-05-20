@@ -360,6 +360,39 @@ ON CONFLICT(attempt_id) DO UPDATE SET outcome=excluded.outcome, reason=excluded.
 	return tx.Commit()
 }
 
+func (s *Store) RecordArtifactExportFailure(ctx context.Context, issueKey string, attempt int, artifact string, message string, capturedAt time.Time) error {
+	if issueKey == "" {
+		return errors.New("record artifact export failure: issue key is required")
+	}
+	if attempt <= 0 {
+		attempt = 1
+	}
+	if artifact == "" {
+		artifact = "unknown"
+	}
+	if capturedAt.IsZero() {
+		capturedAt = time.Now().UTC()
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin artifact export failure record: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	attemptID, err := attemptID(ctx, tx, issueKey, attempt)
+	if err != nil {
+		return err
+	}
+	factJSON, err := json.Marshal(map[string]string{"artifact": artifact, "error": message})
+	if err != nil {
+		return fmt.Errorf("encode artifact export failure: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO external_fact_snapshots(attempt_id, source, fact_key, fact_json, fact_hash, captured_at) VALUES (?, 'artifact', ?, ?, ?, ?)`, attemptID, "artifact_export_failure", string(factJSON), artifact+":"+message, capturedAt.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("record artifact export failure: %w", err)
+	}
+	return tx.Commit()
+}
+
 func attemptID(ctx context.Context, tx *sql.Tx, issueKey string, attempt int) (int64, error) {
 	var id int64
 	if err := tx.QueryRowContext(ctx, `SELECT id FROM issue_attempts WHERE issue_key = ? AND attempt = ?`, issueKey, attempt).Scan(&id); err != nil {

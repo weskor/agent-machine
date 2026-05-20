@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	artifactio "github.com/weskor/pi-symphony/internal/artifacts"
 	cfg "github.com/weskor/pi-symphony/internal/config"
@@ -56,28 +57,76 @@ func ensureIsolatedWorkspace(workspaceRoot, workspace, identifier string) error 
 }
 
 func writeRunRecord(workspace string, record runRecord) {
-	writeRunRecordWithState(nil, workspace, record)
+	_ = writeRunRecordWithState(nil, workspace, record)
 }
 
-func writeRunRecordWithState(store *state.Store, workspace string, record runRecord) {
-	writeRunRecordWithStateFallback(store, true, workspace, record)
+func writeRunRecordWithState(store *state.Store, workspace string, record runRecord) error {
+	return writeRunRecordWithStateFallback(store, true, workspace, record)
 }
 
-func writeRunRecordWithCommandState(store *state.Store, workspace string, record runRecord) {
-	writeRunRecordWithStateFallback(store, false, workspace, record)
+func writeRunRecordWithCommandState(store *state.Store, workspace string, record runRecord) error {
+	return writeRunRecordWithStateFallback(store, false, workspace, record)
 }
 
-func writeRunRecordWithStateFallback(store *state.Store, fallbackOpen bool, workspace string, record runRecord) {
+func writeRunRecordWithStateFallback(store *state.Store, fallbackOpen bool, workspace string, record runRecord) error {
+	evaluation := evaluationForRun(workspace, record)
+	stateStore, dbPath, closeStore, err := stateStoreForRunRecordExport(store, fallbackOpen, record.WorkspaceRoot)
+	if err != nil {
+		if dbPath != "" {
+			log("failed to persist run record into SQLite state at %s before artifact export: %v", dbPath, err)
+		} else {
+			log("failed to persist run record into SQLite state before artifact export: %v", err)
+		}
+		return err
+	}
+	if closeStore != nil {
+		defer closeStore()
+	}
+	if stateStore != nil {
+		if err := stateStore.UpsertRunArtifact(context.Background(), stateProjection{}.RunArtifact(workspace, record, evaluation)); err != nil {
+			log("failed to persist run record into SQLite state before artifact export: %v", err)
+			return err
+		}
+	}
 	path, err := artifactManager().WriteRunRecord(workspace, record)
 	if err != nil {
 		log("failed to write run record: %v", err)
-		return
+		recordArtifactExportFailure(stateStore, record, "run_record", err)
+		return err
 	}
 	log("wrote run record: %s", path)
-	evaluationPath, evaluation := writeEvaluationArtifact(workspace, record)
+	evaluationPath, evaluation, err := writeEvaluationArtifactResult(workspace, record)
+	if err != nil {
+		recordArtifactExportFailure(stateStore, record, "evaluation", err)
+		return err
+	}
 	logRunArtifactSummary(path, evaluationPath, record, evaluation)
-	if store != nil || fallbackOpen {
-		mirrorRunRecordToState(store, workspace, record)
+	return nil
+}
+
+func stateStoreForRunRecordExport(store *state.Store, fallbackOpen bool, workspaceRoot string) (*state.Store, string, func(), error) {
+	if store != nil {
+		return store, "", nil, nil
+	}
+	if !fallbackOpen {
+		return nil, "", nil, nil
+	}
+	if strings.TrimSpace(workspaceRoot) == "" {
+		return nil, "", nil, nil
+	}
+	opened, dbPath, err := openStateProjectionStore(context.Background(), workspaceRoot)
+	if err != nil {
+		return nil, dbPath, nil, err
+	}
+	return opened, dbPath, func() { _ = opened.Close() }, nil
+}
+
+func recordArtifactExportFailure(store *state.Store, record runRecord, artifact string, exportErr error) {
+	if store == nil || exportErr == nil {
+		return
+	}
+	if err := store.RecordArtifactExportFailure(context.Background(), record.IssueIdentifier, 1, artifact, exportErr.Error(), time.Now().UTC()); err != nil {
+		log("failed to record artifact export failure in SQLite state: %v", err)
 	}
 }
 

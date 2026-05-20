@@ -234,7 +234,9 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	}
 
 	if prURL != "" {
-		if reason, err := validatePRForHandoff(config, candidate, prURL); err != nil {
+		resolvedPRURL, reason, err := validatePRForHandoff(config, candidate, prURL)
+		prURL = resolvedPRURL
+		if err != nil {
 			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
 			return true, err
 		} else if reason != "" {

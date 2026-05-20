@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -133,17 +134,65 @@ func expectedWorkspaceBranch(identifier string) string {
 	return "symphony/" + strings.TrimSpace(identifier) + "-workspace"
 }
 
-func validatePRForHandoff(config runnerConfig, candidate *issue, prURL string) (string, error) {
+func validatePRForHandoff(config runnerConfig, candidate *issue, prURL string) (string, string, error) {
 	github, ctx, cancel, err := githubClientWithTimeout(config.Budget.GitHubTimeout)
 	if err != nil {
-		return "", err
+		return prURL, "", err
 	}
 	defer cancel()
+
 	details, err := github.PullRequestHandoffDetails(ctx, prURL)
 	if err != nil {
-		return "", fmt.Errorf("GitHub API PR handoff lookup failed for %s: %w", prURL, err)
+		if !isRecoverablePRLookupError(err) {
+			return prURL, "", fmt.Errorf("GitHub API PR handoff lookup failed for %s: %w", prURL, err)
+		}
+
+		fallback, fallbackErr := resolveHandoffPRByBranch(ctx, github, candidate)
+		if fallbackErr != nil {
+			return prURL, "", fmt.Errorf("GitHub API PR handoff lookup failed for %s: %w", prURL, fallbackErr)
+		}
+		details = fallback
 	}
-	return prHandoffBlockReason(config, candidate, details), nil
+
+	if details.URL == "" {
+		details.URL = prURL
+	}
+	return details.URL, prHandoffBlockReason(config, candidate, details), nil
+}
+
+func isRecoverablePRLookupError(err error) bool {
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return message == "" || strings.Contains(message, "404") || strings.Contains(message, "not found") || strings.Contains(message, "invalid github pr url")
+}
+
+func resolveHandoffPRByBranch(ctx context.Context, github githubAPI, candidate *issue) (prHandoffDetails, error) {
+	prs, err := github.OpenPullRequests(ctx)
+	if err != nil {
+		return prHandoffDetails{}, err
+	}
+	expectedBranch := expectedWorkspaceBranch(candidate.Identifier)
+	var matches []prHandoffDetails
+	for _, pr := range prs {
+		if pr.HeadRefName != expectedBranch {
+			continue
+		}
+		details, detailsErr := github.PullRequestHandoffDetails(ctx, pr.URL)
+		if detailsErr != nil {
+			return prHandoffDetails{}, detailsErr
+		}
+		matches = append(matches, details)
+	}
+	if len(matches) == 0 {
+		return prHandoffDetails{}, fmt.Errorf("no open PR found with head branch %q for %s", expectedBranch, candidate.Identifier)
+	}
+	if len(matches) > 1 {
+		numbers := make([]string, 0, len(matches))
+		for _, match := range matches {
+			numbers = append(numbers, fmt.Sprintf("#%d", match.Number))
+		}
+		return prHandoffDetails{}, fmt.Errorf("found %d open PRs for head branch %q: %s", len(matches), expectedBranch, strings.Join(numbers, ", "))
+	}
+	return matches[0], nil
 }
 
 func prHandoffBlockReason(config runnerConfig, candidate *issue, details prHandoffDetails) string {

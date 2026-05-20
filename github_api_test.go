@@ -7,18 +7,21 @@ import (
 )
 
 type fakeGitHubAPI struct {
-	prs             []pullRequestSummary
-	comments        map[string][]githubIssueComment
-	feedback        prFeedback
-	state           string
-	merged          bool
-	details         prHandoffDetails
-	updatedComments map[int64]string
-	createdComments map[int]string
-	mergedPRs       map[int]bool
-	deletedBranches map[string]bool
-	mergeErr        error
-	deleteErr       error
+	prs                 []pullRequestSummary
+	comments            map[string][]githubIssueComment
+	feedback            prFeedback
+	state               string
+	merged              bool
+	handoffDetailsByURL map[string]prHandoffDetails
+	handoffErrorsByURL  map[string]error
+	handoffErr          error
+	details             prHandoffDetails
+	updatedComments     map[int64]string
+	createdComments     map[int]string
+	mergedPRs           map[int]bool
+	deletedBranches     map[string]bool
+	mergeErr            error
+	deleteErr           error
 }
 
 func (f fakeGitHubAPI) OpenPullRequests(context.Context) ([]pullRequestSummary, error) {
@@ -77,7 +80,20 @@ func withFakeGitHubAppEnv(t interface{ Cleanup(func()) }, fn func() (map[string]
 	t.Cleanup(func() { githubAppEnvFromEnvironmentForAPI = previous })
 }
 
-func (f fakeGitHubAPI) PullRequestHandoffDetails(context.Context, string) (prHandoffDetails, error) {
+func (f fakeGitHubAPI) PullRequestHandoffDetails(_ context.Context, prURL string) (prHandoffDetails, error) {
+	if f.handoffErrorsByURL != nil {
+		if detailsErr, ok := f.handoffErrorsByURL[prURL]; ok {
+			return prHandoffDetails{}, detailsErr
+		}
+	}
+	if f.handoffDetailsByURL != nil {
+		if details, ok := f.handoffDetailsByURL[prURL]; ok {
+			return details, nil
+		}
+	}
+	if f.handoffErr != nil {
+		return prHandoffDetails{}, f.handoffErr
+	}
 	return f.details, nil
 }
 

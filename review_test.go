@@ -1,14 +1,84 @@
 package main
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	sh "github.com/weskor/pi-symphony/internal/shell"
 )
 
 func TestReviewStatusUsesFirstMarkerLine(t *testing.T) {
 	output := "REVIEW_PASS\nNo blockers. Historical note mentions REVIEW_FAIL."
 	if got := reviewStatus(output); got != "passed" {
 		t.Fatalf("expected passed, got %q", got)
+	}
+}
+
+func TestRunReviewCharacterizesInvocationAndOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		script         string
+		timeout        time.Duration
+		wantStatus     string
+		wantClass      string
+		wantErrTimeout bool
+	}{
+		{
+			name:       "pass records prompt arg cwd env usage and high reasoning flag",
+			script:     `printf 'cwd=%s env=%s args=%s\n' "$PWD" "$REVIEW_ENV" "$*"; printf 'REVIEW_PASS\n'; printf '{"message":{"usage":{"input":4,"output":2,"totalTokens":6,"cost":{"total":0.02}}}}\n'`,
+			wantStatus: "passed",
+		},
+		{
+			name:       "fail propagates classification and findings",
+			script:     `printf 'REVIEW_FAIL\nREVIEW_CLASSIFICATION: behavior_spec_blocker\nScope drift.\n'`,
+			wantStatus: "failed",
+			wantClass:  reviewClassificationBehaviorSpecBlocker,
+		},
+		{
+			name:           "timeout returns partial error result",
+			script:         `printf 'REVIEW_PASS\n'; sleep 1`,
+			timeout:        time.Millisecond,
+			wantStatus:     "error",
+			wantClass:      reviewClassificationUnknown,
+			wantErrTimeout: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			script := filepath.Join(workspace, "fake-pi")
+			if err := os.WriteFile(script, []byte("#!/bin/sh\n"+tc.script+"\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+
+			result, err := runReview(sh.Quote(script), workspace, &issue{Identifier: "CAG-94", Title: "Runtime", URL: "https://linear.test/CAG-94"}, "https://github.com/weskor/pi-symphony/pull/94", map[string]string{"REVIEW_ENV": "from-test"}, tc.timeout)
+			if tc.wantErrTimeout {
+				if !errors.Is(err, sh.ErrCommandTimeout) {
+					t.Fatalf("expected timeout, got %v", err)
+				}
+			} else if err != nil {
+				t.Fatalf("runReview returned error: %v", err)
+			}
+			if result == nil || result.Status != tc.wantStatus {
+				t.Fatalf("status = %#v, want %q", result, tc.wantStatus)
+			}
+			if result.Classification != tc.wantClass {
+				t.Fatalf("classification = %q, want %q", result.Classification, tc.wantClass)
+			}
+			if tc.wantStatus == "passed" {
+				for _, want := range []string{"cwd=" + workspace, "env=from-test", "--thinking xhigh", "@" + filepath.Join(workspace, ".pi-symphony-review-prompt.md")} {
+					if !strings.Contains(result.Findings, want) {
+						t.Fatalf("findings %q missing %q", result.Findings, want)
+					}
+				}
+				if result.Usage == nil || result.Usage.TotalTokens != 6 || result.Usage.TotalCost() != 0.02 {
+					t.Fatalf("usage = %#v", result.Usage)
+				}
+			}
+		})
 	}
 }
 

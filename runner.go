@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+
 	"github.com/weskor/pi-symphony/internal/cli"
 	cfg "github.com/weskor/pi-symphony/internal/config"
 )
@@ -30,7 +32,11 @@ func cliDependencies() cli.Dependencies[linearClient] {
 		},
 		RepairArtifacts: repairArtifacts,
 		CleanupWorkspaces: func(root string, options cli.CleanupOptions) error {
-			return cleanupWorkspaces(root, cleanupOptions{Apply: options.Apply, DoneIssues: options.DoneIssues})
+			store, _ := commandScopedStateStore(context.Background(), root, "cleanup")
+			if store != nil {
+				defer store.Close()
+			}
+			return cleanupWorkspaces(root, cleanupOptions{Apply: options.Apply, DoneIssues: options.DoneIssues, StateStore: store})
 		},
 		PrintStatus: func(client linearClient, config cli.Config) error {
 			return printStatus(client, runnerConfigFromCLI(config))

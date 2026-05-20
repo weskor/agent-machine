@@ -122,3 +122,16 @@ func openStateProjectionStore(ctx context.Context, workspaceRoot string) (*state
 	store, err := state.Open(ctx, dbPath)
 	return store, dbPath, err
 }
+
+func commandScopedStateStore(ctx context.Context, workspaceRoot, commandName string) (*state.Store, string) {
+	store, dbPath, err := openStateProjectionStore(ctx, workspaceRoot)
+	if err != nil {
+		if dbPath != "" {
+			log("SQLite %s mirror degraded: open path=%s error=%q", commandName, dbPath, err.Error())
+		} else {
+			log("SQLite %s mirror degraded: %v", commandName, err)
+		}
+		return nil, dbPath
+	}
+	return store, dbPath
+}

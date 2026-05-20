@@ -15,7 +15,11 @@ func runContinuous(client linearClient, wf workflow, config runnerConfig, maxCyc
 	log("mode=continuous; lanes=merge,work; project=%s; states=%s", config.ProjectSlug, strings.Join(config.ActiveStates, ", "))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	recordHeartbeat := daemonHeartbeatRecorder(ctx, config)
+	stateStore, _ := commandScopedStateStore(ctx, config.WorkspaceRoot, "continuous")
+	if stateStore != nil {
+		defer stateStore.Close()
+	}
+	recordHeartbeat := daemonHeartbeatRecorder(ctx, config, stateStore)
 
 	scheduler := continuousScheduler{
 		maxCycles:       maxCycles,
@@ -30,7 +34,7 @@ func runContinuous(client linearClient, wf workflow, config runnerConfig, maxCyc
 					if err != nil {
 						return false, err
 					}
-					if err := cleanupWorkspaces(config.WorkspaceRoot, cleanupOptions{Apply: true, DoneIssues: doneIssues}); err != nil {
+					if err := cleanupWorkspaces(config.WorkspaceRoot, cleanupOptions{Apply: true, DoneIssues: doneIssues, StateStore: stateStore}); err != nil {
 						return false, err
 					}
 					return true, mergeApprovedPRs(client, config)
@@ -154,7 +158,15 @@ func recordContinuousHeartbeat(recordHeartbeat func(continuousHeartbeat), heartb
 	}
 }
 
-func daemonHeartbeatRecorder(ctx context.Context, config runnerConfig) func(continuousHeartbeat) {
+func daemonHeartbeatRecorder(ctx context.Context, config runnerConfig, commandStore *state.Store) func(continuousHeartbeat) {
+	if commandStore != nil {
+		processID := daemonProcessID()
+		return func(heartbeat continuousHeartbeat) {
+			if err := commandStore.UpsertDaemonHeartbeat(ctx, stateProjection{}.DaemonHeartbeat(processID, config, heartbeat)); err != nil {
+				log("SQLite daemon heartbeat degraded: lane=%s cycle=%d error=%q", heartbeat.LaneName, heartbeat.CycleNumber, err.Error())
+			}
+		}
+	}
 	dbPath := state.DefaultDBPath(config.WorkspaceRoot)
 	if dbPath == "" {
 		return nil

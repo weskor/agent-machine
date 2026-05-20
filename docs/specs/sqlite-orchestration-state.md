@@ -181,4 +181,5 @@ Current-state SQLite tables remain the source of truth for runner decisions. The
 
 - Candidate ordering, lane timing, handoff requirements, review classification semantics, merge gates, cleanup eligibility, and artifact fields from `harness-behavior.md` are preserved unless a future implementation ticket updates that spec.
 - SQLite adoption should initially replace where decisions are remembered, not what decisions are made.
+- During the additive rollout, mutating command modes should acquire a command-scoped SQLite store once at the orchestration boundary and pass it to mirror helpers where practical. If that store is unavailable, the command reports degraded mirroring and preserves the current non-blocking artifact/JSON behavior until an authority ticket flips the relevant decision class to fail closed.
 - Any future ticket that changes observable scheduling, merge, cleanup, retry, status, lock, or artifact behavior must update the relevant behavior spec and cite the ADR for this decision.

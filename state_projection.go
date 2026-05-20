@@ -4,12 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
 	artifactio "github.com/weskor/pi-symphony/internal/artifacts"
 	"github.com/weskor/pi-symphony/internal/state"
+	ws "github.com/weskor/pi-symphony/internal/workspace"
 )
 
 // stateProjection owns domain object to SQLite row projection. Callers keep
@@ -53,44 +53,15 @@ func (stateProjection) Cleanup(decision cleanupResult, eligible bool, deletionRe
 }
 
 func (stateProjection) RunLockLease(lock runLock, observedAt time.Time) state.Lease {
-	owner := strings.TrimSpace(lock.Owner)
-	if owner == "" {
-		owner = "unknown"
-	}
-	acquiredAt := lock.StartedAt
-	if acquiredAt.IsZero() {
-		acquiredAt = lock.HeartbeatAt
-	}
-	if acquiredAt.IsZero() {
-		acquiredAt = observedAt
-	}
-	renewedAt := lock.HeartbeatAt
-	if renewedAt.IsZero() {
-		renewedAt = acquiredAt
-	}
-	lease := state.Lease{
-		Name:       stateProjection{}.RunLockLeaseName(lock),
-		Scope:      stateProjection{}.RunLockLeaseScope(lock),
-		Owner:      owner,
-		AcquiredAt: acquiredAt,
-		RenewedAt:  renewedAt,
-	}
-	if !renewedAt.IsZero() {
-		lease.ExpiresAt = renewedAt.Add(runLockStaleAfter)
-	}
-	return lease
+	return ws.RunLockLease(lock, observedAt)
 }
 
 func (stateProjection) RunLockLeaseName(lock runLock) string {
-	name := strings.TrimSpace(lock.IssueIdentifier)
-	if name == "" {
-		name = filepath.Base(lock.Workspace)
-	}
-	return "run:" + name
+	return ws.RunLockLeaseName(lock)
 }
 
 func (stateProjection) RunLockLeaseScope(lock runLock) string {
-	return filepath.Dir(lock.Workspace)
+	return ws.RunLockLeaseScope(lock)
 }
 
 func (stateProjection) DaemonHeartbeat(processID string, config runnerConfig, heartbeat continuousHeartbeat) state.DaemonHeartbeat {

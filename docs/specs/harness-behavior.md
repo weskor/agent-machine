@@ -164,11 +164,11 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 - When a Linear issue includes machine-readable `Allowed paths:` or `Out of scope:` bullets, the runner checks changed files against that path contract before review and handoff. Scope violations are recorded as behavior/spec blockers and move the issue back to the configured Ready state. Issues without a machine-readable path contract continue with a warning so legacy tickets remain runnable.
 - Primary daemon logs record concise lifecycle summaries and do not print the raw Pi JSONL implementation or review stream during normal operation.
 - When `PI_SYMPHONY_DEBUG_RAW_OUTPUT=1` is set, raw agent output is written to capped debug artifacts outside the issue workspace (for example `.symphony/debug/<issue>/*-raw.log` under the workspace root), and the primary log includes the artifact path.
-- If no PR URL is detected, the run fails unless a NEEDS_INFO path was detected.
+- If no Agent PR URL is detected after a successful implementation, the runner attempts deterministic Git/PR handoff. The run fails only when runner handoff cannot prove branch changes, push the branch, create/reuse exactly one PR, or validate repository/base/head ownership.
 
 ## Review and handoff
 
-- When a review command is configured, the runner runs a separate review prompt after the implementation opens/updates a PR.
+- When a review command is configured, the runner runs a separate review prompt after runner-owned PR create/update resolves a validated PR URL.
 - Review output must contain `REVIEW_PASS` or `REVIEW_FAIL`; failed review is classified so behavior/spec blockers remain `review_failed` and prevent automatic handoff success, while `missing_evidence_only` failures with an existing PR may route to Human Review for human judgment instead of returning to Ready for Agent.
 - Missing-evidence-only review handoff is not merge approval: evaluation artifacts must keep the failed review status/classification, mark the run merge-ineligible, and record a no-retry human-review next action.
 - Before handoff, the runner validates PR details through the GitHub API.

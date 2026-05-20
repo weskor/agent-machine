@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	sh "github.com/weskor/pi-symphony/internal/shell"
 )
 
 func hasUnresolvedReviewFailure(workspaceRoot, identifier string) bool {
@@ -135,6 +137,19 @@ func expectedWorkspaceBranch(identifier string) string {
 }
 
 func validatePRForHandoff(config runnerConfig, candidate *issue, prURL string) (string, string, error) {
+	if prURL != "" {
+		owner, repo, ok := parseGitHubPRRepository(prURL)
+		if !ok {
+			return prURL, "", fmt.Errorf("invalid GitHub PR URL %q", prURL)
+		}
+		expectedOwner, expectedRepo, err := currentGitHubRepo()
+		if err != nil {
+			return prURL, "", err
+		}
+		if !strings.EqualFold(owner, expectedOwner) || !strings.EqualFold(repo, expectedRepo) {
+			return prURL, "", fmt.Errorf("PR repository is %s/%s; expected %s/%s", owner, repo, expectedOwner, expectedRepo)
+		}
+	}
 	github, ctx, cancel, err := githubClientWithTimeout(config.Budget.GitHubTimeout)
 	if err != nil {
 		return prURL, "", err
@@ -158,6 +173,91 @@ func validatePRForHandoff(config runnerConfig, candidate *issue, prURL string) (
 		details.URL = prURL
 	}
 	return details.URL, prHandoffBlockReason(config, candidate, details), nil
+}
+
+func ensureRunnerPRHandoff(config runnerConfig, candidate *issue, workspace, agentPRURL string, githubEnv map[string]string) (string, error) {
+	branch := expectedWorkspaceBranch(candidate.Identifier)
+	current, err := currentGitBranch(workspace)
+	if err != nil {
+		return "", err
+	}
+	if current != branch {
+		return "", fmt.Errorf("workspace branch is %q; expected %q", emptyAsUnknown(current), branch)
+	}
+	base := strings.TrimSpace(config.BaseBranch)
+	if base == "" {
+		base = "main"
+	}
+	worktreePathspec := "-- . ':!.pi-symphony-*' ':!.pi-symphony/**'"
+	status, err := sh.CaptureQuiet("git status --porcelain "+worktreePathspec, workspace)
+	if err != nil {
+		return "", fmt.Errorf("git status failed before PR handoff: %w", err)
+	}
+	if strings.TrimSpace(status) != "" {
+		if err := sh.RunWithTimeout("git add -A "+worktreePathspec+" && git commit -m "+sh.Quote(candidate.Identifier+": runner handoff"), workspace, config.Budget.CommandTimeout); err != nil {
+			return "", fmt.Errorf("runner commit failed: %w", err)
+		}
+	}
+	if err := sh.RunWithTimeout("git diff --quiet "+sh.Quote("origin/"+base+"...HEAD"), workspace, config.Budget.CommandTimeout); err == nil {
+		return "", fmt.Errorf("no branch changes to hand off for %s", candidate.Identifier)
+	}
+	if _, err := sh.CaptureEnvWithOutputTimeout("git push origin HEAD:refs/heads/"+sh.Quote(branch), workspace, githubEnv, true, config.Budget.CommandTimeout); err != nil {
+		return "", fmt.Errorf("git push failed for %s: %w", branch, err)
+	}
+
+	github, ctx, cancel, err := githubClientWithTimeout(config.Budget.GitHubTimeout)
+	if err != nil {
+		return "", err
+	}
+	defer cancel()
+	if strings.TrimSpace(agentPRURL) != "" {
+		resolved, reason, err := validatePRForHandoff(config, candidate, agentPRURL)
+		if err != nil {
+			return "", err
+		}
+		if reason != "" {
+			return "", fmt.Errorf("PR handoff validation failed: %s", reason)
+		}
+		return resolved, nil
+	}
+	details, err := resolveHandoffPRByBranch(ctx, github, candidate)
+	if err != nil {
+		if !strings.Contains(err.Error(), "no open PR found") {
+			return "", err
+		}
+		title, body := handoffPRTitleBody(candidate)
+		details, err = github.CreatePullRequest(ctx, title, body, branch, base)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		title, body := handoffPRTitleBody(candidate)
+		updated, updateErr := github.UpdatePullRequest(ctx, details.Number, title, body, base)
+		if updateErr != nil {
+			return "", updateErr
+		}
+		if updated.URL != "" {
+			details = updated
+		}
+	}
+	if reason := prHandoffBlockReason(config, candidate, details); reason != "" {
+		return "", fmt.Errorf("PR handoff validation failed: %s", reason)
+	}
+	return details.URL, nil
+}
+
+func handoffPRTitleBody(candidate *issue) (string, string) {
+	title := strings.TrimSpace(candidate.Identifier + ": " + candidate.Title)
+	body := "Runner-owned handoff PR for " + candidate.Identifier + ".\n\nThe implementation agent owns the scoped diff and validation notes; Pi Symphony created or updated this PR deterministically."
+	return title, body
+}
+
+func parseGitHubPRRepository(prURL string) (string, string, bool) {
+	parts := strings.Split(strings.TrimRight(strings.TrimSpace(prURL), "/"), "/")
+	if len(parts) < 7 || parts[0] != "https:" || parts[2] != "github.com" || parts[5] != "pull" {
+		return "", "", false
+	}
+	return parts[3], parts[4], true
 }
 
 func isRecoverablePRLookupError(err error) bool {

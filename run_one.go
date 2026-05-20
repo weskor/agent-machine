@@ -120,7 +120,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	if strings.TrimSpace(feedback) != "" {
 		feedbackBlock = fmt.Sprintf("\n\nGitHub PR feedback to address before handoff:\n%s\n", feedback)
 	}
-	prompt := renderPrompt(wf.Body, *candidate, 1) + fmt.Sprintf("\n\nLinear issue description:\n%s%s\n\n%s\n\n%s\n\nPi Symphony runner constraints:\n- Follow the Linear issue description exactly; do not infer broader implementation work from the title alone.\n- If GitHub PR feedback is present, address that feedback in the existing PR branch rather than starting unrelated work.\n- If required information is missing or the ticket is ambiguous/unsafe to implement, output NEEDS_INFO followed by numbered questions instead of guessing.\n- Run exactly once; do not ask for continuation.\n- Keep context usage minimal.\n- Create or update exactly one PR from branch %s into base branch %s; never target another base branch.\n- Before opening or updating a PR, perform a focused self-review of the final diff for scope, secrets, validation, tenant/security risk, unrelated files, and behavior-contract evidence; fix any clear findings before PR handoff.\n- Stop after a scoped diff, validation notes, and PR handoff.\n- Do not post verbose free-form GitHub PR comments unless explicitly needed; the runner posts or updates the deterministic handoff summary when it detects the PR URL.\n- The runner will move the Linear issue to %s after it detects the PR URL, or to %s when NEEDS_INFO is detected.\n", candidate.Description, feedbackBlock, ticketContractPrompt(), behaviorContractPreflightPrompt(), expectedWorkspaceBranch(candidate.Identifier), config.BaseBranch, config.HandoffState, config.NeedsInfoState)
+	prompt := renderPrompt(wf.Body, *candidate, 1) + fmt.Sprintf("\n\nLinear issue description:\n%s%s\n\n%s\n\n%s\n\nPi Symphony runner constraints:\n- Follow the Linear issue description exactly; do not infer broader implementation work from the title alone.\n- If GitHub PR feedback is present, address that feedback in the existing PR branch rather than starting unrelated work.\n- If required information is missing or the ticket is ambiguous/unsafe to implement, output NEEDS_INFO followed by numbered questions instead of guessing.\n- Run exactly once; do not ask for continuation.\n- Keep context usage minimal.\n- Leave scoped code/test/doc changes in this workspace and include validation notes.\n- Do not create, update, push, or comment on a GitHub PR; the Pi Symphony runner will commit, push, create or update exactly one PR from branch %s into base branch %s, and post deterministic handoff comments.\n- Before finishing, perform a focused self-review of the final diff for scope, secrets, validation, tenant/security risk, unrelated files, and behavior-contract evidence; fix any clear findings.\n- Stop after the scoped diff and validation notes.\n- The runner will move the Linear issue to %s after runner PR handoff, or to %s when NEEDS_INFO is detected.\n", candidate.Description, feedbackBlock, ticketContractPrompt(), behaviorContractPreflightPrompt(), expectedWorkspaceBranch(candidate.Identifier), config.BaseBranch, config.HandoffState, config.NeedsInfoState)
 	promptPath := filepath.Join(workspace, ".pi-symphony-prompt.md")
 	if err := os.WriteFile(promptPath, []byte(prompt), 0o600); err != nil {
 		return true, err
@@ -196,12 +196,6 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		log("%s needs additional information; stopped without PR handoff", candidate.Identifier)
 		return true, nil
 	}
-	if prURL == "" {
-		missingPRErr := "missing PR URL"
-		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, "", runAttemptStatusFailed, missingPRErr, config.Budget.Active(), ""))
-		log("%s failed without PR handoff: %s", candidate.Identifier, missingPRErr)
-		return true, fmt.Errorf("%s", missingPRErr)
-	}
 	if config.AfterRun != "" {
 		if err := sh.RunWithTimeout(config.AfterRun, workspace, config.Budget.CommandTimeout); err != nil {
 			status := runAttemptStatusFailed
@@ -243,33 +237,10 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		log("scope guard: %s", scopeResult.Summary())
 	}
 
-	if prURL != "" {
-		resolvedPRURL, reason, err := validatePRForHandoff(config, candidate, prURL)
-		prURL = resolvedPRURL
-		if err != nil {
-			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
-			return true, err
-		} else if reason != "" {
-			review := &reviewResult{Status: runAttemptStatusFailed, Findings: reason}
-			if closeErr := closeInvalidPR(prURL, reason); closeErr != nil {
-				log("failed to close invalid PR %s: %v", prURL, closeErr)
-			}
-			if id := stateID(states, config.ReadyState); id != "" {
-				if err := client.updateIssueState(candidate.ID, id); err != nil {
-					writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, runAttemptStatusReviewFailed, err.Error(), config.Budget.Active(), ""))
-					return true, err
-				}
-			}
-			comment := fmt.Sprintf("Go/Pi PR sanity check failed; moved back to %s.\n\nPR: %s\nReason: %s", config.ReadyState, prURL, reason)
-			if err := client.createComment(candidate.ID, comment); err != nil {
-				log("failed to comment on %s: %v", candidate.Identifier, err)
-			}
-			if err := writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, runAttemptStatusReviewFailed, "pr sanity check failed", config.Budget.Active(), "")); err != nil {
-				return true, err
-			}
-			log("PR sanity check failed for %s; moved back to %s: %s", candidate.Identifier, config.ReadyState, reason)
-			return true, nil
-		}
+	prURL, err = ensureRunnerPRHandoff(config, candidate, workspace, prURL, githubEnv)
+	if err != nil {
+		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
+		return true, err
 	}
 
 	var review *reviewResult

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -22,6 +23,8 @@ type fakeGitHubAPI struct {
 	deletedBranches     map[string]bool
 	mergeErr            error
 	deleteErr           error
+	createdPRs          []prHandoffDetails
+	updatedPRs          []prHandoffDetails
 }
 
 func (f fakeGitHubAPI) OpenPullRequests(context.Context) ([]pullRequestSummary, error) {
@@ -95,6 +98,14 @@ func (f fakeGitHubAPI) PullRequestHandoffDetails(_ context.Context, prURL string
 		return prHandoffDetails{}, f.handoffErr
 	}
 	return f.details, nil
+}
+
+func (f fakeGitHubAPI) CreatePullRequest(_ context.Context, title, body, head, base string) (prHandoffDetails, error) {
+	return prHandoffDetails{Number: 900, URL: "https://github.com/weskor/pi-symphony/pull/900", BaseRefName: base, HeadRefName: head}, nil
+}
+
+func (f fakeGitHubAPI) UpdatePullRequest(_ context.Context, number int, title, body, base string) (prHandoffDetails, error) {
+	return prHandoffDetails{Number: number, URL: fmt.Sprintf("https://github.com/weskor/pi-symphony/pull/%d", number), BaseRefName: base}, nil
 }
 
 func TestGitHubClientWithTimeoutDefaultsNonPositiveTimeout(t *testing.T) {

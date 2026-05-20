@@ -24,6 +24,8 @@ type Client interface {
 	SquashMergePullRequest(ctx context.Context, prNumber int) error
 	DeleteBranch(ctx context.Context, branch string) error
 	PullRequestHandoffDetails(ctx context.Context, prURL string) (PRHandoffDetails, error)
+	CreatePullRequest(ctx context.Context, title, body, head, base string) (PRHandoffDetails, error)
+	UpdatePullRequest(ctx context.Context, number int, title, body, base string) (PRHandoffDetails, error)
 }
 
 var AppEnvFromEnvironmentForAPI = AppEnvFromEnvironment
@@ -442,6 +444,22 @@ func (c *goClient) PullRequestHandoffDetails(ctx context.Context, prURL string) 
 	pr, _, err := c.client.PullRequests.Get(ctx, c.owner, c.repo, number)
 	if err != nil {
 		return PRHandoffDetails{}, err
+	}
+	return PRHandoffDetails{Number: pr.GetNumber(), URL: pr.GetHTMLURL(), BaseRefName: pr.GetBase().GetRef(), HeadRefName: pr.GetHead().GetRef(), ChangedFiles: pr.GetChangedFiles(), Additions: pr.GetAdditions(), Deletions: pr.GetDeletions()}, nil
+}
+
+func (c *goClient) CreatePullRequest(ctx context.Context, title, body, head, base string) (PRHandoffDetails, error) {
+	pr, _, err := c.client.PullRequests.Create(ctx, c.owner, c.repo, &github.NewPullRequest{Title: github.String(title), Body: github.String(body), Head: github.String(head), Base: github.String(base)})
+	if err != nil {
+		return PRHandoffDetails{}, fmt.Errorf("GitHub API PR create failed: %w", err)
+	}
+	return PRHandoffDetails{Number: pr.GetNumber(), URL: pr.GetHTMLURL(), BaseRefName: pr.GetBase().GetRef(), HeadRefName: pr.GetHead().GetRef(), ChangedFiles: pr.GetChangedFiles(), Additions: pr.GetAdditions(), Deletions: pr.GetDeletions()}, nil
+}
+
+func (c *goClient) UpdatePullRequest(ctx context.Context, number int, title, body, base string) (PRHandoffDetails, error) {
+	pr, _, err := c.client.PullRequests.Edit(ctx, c.owner, c.repo, number, &github.PullRequest{Title: github.String(title), Body: github.String(body), Base: &github.PullRequestBranch{Ref: github.String(base)}})
+	if err != nil {
+		return PRHandoffDetails{}, fmt.Errorf("GitHub API PR update failed for #%d: %w", number, err)
 	}
 	return PRHandoffDetails{Number: pr.GetNumber(), URL: pr.GetHTMLURL(), BaseRefName: pr.GetBase().GetRef(), HeadRefName: pr.GetHead().GetRef(), ChangedFiles: pr.GetChangedFiles(), Additions: pr.GetAdditions(), Deletions: pr.GetDeletions()}, nil
 }

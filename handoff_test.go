@@ -2,9 +2,68 @@ package main
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	sh "github.com/weskor/pi-symphony/internal/shell"
 )
+
+func TestEnsureRunnerPRHandoffCreatesPRWhenAgentEmitsNoURL(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	workspace := runnerHandoffGitWorkspace(t, "main")
+	candidate := testIssue("CAG-118", "In Progress")
+	if err := sh.Run("git switch -q -C "+sh.Quote(expectedWorkspaceBranch(candidate.Identifier))+" && echo change > handoff.go", workspace); err != nil {
+		t.Fatal(err)
+	}
+	config := testRunnerConfig(filepath.Dir(workspace))
+	config.BaseBranch = "main"
+	withFakeGitHubAPI(t, fakeGitHubAPI{})
+
+	prURL, err := ensureRunnerPRHandoff(config, &candidate, workspace, "", nil)
+	if err != nil {
+		t.Fatalf("ensureRunnerPRHandoff returned error: %v", err)
+	}
+	if prURL != "https://github.com/weskor/pi-symphony/pull/900" {
+		t.Fatalf("unexpected PR URL %q", prURL)
+	}
+}
+
+func TestEnsureRunnerPRHandoffFailsOnNoBranchChanges(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	workspace := runnerHandoffGitWorkspace(t, "main")
+	candidate := testIssue("CAG-118", "In Progress")
+	if err := sh.Run("git switch -q -C "+sh.Quote(expectedWorkspaceBranch(candidate.Identifier)), workspace); err != nil {
+		t.Fatal(err)
+	}
+	config := testRunnerConfig(filepath.Dir(workspace))
+	config.BaseBranch = "main"
+	withFakeGitHubAPI(t, fakeGitHubAPI{})
+
+	_, err := ensureRunnerPRHandoff(config, &candidate, workspace, "", nil)
+	if err == nil || !strings.Contains(err.Error(), "no branch changes") {
+		t.Fatalf("expected no branch changes error, got %v", err)
+	}
+}
+
+func runnerHandoffGitWorkspace(t *testing.T, base string) string {
+	t.Helper()
+	root := t.TempDir()
+	remote := filepath.Join(root, "remote.git")
+	workspace := filepath.Join(root, "CAG-118")
+	if err := sh.Run("git init -q --bare "+sh.Quote(remote), ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := "git init -q && git config user.email test@example.com && git config user.name Test && git checkout -q -b " + sh.Quote(base) + " && echo base > README.md && git add README.md && git commit -qm base && git remote add origin " + sh.Quote(remote) + " && git push -q -u origin " + sh.Quote(base)
+	if err := sh.Run(cmd, workspace); err != nil {
+		t.Fatal(err)
+	}
+	return workspace
+}
 
 func TestValidatePRForHandoffFallsBackToOpenPRByExpectedBranch(t *testing.T) {
 	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")

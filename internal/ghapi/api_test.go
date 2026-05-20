@@ -233,7 +233,7 @@ func TestOpenPullRequestsUsesGitHubAppCompatibleRESTMetadata(t *testing.T) {
 	}
 }
 
-func TestOpenPullRequestsMarksInaccessibleCheckRunsUnknown(t *testing.T) {
+func TestOpenPullRequestsUsesCleanMergeStateWhenCheckRunsAreInaccessible(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
@@ -267,8 +267,44 @@ func TestOpenPullRequestsMarksInaccessibleCheckRunsUnknown(t *testing.T) {
 	if len(prs) != 1 {
 		t.Fatalf("expected one PR, got %d", len(prs))
 	}
+	if reason := testChecksBlockReason(prs[0].StatusCheckRollup); reason != "" {
+		t.Fatalf("expected clean merge state to stand in for inaccessible check runs, got %q", reason)
+	}
+}
+
+func TestOpenPullRequestsKeepsInaccessibleCheckRunsBlockingWhenMergeStateIsNotClean(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/repos/acme/rocket/pulls":
+			_, _ = w.Write([]byte(`[{"number":9}]`))
+		case "/repos/acme/rocket/pulls/9":
+			_, _ = w.Write([]byte(`{"number":9,"html_url":"https://github.com/acme/rocket/pull/9","user":{"login":"app/compound-symphony-bot"},"base":{"ref":"develop"},"head":{"ref":"symphony/CAG-44-workspace","sha":"ghi789"},"mergeable":true,"mergeable_state":"unstable"}`))
+		case "/repos/acme/rocket/pulls/9/commits":
+			_, _ = w.Write([]byte(`[]`))
+		case "/repos/acme/rocket/pulls/9/reviews":
+			_, _ = w.Write([]byte(`[]`))
+		case "/repos/acme/rocket/commits/ghi789/status":
+			_, _ = w.Write([]byte(`{"statuses":[]}`))
+		case "/repos/acme/rocket/commits/ghi789/check-runs":
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"message":"Resource not accessible by integration"}`))
+		default:
+			t.Fatalf("unexpected GitHub API path: %s", r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	client := github.NewClient(server.Client())
+	client.BaseURL = mustParseURL(t, server.URL+"/")
+	api := goClient{owner: "acme", repo: "rocket", client: client}
+
+	prs, err := api.OpenPullRequests(context.Background())
+	if err != nil {
+		t.Fatalf("OpenPullRequests() error = %v", err)
+	}
 	if reason := testChecksBlockReason(prs[0].StatusCheckRollup); !strings.Contains(reason, "GitHub check runs") {
-		t.Fatalf("expected check-run access blocker, got %q", reason)
+		t.Fatalf("expected inaccessible check-run blocker while merge state is not clean, got %q", reason)
 	}
 }
 

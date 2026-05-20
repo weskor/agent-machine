@@ -103,7 +103,6 @@ func writeRunRecordWithStateFallback(store *state.Store, fallbackOpen bool, work
 	logRunArtifactSummary(path, evaluationPath, record, evaluation)
 	return nil
 }
-
 func stateStoreForRunRecordExport(store *state.Store, fallbackOpen bool, workspaceRoot string) (*state.Store, string, func(), error) {
 	if store != nil {
 		return store, "", nil, nil

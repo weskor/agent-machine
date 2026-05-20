@@ -189,6 +189,7 @@ type AttemptResult struct {
 	AttemptID      string
 	AttemptOutcome AttemptOutcome
 	PRURL          string
+	Output         string
 	Usage          *AttemptUsage
 	StartedAt      time.Time
 	EndedAt        time.Time

@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/weskor/pi-symphony/internal/agentruntime"
 	artifactio "github.com/weskor/pi-symphony/internal/artifacts"
 )
 
@@ -15,6 +16,39 @@ var prURLPattern = regexp.MustCompile(`https://github\.com/([^/\s"'<>]+)/([^/\s"
 
 func parseUsage(output string) *usage {
 	return artifactio.ParseUsage(output)
+}
+
+func newPiCLIRuntime() agentruntime.AgentRuntime {
+	return agentruntime.PiCLIAdapter{
+		RunCommand:           captureAgentOutput,
+		ParseUsage:           usageToRuntime,
+		FirstPRURL:           firstPRURL,
+		AssistantText:        assistantText,
+		ReviewStatus:         reviewStatus,
+		ReviewClassification: reviewClassification,
+	}
+}
+
+func usageToRuntime(output string) *agentruntime.AttemptUsage {
+	return usageToRuntimeUsage(parseUsage(output))
+}
+
+func usageToRuntimeUsage(u *usage) *agentruntime.AttemptUsage {
+	if u == nil {
+		return nil
+	}
+	return &agentruntime.AttemptUsage{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite, TotalTokens: u.TotalTokens, CostTotal: u.TotalCost()}
+}
+
+func usageFromRuntime(u *agentruntime.AttemptUsage) *usage {
+	if u == nil {
+		return nil
+	}
+	return &usage{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite, TotalTokens: u.TotalTokens, Cost: &usageCost{Total: u.CostTotal}}
+}
+
+func reviewResultFromRuntime(result agentruntime.ReviewResult) *reviewResult {
+	return &reviewResult{Status: result.Status, Classification: result.Classification, Findings: result.Findings, Usage: usageFromRuntime(result.Usage)}
 }
 
 func firstPRURL(output string) string {

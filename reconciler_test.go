@@ -53,10 +53,11 @@ func TestReconcileIssueAllowsReviewReadinessRetryAfterChecksSucceed(t *testing.T
 	root := t.TempDir()
 	config := testRunnerConfig(root)
 	config.BaseBranch = "develop"
-	snapshot := runProgressSnapshot{IssueIdentifier: "CAG-122", Phase: "review_not_ready", PRURL: "https://github.com/pennywise-investments/compound-web/pull/522", ChecksStatus: "unavailable", NextAction: "wait_for_github_checks_then_retry"}
+	snapshot := runProgressSnapshot{IssueIdentifier: "CAG-122", Phase: "review_not_ready", PRURL: "https://github.com/pennywise-investments/compound-web/pull/522", ChecksStatus: "unavailable", NextAction: "resolve_merge_gate_blocker"}
 	if err := writeRunProgressResult(root, snapshot); err != nil {
 		t.Fatalf("writeRunProgressResult() error = %v", err)
 	}
+	writeRunRecordFixture(t, root, "CAG-122", `{"status":"review_not_ready","pr_url":"https://github.com/pennywise-investments/compound-web/pull/522","error":"review not ready: GitHub checks unavailable"}`)
 	pr := pullRequestSummary{Number: 522, URL: snapshot.PRURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-122"), Author: prAuthor{Login: githubAppPRAuthorLogin}, StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS", Name: "build"}}}
 
 	decision := reconcileIssue(config, testIssue("CAG-122", "In Progress"), &pr)

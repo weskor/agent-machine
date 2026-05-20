@@ -54,6 +54,86 @@ func TestOpenInitializesDeterministicSchemaAndIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestAcquireLeaseAllowsOnlyOneActiveOwner(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	now := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	lease := Lease{Name: "run:CAG-109", Scope: "root", Owner: "owner-a", AcquiredAt: now, RenewedAt: now, ExpiresAt: now.Add(time.Hour)}
+	acquired, err := s.AcquireLease(ctx, lease, now)
+	if err != nil || !acquired {
+		t.Fatalf("first AcquireLease acquired=%v err=%v", acquired, err)
+	}
+	second := lease
+	second.Owner = "owner-b"
+	acquired, err = s.AcquireLease(ctx, second, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("second AcquireLease error = %v", err)
+	}
+	if acquired {
+		t.Fatal("second AcquireLease acquired active lease; want blocked")
+	}
+}
+
+func TestAcquireLeaseComparesFractionalExpiryAsTime(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	now := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	active := Lease{Name: "run:CAG-109", Scope: "root", Owner: "owner-a", AcquiredAt: now.Add(-time.Minute), RenewedAt: now.Add(-time.Minute), ExpiresAt: now.Add(100 * time.Millisecond)}
+	acquired, err := s.AcquireLease(ctx, active, now.Add(-time.Minute))
+	if err != nil || !acquired {
+		t.Fatalf("seed AcquireLease acquired=%v err=%v", acquired, err)
+	}
+	contender := Lease{Name: "run:CAG-109", Scope: "root", Owner: "owner-b", AcquiredAt: now, RenewedAt: now, ExpiresAt: now.Add(time.Hour)}
+	acquired, err = s.AcquireLease(ctx, contender, now)
+	if err != nil {
+		t.Fatalf("contender AcquireLease error = %v", err)
+	}
+	if acquired {
+		t.Fatal("AcquireLease reclaimed lease whose fractional expiry is still in the future")
+	}
+}
+
+func TestAcquireLeaseReclaimsExpiredLeaseAndRecordsEvidence(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	now := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	oldLease := Lease{Name: "run:CAG-109", Scope: "root", Owner: "old-owner", AcquiredAt: now.Add(-2 * time.Hour), RenewedAt: now.Add(-2 * time.Hour), ExpiresAt: now.Add(-time.Hour)}
+	if acquired, err := s.AcquireLease(ctx, oldLease, oldLease.AcquiredAt); err != nil || !acquired {
+		t.Fatalf("seed AcquireLease acquired=%v err=%v", acquired, err)
+	}
+	newLease := Lease{Name: "run:CAG-109", Scope: "root", Owner: "new-owner", AcquiredAt: now, RenewedAt: now, ExpiresAt: now.Add(time.Hour)}
+	acquired, err := s.AcquireLease(ctx, newLease, now)
+	if err != nil || !acquired {
+		t.Fatalf("reclaim AcquireLease acquired=%v err=%v", acquired, err)
+	}
+	var owner string
+	if err := s.DB().QueryRowContext(ctx, `SELECT owner FROM leases WHERE name = ?`, "run:CAG-109").Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	if owner != "new-owner" {
+		t.Fatalf("owner=%q, want new-owner", owner)
+	}
+	var facts int
+	if err := s.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM external_fact_snapshots WHERE source = 'lease' AND fact_key = 'lease_reclaim:run:CAG-109' AND fact_json LIKE '%old-owner%' AND fact_json LIKE '%new-owner%' AND fact_json LIKE '%stale%'`).Scan(&facts); err != nil {
+		t.Fatal(err)
+	}
+	if facts != 1 {
+		t.Fatalf("reclaim facts=%d, want 1", facts)
+	}
+}
+
 func TestUpsertDaemonHeartbeatInsertsAndUpdatesLaneProcessRow(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))

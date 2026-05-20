@@ -103,6 +103,84 @@ func TestHeartbeatRunLockWithStateUsesCommandScopedStore(t *testing.T) {
 	}
 }
 
+func TestAcquireRunLockWithStateBlocksConcurrentSQLiteLease(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-109")
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	candidate := testIssue("CAG-109", "In Progress")
+	now := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	_, release, err := acquireRunLockWithState(store, workspace, &candidate, "symphony/CAG-109", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	_, _, err = acquireRunLockWithState(store, workspace, &candidate, "symphony/CAG-109-retry", now.Add(time.Minute))
+	if !errors.Is(err, errRunLocked) {
+		t.Fatalf("second acquire err=%v, want errRunLocked", err)
+	}
+}
+
+func TestAcquireRunLockWithStateTreatsJSONLockAsExport(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-109")
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	writeRunLockFixture(t, workspace, runLock{IssueIdentifier: "CAG-109", Workspace: workspace, Owner: "stale-json", HeartbeatAt: now})
+	candidate := testIssue("CAG-109", "In Progress")
+
+	lock, release, err := acquireRunLockWithState(store, workspace, &candidate, "symphony/CAG-109", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if lock.Owner == "stale-json" {
+		t.Fatalf("JSON lock owner remained authoritative: %#v", lock)
+	}
+	row := readLeaseFixture(t, root, "run:CAG-109")
+	if row.releasedAt != "" || row.owner == "stale-json" {
+		t.Fatalf("unexpected authoritative lease row: %#v", row)
+	}
+}
+
+func TestHeartbeatRunLockWithStateRenewsWithoutJSONExport(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-109")
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	candidate := testIssue("CAG-109", "In Progress")
+	now := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	_, release, err := acquireRunLockWithState(store, workspace, &candidate, "symphony/CAG-109", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if err := os.Remove(runLockPath(workspace)); err != nil {
+		t.Fatal(err)
+	}
+
+	renewed := now.Add(10 * time.Minute)
+	heartbeatRunLockWithState(store, workspace, renewed)
+	row := readLeaseFixture(t, root, "run:CAG-109")
+	if row.renewedAt != renewed.Format(time.RFC3339Nano) || row.expiresAt != renewed.Add(runLockStaleAfter).Format(time.RFC3339Nano) {
+		t.Fatalf("expected SQLite lease renewal without JSON export, got %#v", row)
+	}
+	if _, err := os.Stat(runLockPath(workspace)); err != nil {
+		t.Fatalf("expected heartbeat to refresh JSON export: %v", err)
+	}
+}
+
 func TestAcquireRunLockDoesNotDirtyFreshWorkspace(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "CAG-21")
 	candidate := testIssue("CAG-21", "In Progress")

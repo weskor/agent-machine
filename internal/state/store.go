@@ -20,6 +20,7 @@ const (
 )
 
 var ErrUnsupportedSchema = errors.New("unsupported sqlite orchestration schema")
+var ErrLeaseHeld = errors.New("lease is already held")
 
 type Store struct {
 	db *sql.DB
@@ -150,29 +151,62 @@ func (s *Store) Close() error {
 func (s *Store) DB() *sql.DB { return s.db }
 
 func (s *Store) UpsertLease(ctx context.Context, lease Lease) error {
-	if lease.Name == "" {
-		return errors.New("upsert lease: name is required")
-	}
-	if lease.Scope == "" {
-		return errors.New("upsert lease: scope is required")
-	}
-	if lease.Owner == "" {
-		return errors.New("upsert lease: owner is required")
-	}
-	if lease.AcquiredAt.IsZero() {
-		lease.AcquiredAt = time.Now().UTC()
-	}
-	if lease.RenewedAt.IsZero() {
-		lease.RenewedAt = lease.AcquiredAt
-	}
-	if lease.ExpiresAt.IsZero() {
-		lease.ExpiresAt = lease.RenewedAt
+	if err := normalizeLease(&lease, time.Now().UTC()); err != nil {
+		return fmt.Errorf("upsert lease: %w", err)
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO leases(name, scope, owner, acquired_at, expires_at, renewed_at, released_at, release_reason) VALUES (?, ?, ?, ?, ?, ?, '', '') ON CONFLICT(name) DO UPDATE SET scope = excluded.scope, owner = excluded.owner, acquired_at = excluded.acquired_at, expires_at = excluded.expires_at, renewed_at = excluded.renewed_at, released_at = '', release_reason = ''`, lease.Name, lease.Scope, lease.Owner, formatTime(lease.AcquiredAt), formatTime(lease.ExpiresAt), formatTime(lease.RenewedAt))
 	if err != nil {
 		return fmt.Errorf("upsert lease: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) AcquireLease(ctx context.Context, lease Lease, now time.Time) (bool, error) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if err := normalizeLease(&lease, now); err != nil {
+		return false, fmt.Errorf("acquire lease: %w", err)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin acquire lease: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO leases(name, scope, owner, acquired_at, expires_at, renewed_at, released_at, release_reason) VALUES (?, ?, ?, ?, ?, ?, '', '')`, lease.Name, lease.Scope, lease.Owner, formatTime(lease.AcquiredAt), formatTime(lease.ExpiresAt), formatTime(lease.RenewedAt))
+	if err != nil {
+		return false, fmt.Errorf("insert lease: %w", err)
+	}
+	if rows, _ := result.RowsAffected(); rows == 1 {
+		return true, tx.Commit()
+	}
+
+	var oldOwner, expiresRaw, releasedRaw string
+	if err := tx.QueryRowContext(ctx, `SELECT owner, expires_at, released_at FROM leases WHERE name = ?`, lease.Name).Scan(&oldOwner, &expiresRaw, &releasedRaw); err != nil {
+		return false, fmt.Errorf("read existing lease: %w", err)
+	}
+	expiresAt, err := parseTime(expiresRaw)
+	if err != nil {
+		return false, fmt.Errorf("parse existing lease expiry: %w", err)
+	}
+	if releasedRaw == "" && expiresAt.After(now.UTC()) {
+		return false, nil
+	}
+	reason := "released"
+	if releasedRaw == "" {
+		reason = "stale"
+	}
+	result, err = tx.ExecContext(ctx, `UPDATE leases SET scope = ?, owner = ?, acquired_at = ?, expires_at = ?, renewed_at = ?, released_at = '', release_reason = '' WHERE name = ? AND (released_at <> '' OR julianday(expires_at) <= julianday(?))`, lease.Scope, lease.Owner, formatTime(lease.AcquiredAt), formatTime(lease.ExpiresAt), formatTime(lease.RenewedAt), lease.Name, formatTime(now))
+	if err != nil {
+		return false, fmt.Errorf("reclaim lease: %w", err)
+	}
+	if rows, _ := result.RowsAffected(); rows == 0 {
+		return false, nil
+	}
+	if err := recordLeaseReclaim(ctx, tx, lease.Name, oldOwner, lease.Owner, reason, now); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
 }
 
 func (s *Store) RenewLease(ctx context.Context, name string, renewedAt, expiresAt time.Time) error {
@@ -185,9 +219,12 @@ func (s *Store) RenewLease(ctx context.Context, name string, renewedAt, expiresA
 	if expiresAt.IsZero() {
 		expiresAt = renewedAt
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE leases SET expires_at = ?, renewed_at = ? WHERE name = ?`, formatTime(expiresAt), formatTime(renewedAt), name)
+	result, err := s.db.ExecContext(ctx, `UPDATE leases SET expires_at = ?, renewed_at = ? WHERE name = ? AND released_at = ''`, formatTime(expiresAt), formatTime(renewedAt), name)
 	if err != nil {
 		return fmt.Errorf("renew lease: %w", err)
+	}
+	if rows, _ := result.RowsAffected(); rows == 0 {
+		return fmt.Errorf("renew lease: %w", ErrLeaseHeld)
 	}
 	return nil
 }
@@ -199,9 +236,37 @@ func (s *Store) ReleaseLease(ctx context.Context, name string, releasedAt time.T
 	if releasedAt.IsZero() {
 		releasedAt = time.Now().UTC()
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE leases SET released_at = ?, release_reason = ? WHERE name = ?`, formatTime(releasedAt), reason, name)
+	result, err := s.db.ExecContext(ctx, `UPDATE leases SET released_at = ?, release_reason = ? WHERE name = ?`, formatTime(releasedAt), reason, name)
 	if err != nil {
 		return fmt.Errorf("release lease: %w", err)
+	}
+	if rows, _ := result.RowsAffected(); rows == 0 {
+		return fmt.Errorf("release lease: %w", ErrLeaseHeld)
+	}
+	return nil
+}
+
+func normalizeLease(lease *Lease, now time.Time) error {
+	if lease.Name == "" {
+		return errors.New("name is required")
+	}
+	if lease.Scope == "" {
+		return errors.New("scope is required")
+	}
+	if lease.Owner == "" {
+		return errors.New("owner is required")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if lease.AcquiredAt.IsZero() {
+		lease.AcquiredAt = now.UTC()
+	}
+	if lease.RenewedAt.IsZero() {
+		lease.RenewedAt = lease.AcquiredAt
+	}
+	if lease.ExpiresAt.IsZero() {
+		lease.ExpiresAt = lease.RenewedAt
 	}
 	return nil
 }
@@ -211,6 +276,30 @@ func formatTime(t time.Time) string {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339Nano)
+}
+
+func parseTime(value string) (time.Time, error) {
+	if value == "" {
+		return time.Time{}, nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return parsed.UTC(), nil
+}
+
+func recordLeaseReclaim(ctx context.Context, tx *sql.Tx, name, oldOwner, newOwner, reason string, capturedAt time.Time) error {
+	payload, err := json.Marshal(map[string]string{"lease": name, "old_owner": oldOwner, "new_owner": newOwner, "reason": reason})
+	if err != nil {
+		return fmt.Errorf("encode lease reclaim: %w", err)
+	}
+	factHash := fmt.Sprintf("%s:%s:%s:%s:%s", name, oldOwner, newOwner, reason, formatTime(capturedAt))
+	_, err = tx.ExecContext(ctx, `INSERT INTO external_fact_snapshots(attempt_id, source, fact_key, fact_json, fact_hash, captured_at) VALUES (NULL, 'lease', ?, ?, ?, ?)`, "lease_reclaim:"+name, string(payload), factHash, formatTime(capturedAt))
+	if err != nil {
+		return fmt.Errorf("record lease reclaim: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) UpsertDaemonHeartbeat(ctx context.Context, heartbeat DaemonHeartbeat) error {

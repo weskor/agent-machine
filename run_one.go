@@ -197,6 +197,31 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 			return true, err
 		}
 	}
+	scopeResult, err := checkScopeGuard(candidate.Description, workspace, config.BaseBranch)
+	if err != nil {
+		writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), err.Error()))
+		return true, err
+	}
+	if scopeResult.Blocks() {
+		reason := scopeResult.Summary()
+		review := &reviewResult{Status: runAttemptStatusFailed, Classification: reviewClassificationBehaviorSpecBlocker, Findings: reason}
+		if id := stateID(states, config.ReadyState); id != "" {
+			if err := client.updateIssueState(candidate.ID, id); err != nil {
+				writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, runAttemptStatusReviewFailed, err.Error(), config.Budget.Active(), ""))
+				return true, err
+			}
+		}
+		comment := fmt.Sprintf("Scope guard failed before handoff; moved back to %s.\n\nPR: %s\nReason: %s", config.ReadyState, prURL, reason)
+		if err := client.createComment(candidate.ID, comment); err != nil {
+			log("failed to comment on %s: %v", candidate.Identifier, err)
+		}
+		writeRunRecord(workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, runAttemptStatusReviewFailed, "scope guard failed", config.Budget.Active(), ""))
+		log("scope guard failed for %s; moved back to %s: %s", candidate.Identifier, config.ReadyState, reason)
+		return true, nil
+	}
+	if strings.TrimSpace(scopeResult.Summary()) != "" {
+		log("scope guard: %s", scopeResult.Summary())
+	}
 
 	if prURL != "" {
 		if reason, err := validatePRForHandoff(config, candidate, prURL); err != nil {
@@ -266,6 +291,11 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	}
 	if prURL != "" {
 		validation := validationLines(piOutput)
+		if strings.TrimSpace(scopeResult.Summary()) != "" {
+			validation = append(validation, "Scope guard: "+scopeResult.Summary())
+		} else if scopeResult.Checked {
+			validation = append(validation, "Scope guard: changed files matched the Linear ticket path contract.")
+		}
 		logHandoffRunSummary(candidate.Identifier, prURL, review, validation)
 		classificationRecord := runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, runAttemptStatusSuccess, "", config.Budget.Active(), "")
 		classification := classifyRunRecord(workspace, classificationRecord)

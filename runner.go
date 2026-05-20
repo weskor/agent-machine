@@ -5,10 +5,15 @@ import (
 
 	"github.com/weskor/pi-symphony/internal/cli"
 	cfg "github.com/weskor/pi-symphony/internal/config"
+	"github.com/weskor/pi-symphony/internal/orchestrator"
 )
 
 func cliDependencies() cli.Dependencies[linearClient] {
-	return cli.Dependencies[linearClient]{
+	return orchestratorRunner().CLIDependencies()
+}
+
+func orchestratorRunner() orchestrator.Runner[linearClient, runnerConfig] {
+	return orchestrator.Runner[linearClient, runnerConfig]{
 		ConfigureGitHubRepositoryFromWorkflow: configureGitHubRepositoryFromWorkflow,
 		SetGitHubTimeout: func(budget cfg.Budget) {
 			if budget.GitHubTimeout > 0 {
@@ -38,25 +43,25 @@ func cliDependencies() cli.Dependencies[linearClient] {
 			}
 			return cleanupWorkspaces(root, cleanupOptions{Apply: options.Apply, DoneIssues: options.DoneIssues, StateStore: store})
 		},
-		PrintStatus: func(client linearClient, config cli.Config) error {
-			return printStatus(client, runnerConfigFromCLI(config))
+		PrintStatus: func(client linearClient, config runnerConfig) error {
+			return printStatus(client, config)
 		},
 		PrintRunProgress: func(workspaceRoot, issueIdentifier string) error {
 			return printRunProgress(workspaceRoot, issueIdentifier)
 		},
-		Explain: func(client linearClient, config cli.Config) error {
-			return printExplain(client, runnerConfigFromCLI(config))
+		Explain: func(client linearClient, config runnerConfig) error {
+			return printExplain(client, config)
 		},
-		MergeApprovedPRs: func(client linearClient, config cli.Config) error {
-			return mergeApprovedPRs(client, runnerConfigFromCLI(config))
+		MergeApprovedPRs: func(client linearClient, config runnerConfig) error {
+			return mergeApprovedPRs(client, config)
 		},
-		RunContinuous: func(client linearClient, wf cfg.Workflow, config cli.Config, maxCycles int) error {
-			return runContinuous(client, wf, runnerConfigFromCLI(config), maxCycles)
+		RunContinuous: func(client linearClient, wf cfg.Workflow, config runnerConfig, maxCycles int) error {
+			return runContinuous(client, wf, config, maxCycles)
 		},
-		RunOne: func(client linearClient, wf cfg.Workflow, config cli.Config) error {
-			_, err := runOne(client, wf, runnerConfigFromCLI(config))
-			return err
+		RunOne: func(client linearClient, wf cfg.Workflow, config runnerConfig) (bool, error) {
+			return runOne(client, wf, config)
 		},
+		FromCLIConfig: runnerConfigFromCLI,
 	}
 }
 

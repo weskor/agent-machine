@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 func TestExplainCandidateSelectionReportsOrderedSkipsAndSelection(t *testing.T) {
@@ -29,6 +32,24 @@ func TestExplainCandidateSelectionReportsOrderedSkipsAndSelection(t *testing.T) 
 	}
 	if !report.Candidates[1].Selected || !report.Candidates[1].Runnable {
 		t.Fatalf("selected candidate explanation = %+v", report.Candidates[1])
+	}
+}
+
+func TestExplainCandidateSelectionReportsSQLiteMissingPRReconciliation(t *testing.T) {
+	root := t.TempDir()
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: "CAG-115", Attempt: 1, BranchName: expectedWorkspaceBranch("CAG-115"), Status: "success", Repository: "weskor/pi-symphony", PRNumber: 115, PRURL: "https://github.com/weskor/pi-symphony/pull/115", TerminalOutcome: "handoff_ready"}); err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+
+	report := explainCandidateSelection(testRunnerConfig(root), []issue{testIssue("CAG-115", "Ready for Agent")}, nil)
+
+	if report.Selected != "" || len(report.Candidates) != 1 || !strings.Contains(report.Candidates[0].Reason, "SQLite PR mapping") || !strings.Contains(report.Candidates[0].Reason, "reconciliation_needed") {
+		t.Fatalf("expected missing PR reconciliation in explain output, got %+v", report)
 	}
 }
 

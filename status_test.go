@@ -195,6 +195,27 @@ func TestReadyReconciliationReportsStaleTerminalArtifactWithoutWorkspaceRead(t *
 	}
 }
 
+func TestReadyReconciliationReportsSQLiteArtifactConflict(t *testing.T) {
+	root := t.TempDir()
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: "CAG-116", Attempt: 1, BranchName: expectedWorkspaceBranch("CAG-116"), Status: "success", TerminalOutcome: "handoff_ready"}); err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+	candidate := testIssue("CAG-116", "Ready for Agent")
+	config := runnerConfig{WorkspaceRoot: root, ReadyState: "Ready for Agent"}
+	artifacts := map[string]artifactSummary{"CAG-116": {Issue: "CAG-116", Status: "review_failed", Outcome: "review_failed", Cleanable: true, HasArtifact: true}}
+
+	lines := summarizeReadyReconciliationDecisions(reconcileIssues(config, []issue{candidate}, nil, artifacts), config.ReadyState)
+
+	if !strings.Contains(strings.Join(lines, "\n"), "reconciliation_needed=true") {
+		t.Fatalf("expected status reconciliation-needed marker, got %#v", lines)
+	}
+}
+
 func TestSummarizeArtifactsReportsMissingArtifact(t *testing.T) {
 	lines := summarizeArtifacts([]artifactSummary{{Issue: "CAG-3"}})
 	if len(lines) != 1 || lines[0] != "CAG-3 missing artifact" {

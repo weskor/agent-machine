@@ -445,7 +445,7 @@ func (c *goClient) PullRequestHandoffDetails(ctx context.Context, prURL string) 
 	if err != nil {
 		return PRHandoffDetails{}, err
 	}
-	return PRHandoffDetails{Number: pr.GetNumber(), URL: pr.GetHTMLURL(), BaseRefName: pr.GetBase().GetRef(), HeadRefName: pr.GetHead().GetRef(), ChangedFiles: pr.GetChangedFiles(), Additions: pr.GetAdditions(), Deletions: pr.GetDeletions()}, nil
+	return c.prHandoffDetails(ctx, pr), nil
 }
 
 func (c *goClient) CreatePullRequest(ctx context.Context, title, body, head, base string) (PRHandoffDetails, error) {
@@ -453,7 +453,7 @@ func (c *goClient) CreatePullRequest(ctx context.Context, title, body, head, bas
 	if err != nil {
 		return PRHandoffDetails{}, fmt.Errorf("GitHub API PR create failed: %w", err)
 	}
-	return PRHandoffDetails{Number: pr.GetNumber(), URL: pr.GetHTMLURL(), BaseRefName: pr.GetBase().GetRef(), HeadRefName: pr.GetHead().GetRef(), ChangedFiles: pr.GetChangedFiles(), Additions: pr.GetAdditions(), Deletions: pr.GetDeletions()}, nil
+	return c.prHandoffDetails(ctx, pr), nil
 }
 
 func (c *goClient) UpdatePullRequest(ctx context.Context, number int, title, body, base string) (PRHandoffDetails, error) {
@@ -461,5 +461,10 @@ func (c *goClient) UpdatePullRequest(ctx context.Context, number int, title, bod
 	if err != nil {
 		return PRHandoffDetails{}, fmt.Errorf("GitHub API PR update failed for #%d: %w", number, err)
 	}
-	return PRHandoffDetails{Number: pr.GetNumber(), URL: pr.GetHTMLURL(), BaseRefName: pr.GetBase().GetRef(), HeadRefName: pr.GetHead().GetRef(), ChangedFiles: pr.GetChangedFiles(), Additions: pr.GetAdditions(), Deletions: pr.GetDeletions()}, nil
+	return c.prHandoffDetails(ctx, pr), nil
+}
+
+func (c *goClient) prHandoffDetails(ctx context.Context, pr *github.PullRequest) PRHandoffDetails {
+	headSHA := pr.GetHead().GetSHA()
+	return PRHandoffDetails{Number: pr.GetNumber(), URL: pr.GetHTMLURL(), BaseRefName: pr.GetBase().GetRef(), HeadRefName: pr.GetHead().GetRef(), HeadSHA: headSHA, ChangedFiles: pr.GetChangedFiles(), Additions: pr.GetAdditions(), Deletions: pr.GetDeletions(), StatusCheckRollup: c.statusChecksForRef(ctx, headSHA)}
 }

@@ -172,6 +172,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 ## Review and handoff
 
 - When a review command is configured, the runner runs a separate review prompt after runner-owned PR create/update resolves a validated PR URL.
+- Before review, the runner refreshes GitHub PR details and status checks into a bounded deterministic evidence packet for the review prompt. The runner may wait up to the configured GitHub timeout for pending/unavailable checks to become terminal; remaining pending, unavailable, or failed check evidence is reported as runner-owned review-readiness state instead of relying on the reviewer to rediscover timing-sensitive GitHub facts.
 - Review output must contain `REVIEW_PASS` or `REVIEW_FAIL`; failed review is classified so behavior/spec blockers remain `review_failed` and prevent automatic handoff success, while `missing_evidence_only` failures with an existing PR may route to Human Review for human judgment instead of returning to Ready for Agent.
 - Missing-evidence-only review handoff is not merge approval: evaluation artifacts must keep the failed review status/classification, mark the run merge-ineligible, and record a no-retry human-review next action.
 - Before handoff, the runner validates PR details through the GitHub API.

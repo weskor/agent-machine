@@ -115,9 +115,10 @@ Terminal failure must include the failing phase, evidence pointer, and side effe
   - Default of `1` preserves current behavior.
   - Invalid/zero handling is delegated to configuration parsing, which currently falls back to `1` for missing/malformed/negative values.
 - `max_turns`:
-  - Current CLI runtime behavior: no internal attempt-turn loop exists today, so one selection/implementation cycle is performed per eligible issue.
-  - Default of `1` preserves current behavior.
-  - Invalid/zero handling follows current parser behavior: non-numeric or negative values resolve to `1`.
+  - Current `pi_cli` runtime behavior: no continuation/session loop exists today, so missing, invalid, zero, or `1` resolves to exactly one implementation attempt for the selected issue.
+  - A normalized value greater than `1` is unsupported for `pi_cli` and fails runtime preflight before claim, lease acquisition, workspace mutation, Linear state movement, or Agent execution.
+  - The failure is an operator-facing configuration error that names `pi_cli`, the configured value, and the remediation: set `agent.max_turns: 1` or use a future session runtime with continuation support.
+  - Future session-runtime Adapters may support this by declaring a `max_turns` capability and enforcing turns inside one durable session; the runner must not approximate multi-turn behavior by issuing multiple independent `pi_cli` attempts.
 - `max_retry_backoff_ms`:
   - Current CLI runtime behavior: parsed for configuration storage only; no scheduler delay/backoff is applied before retry.
   - Default is `300000` ms.

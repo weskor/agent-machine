@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/weskor/pi-symphony/internal/agentruntime"
+	cfg "github.com/weskor/pi-symphony/internal/config"
 	sh "github.com/weskor/pi-symphony/internal/shell"
 )
 
@@ -40,7 +41,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		return true, err
 	}
 	runtime := newPiCLIRuntime()
-	if _, err := runtime.Preflight(context.Background(), agentruntime.PreflightInput{ImplementationCommand: config.PiCommand, ReviewCommand: config.ReviewCommand}); err != nil {
+	if _, err := runtime.Preflight(context.Background(), agentruntime.PreflightInput{ImplementationCommand: config.PiCommand, ReviewCommand: config.ReviewCommand, MaxTurns: cfg.AgentMaxTurnsFromWorkflow(wf.YAML)}); err != nil {
 		return true, err
 	}
 	branch, _ := currentGitBranch(workspace)

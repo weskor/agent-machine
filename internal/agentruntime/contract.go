@@ -108,9 +108,10 @@ func IsUnsupportedOperation(err error) bool {
 
 // RuntimeCapabilities declares which optional operations are implemented.
 type RuntimeCapabilities struct {
-	SupportsReview bool
-	SupportsCancel bool
-	SupportsStop   bool
+	SupportsReview   bool
+	SupportsCancel   bool
+	SupportsStop     bool
+	SupportsMaxTurns bool
 }
 
 // PreflightInput describes runtime commands that must be available before the
@@ -118,6 +119,7 @@ type RuntimeCapabilities struct {
 type PreflightInput struct {
 	ImplementationCommand string
 	ReviewCommand         string
+	MaxTurns              int
 }
 
 // PreflightCheck captures one prerequisite checked by a runtime provider.

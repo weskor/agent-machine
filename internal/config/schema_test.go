@@ -45,6 +45,32 @@ workspace:
 	}
 }
 
+func TestParseConfigAgentMaxTurnsDefaultsExplicitOneAndInvalidValues(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want int
+	}{
+		{name: "unset", yaml: "", want: 1},
+		{name: "one", yaml: "agent:\n  max_turns: 1\n", want: 1},
+		{name: "zero", yaml: "agent:\n  max_turns: 0\n", want: 1},
+		{name: "negative", yaml: "agent:\n  max_turns: -2\n", want: 1},
+		{name: "malformed", yaml: "agent:\n  max_turns: many\n", want: 1},
+		{name: "unsupported continuation parsed", yaml: "agent:\n  max_turns: 2\n", want: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config, err := ParseConfig("tracker:\n  project_slug: CAG\nworkspace:\n  root: /tmp/workspaces\n" + tt.yaml)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if config.Agent.MaxTurns != tt.want || AgentMaxTurnsFromWorkflow(tt.yaml) != tt.want {
+				t.Fatalf("max_turns = config %d helper %d, want %d", config.Agent.MaxTurns, AgentMaxTurnsFromWorkflow(tt.yaml), tt.want)
+			}
+		})
+	}
+}
+
 func TestParseConfigInvalidDurationsReturnFieldPaths(t *testing.T) {
 	tests := []struct {
 		name string

@@ -14,6 +14,35 @@ CAG-105 adds the SQLite authority matrix and rollout plan to that contract. Curr
 - `tracker.project_slug` and `workspace.root` are required in the workflow.
 - GitHub repository context is configured from the workflow before GitHub API use.
 - Budget settings from the workflow control command, Pi, review, merge, GitHub, token, cost, and wall-clock limits.
+- `agent.max_concurrent_agents` and `agent.max_turns` are parsed from workflow YAML, defaulting to `1` when omitted.
+- `agent.max_retry_backoff_ms` is parsed as a non-negative integer millisecond duration, defaulting to `300000`.
+- Invalid values are handled per parser behavior:
+  - `max_concurrent_agents` / `max_turns`: missing, malformed, or negative values fall back to `1` without failing CLI startup.
+  - `max_retry_backoff_ms`: missing values default to `300000`; malformed or negative values fail workflow load with `non-negative millisecond integer` validation error.
+
+### Scheduler parameter behavior (current runnable contract)
+
+- Current runtime behavior is effectively single-attempt, single-worker:
+  - `--continuous` starts one work lane and one merge lane;
+  - the work lane performs `runOne` for at most one candidate per iteration and then yields.
+- `agent.max_concurrent_agents` and `agent.max_turns` are currently accepted but not enforced by scheduler logic.
+- `max_turns` therefore currently does not gate or stop an attempt by turn count in the Pi CLI runtime.
+- `max_retry_backoff_ms` is currently parsed and stored but not used to gate retry timing.
+- Duplicate dispatch prevention relies on workspace-level run lock artifacts and SQLite lease acquisition when available.
+- For duplicate-claim safety, the runner:
+  - cleans stale/dead run locks before candidate selection;
+  - skips any candidate with an active run lock;
+  - acquires an issue lock before workspace mutation;
+  - skips candidates with reusable terminal run artifacts unless fresh PR feedback exists.
+
+### Retry, feedback, and persistence source (current state)
+
+- Retry-capable transitions today are driven by run artifacts and feedback files, not scheduler counters:
+  - `.pi-symphony-run.json` terminal artifacts mark prior outcomes.
+  - `.pi-symphony-feedback.md` presence allows a retry path when terminal success artifacts include a PR URL.
+- `max_retry_backoff_ms` does not control this path today.
+- Process restarts do not preserve additional retry-delay state for these fields, because no scheduler delay/backoff state is recorded.
+- Existing persisted run artifacts do preserve prior outcome and feedback hashes for continuity across restarts.
 
 ## CLI modes
 

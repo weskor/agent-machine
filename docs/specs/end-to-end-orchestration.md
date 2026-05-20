@@ -74,6 +74,30 @@ Terminal failure must include the failing phase, evidence pointer, and side effe
 - Parallel Agent sessions must share no implicit state through logs alone; status must report durable state.
 - Merge and cleanup lanes must respect active leases and reconciliation-needed blockers.
 
+### Scheduler parameter contract (runtime semantics)
+
+- `max_concurrent_agents`:
+  - Current CLI runtime behavior: one work lane processes one issue attempt at a time. This is effectively a concurrency limit of 1 regardless of configured value.
+  - Default of `1` preserves current behavior.
+  - Invalid/zero handling is delegated to configuration parsing, which currently falls back to `1` for missing/malformed/negative values.
+- `max_turns`:
+  - Current CLI runtime behavior: no internal attempt-turn loop exists today, so one selection/implementation cycle is performed per eligible issue.
+  - Default of `1` preserves current behavior.
+  - Invalid/zero handling follows current parser behavior: non-numeric or negative values resolve to `1`.
+- `max_retry_backoff_ms`:
+  - Current CLI runtime behavior: parsed for configuration storage only; no scheduler delay/backoff is applied before retry.
+  - Default is `300000` ms.
+  - Invalid/negative values fail configuration loading.
+
+### Retry/backoff persistence and process restart expectations
+
+- Current retry continuation is evidence-based (run/feedback artifacts), not scheduler-state-based:
+  - `.pi-symphony-run.json` is the source for terminal outcome and PR URL reuse.
+  - `.pi-symphony-feedback.md` is the source for whether a retry can continue on captured feedback.
+- There is no persisted backoff timer state in the current runner that survives restart.
+- A restart may still continue or re-attempt work based on preserved artifacts, but timing/backoff policy is not yet durable/portable across restarts.
+- Session runtimes should interpret this as "retry timing is a no-op today"; when implemented, backoff state should move to durable local state (SQLite in the v1 orchestration target).
+
 ## Quality evidence
 
 Each PR Handoff should include:

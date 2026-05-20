@@ -72,6 +72,14 @@ _Avoid_: platform when the layer is only an Adapter or UI.
 The observable promises a runner change must preserve or deliberately update: inputs, outputs, state transitions, side effects, cleanup, error handling, security/ownership assumptions, timeouts, and hidden operational contracts.
 _Avoid_: vague “it still works” statements.
 
+**Runner invariant**:
+A deterministic fact, gate, or transition Pi Symphony can compute from workflow configuration, Linear, GitHub, SQLite, workspace metadata, or typed artifacts. Runner invariants belong in runner Modules and specs, not in Agent judgment.
+_Avoid_: asking an LLM to decide parseable scope, ownership, lifecycle, merge, cleanup, lease, or artifact facts.
+
+**Agent judgment**:
+The non-deterministic implementation, review, and repair reasoning an Agent session performs when facts are ambiguous or semantic quality matters.
+_Avoid_: treating Agent judgment as authority for deterministic runner invariants.
+
 ## Example dialogue
 
 Dev: “Can we split the runner?”

@@ -22,6 +22,7 @@ Use these in order:
 - Do not require unrelated specs for a narrow change.
 - Do require docs/spec updates when observable behavior intentionally changes.
 - Route ambiguity to Human Review instead of encouraging blind retry.
+- Check whether the PR leaves deterministic runner invariants to Agent or reviewer judgment. Repeatable checks over issue contracts, paths, PR ownership, lifecycle outcomes, leases, merge gates, cleanup, artifact locations, or evidence schemas should be implemented or tracked as runner checks, not normalized as prompt responsibility.
 
 ## Hard blockers
 
@@ -51,4 +52,6 @@ When reviewing architecture, use `LANGUAGE.md` terms:
 - Locality
 
 Recommend small Linear issues with allowed paths, out-of-scope paths, expected tests, and behavior-contract implications.
+
+When a review finds an ambiguous seam, prefer a follow-up implementation slice that turns the seam into a typed runner invariant. Keep semantic concerns such as abstraction quality, maintainability, and ambiguous repair reasoning with the Agent or human reviewer.
 

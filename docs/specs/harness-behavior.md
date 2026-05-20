@@ -79,7 +79,8 @@ CAG-105 adds the SQLite authority matrix and rollout plan to that contract. Curr
 - The runner creates an on-disk run lock before changing issue state or mutating the workspace.
 - The runner clones the configured base branch and switches to the expected workspace branch.
 - Configured pre-run and post-run validation hooks execute in the workspace.
-- Completed workspaces become cleanup candidates when the Linear issue is Done and local artifacts indicate completion, failure, or review failure according to cleanup policy.
+- Completed workspaces become cleanup candidates when the Linear issue is Done and SQLite-backed durable run state indicates completion, failure, or review failure according to cleanup policy. Local artifacts remain compatibility evidence and safety blockers, but missing DB rows or artifact/DB conflicts keep the workspace for reconciliation instead of guessing.
+- Mutating cleanup fails closed when SQLite cannot be opened. Read-only cleanup may report degraded artifact-backed decisions without deleting.
 
 ## Pi implementation attempt
 

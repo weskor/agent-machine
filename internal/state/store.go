@@ -119,6 +119,20 @@ type CleanupState struct {
 	UpdatedAt       time.Time
 }
 
+type CleanupFacts struct {
+	IssueKey        string
+	Attempt         int
+	WorkspacePath   string
+	BranchName      string
+	Status          string
+	TerminalOutcome string
+	PRURL           string
+	CleanupDecision string
+	DeletionResult  string
+	ArtifactRef     string
+	UpdatedAt       time.Time
+}
+
 type RunArtifactSnapshot struct {
 	IssueKey             string
 	IssueID              string
@@ -451,17 +465,50 @@ func (s *Store) UpsertCleanupState(ctx context.Context, cleanup CleanupState) er
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin cleanup state upsert: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
 	var attemptID int64
-	if err := s.db.QueryRowContext(ctx, `SELECT id FROM issue_attempts WHERE issue_key = ? AND attempt = ?`, cleanup.IssueKey, cleanup.Attempt).Scan(&attemptID); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM issue_attempts WHERE issue_key = ? AND attempt = ?`, cleanup.IssueKey, cleanup.Attempt).Scan(&attemptID); err != nil {
 		return fmt.Errorf("read cleanup attempt id: %w", err)
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO cleanup_states(attempt_id, workspace_exists, eligible, decision, deletion_result, artifact_ref, blocked_reason, updated_at)
+	_, err = tx.ExecContext(ctx, `INSERT INTO cleanup_states(attempt_id, workspace_exists, eligible, decision, deletion_result, artifact_ref, blocked_reason, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(attempt_id) DO UPDATE SET workspace_exists=excluded.workspace_exists, eligible=excluded.eligible, decision=excluded.decision, deletion_result=excluded.deletion_result, artifact_ref=excluded.artifact_ref, blocked_reason=excluded.blocked_reason, updated_at=excluded.updated_at`, attemptID, boolInt(cleanup.WorkspaceExists), boolInt(cleanup.Eligible), cleanup.Decision, cleanup.DeletionResult, cleanup.ArtifactRef, cleanup.BlockedReason, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return fmt.Errorf("upsert cleanup state: %w", err)
 	}
-	return nil
+	if _, err := appendEvent(ctx, tx, EventInput{OccurredAt: now, IssueKey: cleanup.IssueKey, Attempt: cleanup.Attempt, Source: "runner.cleanup", Type: EventCleanupCompleted, Payload: map[string]any{"decision": cleanup.Decision, "deletion_result": cleanup.DeletionResult, "eligible": cleanup.Eligible}}); err != nil {
+		return fmt.Errorf("append cleanup event: %w", err)
+	}
+	return tx.Commit()
+}
+
+func (s *Store) CleanupFacts(ctx context.Context, issueKey string) (CleanupFacts, bool, error) {
+	if issueKey == "" {
+		return CleanupFacts{}, false, errors.New("cleanup facts: issue key is required")
+	}
+	var facts CleanupFacts
+	var updatedRaw string
+	err := s.db.QueryRowContext(ctx, `SELECT a.issue_key, a.attempt, a.workspace_path, a.branch_name, a.status, COALESCE(t.outcome, ''), COALESCE(p.pr_url, ''), COALESCE(c.decision, ''), COALESCE(c.deletion_result, ''), COALESCE(c.artifact_ref, ''), a.updated_at
+FROM issue_attempts a
+LEFT JOIN terminal_outcomes t ON t.attempt_id = a.id
+LEFT JOIN pr_mappings p ON p.attempt_id = a.id
+LEFT JOIN cleanup_states c ON c.attempt_id = a.id
+WHERE a.issue_key = ?
+ORDER BY a.attempt DESC LIMIT 1`, issueKey).Scan(&facts.IssueKey, &facts.Attempt, &facts.WorkspacePath, &facts.BranchName, &facts.Status, &facts.TerminalOutcome, &facts.PRURL, &facts.CleanupDecision, &facts.DeletionResult, &facts.ArtifactRef, &updatedRaw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CleanupFacts{}, false, nil
+	}
+	if err != nil {
+		return CleanupFacts{}, false, fmt.Errorf("cleanup facts: %w", err)
+	}
+	if facts.UpdatedAt, err = parseTime(updatedRaw); err != nil {
+		return CleanupFacts{}, false, fmt.Errorf("parse cleanup facts updated_at: %w", err)
+	}
+	return facts, true, nil
 }
 
 func (s *Store) UpsertRunArtifact(ctx context.Context, snap RunArtifactSnapshot) error {

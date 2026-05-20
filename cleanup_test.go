@@ -76,7 +76,7 @@ func TestCleanupWorkspacesMirrorsDeletedState(t *testing.T) {
 	}
 }
 
-func TestCleanupWorkspacesContinuesWhenCommandStateStoreUnavailable(t *testing.T) {
+func TestCleanupWorkspacesFailsClosedWhenCommandStateStoreUnavailable(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
 	workspace := filepath.Join(root, "CAG-107")
 	writeCleanRunArtifact(t, workspace, "success")
@@ -89,11 +89,27 @@ func TestCleanupWorkspacesContinuesWhenCommandStateStoreUnavailable(t *testing.T
 		defer store.Close()
 		t.Fatal("commandScopedStateStore succeeded; want degraded nil store")
 	}
-	if err := cleanupWorkspaces(root, cleanupOptions{Apply: true, DoneIssues: map[string]bool{"CAG-107": true}, StateStore: store}); err != nil {
+	if err := cleanupWorkspaces(root, cleanupOptions{Apply: true, DoneIssues: map[string]bool{"CAG-107": true}, StateStore: store}); err == nil || !strings.Contains(err.Error(), "requires SQLite") {
+		t.Fatalf("expected fail-closed SQLite error, got %v", err)
+	}
+	if _, err := os.Stat(workspace); err != nil {
+		t.Fatalf("workspace was deleted despite unavailable state store: %v", err)
+	}
+}
+
+func TestCleanupWorkspacesDryRunDegradesWhenStateStoreUnavailable(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-108")
+	writeCleanRunArtifact(t, workspace, "success")
+	if err := os.WriteFile(filepath.Join(filepath.Dir(root), "state"), []byte("not a directory"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(workspace); !os.IsNotExist(err) {
-		t.Fatalf("workspace still exists after cleanup with unavailable state store: %v", err)
+
+	if err := cleanupWorkspaces(root, cleanupOptions{DoneIssues: map[string]bool{"CAG-108": true}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(workspace); err != nil {
+		t.Fatalf("dry-run degraded cleanup deleted workspace: %v", err)
 	}
 }
 
@@ -117,6 +133,65 @@ func TestCleanupWorkspacesMirrorsDryRunAndKeptState(t *testing.T) {
 	kept := readCleanupState(t, root, "CAG-67")
 	if kept.workspaceExists != 1 || kept.eligible != 0 || kept.decision != "not-done" || kept.deletionResult != "kept" || !strings.Contains(kept.blockedReason, "not Done") {
 		t.Fatalf("unexpected kept cleanup mirror row: %+v", kept)
+	}
+}
+
+func TestCleanupDecisionFromSQLiteKeepsMissingDBRowForReconciliation(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-109")
+	writeCleanRunArtifact(t, workspace, "success")
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	artifactDecision, err := cleanupDecisionForRoot(root, workspace, map[string]bool{"CAG-109": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := cleanupDecisionFromSQLite(context.Background(), store, root, workspace, map[string]bool{"CAG-109": true}, artifactDecision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Delete || decision.Category != "reconciliation-needed" || !strings.Contains(decision.Reason, "no issue attempt row") {
+		t.Fatalf("expected missing DB row reconciliation keep, got %+v", decision)
+	}
+}
+
+func TestCleanupDecisionFromSQLiteTreatsStaleArtifactConflictAsReconciliation(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-110")
+	writeCleanRunArtifact(t, workspace, "success")
+	seedCleanupAttempt(t, root, workspace, "CAG-110", "failed")
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	artifactDecision := cleanupResult{IssueIdentifier: "CAG-other", Category: "completed", ArtifactRef: filepath.Join(workspace, ".pi-symphony-run.json")}
+	decision, err := cleanupDecisionFromSQLite(context.Background(), store, root, workspace, map[string]bool{"CAG-110": true}, artifactDecision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Delete || decision.Category != "reconciliation-needed" || !strings.Contains(decision.Reason, "conflicts") {
+		t.Fatalf("expected conflict reconciliation keep, got %+v", decision)
+	}
+}
+
+func TestCleanupWorkspacesUsesSQLiteStatusWhenArtifactIsStale(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-111")
+	writeCleanRunArtifact(t, workspace, "success")
+	seedCleanupAttempt(t, root, workspace, "CAG-111", "failed")
+
+	if err := cleanupWorkspaces(root, cleanupOptions{DoneIssues: map[string]bool{"CAG-111": true}}); err != nil {
+		t.Fatal(err)
+	}
+	row := readCleanupState(t, root, "CAG-111")
+	if row.decision != "failed" || row.deletionResult != "dry_run" {
+		t.Fatalf("expected SQLite failed status to drive dry-run decision, got %+v", row)
 	}
 }
 

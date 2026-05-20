@@ -25,6 +25,23 @@ func cleanupWorkspaces(workspaceRoot string, options cleanupOptions) error {
 	if err != nil {
 		return err
 	}
+	store := options.StateStore
+	if store == nil {
+		opened, dbPath, openErr := openStateProjectionStore(context.Background(), safeRoot)
+		if openErr != nil {
+			if options.Apply {
+				return fmt.Errorf("cleanup requires SQLite for mutating apply: %w", openErr)
+			}
+			if dbPath != "" {
+				log("SQLite cleanup degraded: open path=%s error=%q", dbPath, openErr.Error())
+			} else {
+				log("SQLite cleanup degraded: %v", openErr)
+			}
+		} else {
+			store = opened
+			defer store.Close()
+		}
+	}
 	log("mode=cleanup-workspaces; workspace_root=%s; policy=linear_done; apply=%t", workspaceRoot, options.Apply)
 	entries, err := os.ReadDir(safeRoot)
 	if err != nil {
@@ -41,37 +58,43 @@ func cleanupWorkspaces(workspaceRoot string, options cleanupOptions) error {
 		if strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
+		if entry.Name() == "state" {
+			continue
+		}
 		workspace, err := safeWorkspacePath(safeRoot, entry.Name())
 		if err != nil {
 			return err
 		}
 		decision, err := cleanupDecisionForRoot(safeRoot, workspace, options.DoneIssues)
+		if store != nil {
+			decision, err = cleanupDecisionFromSQLite(context.Background(), store, safeRoot, workspace, options.DoneIssues, decision)
+		}
 		if err != nil {
 			return err
 		}
 		categories[decision.Category]++
 		if !decision.Delete {
 			kept++
-			mirrorCleanupState(options.StateStore, safeRoot, decision, false, "kept", true)
+			mirrorCleanupState(store, safeRoot, decision, false, cleanupDeletionResult(decision, "kept"), true)
 			log("keep %s [%s]: %s", workspace, decision.Category, decision.Reason)
 			continue
 		}
 		eligible++
 		if !options.Apply {
-			mirrorCleanupState(options.StateStore, safeRoot, decision, true, "dry_run", true)
+			mirrorCleanupState(store, safeRoot, decision, true, "dry_run", true)
 			log("would delete %s [%s]: %s", workspace, decision.Category, decision.Reason)
 			continue
 		}
 		if err := assertSafeDeletePath(safeRoot, workspace); err != nil {
-			mirrorCleanupState(options.StateStore, safeRoot, decision, true, "failed", true)
+			mirrorCleanupState(store, safeRoot, decision, true, "failed", true)
 			return err
 		}
 		if err := os.RemoveAll(workspace); err != nil {
-			mirrorCleanupState(options.StateStore, safeRoot, decision, true, "failed", true)
+			mirrorCleanupState(store, safeRoot, decision, true, "failed", true)
 			return err
 		}
 		removed++
-		mirrorCleanupState(options.StateStore, safeRoot, decision, true, "deleted", false)
+		mirrorCleanupState(store, safeRoot, decision, true, "deleted", false)
 		log("deleted %s [%s]: %s", workspace, decision.Category, decision.Reason)
 	}
 	if options.Apply {
@@ -80,6 +103,13 @@ func cleanupWorkspaces(workspaceRoot string, options cleanupOptions) error {
 		log("cleanup summary: eligible=%d kept=%d categories=%s; dry run only; pass --apply to delete workspaces for Done issues", eligible, kept, formatCleanupCategories(categories))
 	}
 	return nil
+}
+
+func cleanupDeletionResult(decision cleanupResult, fallback string) string {
+	if decision.Category == "reconciliation-needed" {
+		return "reconciliation_needed"
+	}
+	return fallback
 }
 
 func removeDoneWorkspace(workspaceRoot, identifier string) error {
@@ -168,6 +198,51 @@ func cleanupDecisionForRoot(workspaceRoot, workspace string, doneIssues map[stri
 	}
 	base.Category = "not-done"
 	base.Reason = fmt.Sprintf("Linear issue %s is not Done", record.IssueIdentifier)
+	return base, nil
+}
+
+func cleanupDecisionFromSQLite(ctx context.Context, store *orchstate.Store, workspaceRoot, workspace string, doneIssues map[string]bool, artifactDecision cleanupResult) (cleanupResult, error) {
+	identifier := filepath.Base(workspace)
+	facts, ok, err := store.CleanupFacts(ctx, identifier)
+	if err != nil {
+		return cleanupResult{}, err
+	}
+	if !ok {
+		return cleanupResult{IssueIdentifier: identifier, Category: "reconciliation-needed", Reason: fmt.Sprintf("SQLite has no issue attempt row for workspace %s", identifier)}, nil
+	}
+	base := cleanupResult{IssueIdentifier: facts.IssueKey, ArtifactRef: firstNonEmpty(facts.ArtifactRef, artifactDecision.ArtifactRef)}
+	if facts.WorkspacePath != "" && filepath.Clean(facts.WorkspacePath) != filepath.Clean(workspace) {
+		base.Category = "reconciliation-needed"
+		base.Reason = fmt.Sprintf("SQLite workspace path %s conflicts with workspace %s", facts.WorkspacePath, workspace)
+		return base, nil
+	}
+	if artifactDecision.IssueIdentifier != "" && artifactDecision.IssueIdentifier != facts.IssueKey {
+		base.Category = "reconciliation-needed"
+		base.Reason = fmt.Sprintf("run artifact issue %s conflicts with SQLite issue %s", artifactDecision.IssueIdentifier, facts.IssueKey)
+		return base, nil
+	}
+	if artifactDecision.Category == "dirty" || artifactDecision.Category == "unsafe" || artifactDecision.Category == "missing-artifact" || artifactDecision.Category == "insufficient-artifact" {
+		artifactDecision.IssueIdentifier = facts.IssueKey
+		return artifactDecision, nil
+	}
+	status := facts.TerminalOutcome
+	if status == "" {
+		status = facts.Status
+	}
+	category := cleanupCategoryForTerminalStatus(status)
+	if !terminalRunStatus(status) {
+		base.Category = "non-terminal"
+		base.Reason = fmt.Sprintf("SQLite status %s is not terminal", status)
+		return base, nil
+	}
+	if doneIssues[facts.IssueKey] || (doneIssues[identifier] && identifier != facts.IssueKey) {
+		base.Delete = true
+		base.Category = category
+		base.Reason = fmt.Sprintf("SQLite issue %s is Done and durable status is %s", facts.IssueKey, status)
+		return base, nil
+	}
+	base.Category = "not-done"
+	base.Reason = fmt.Sprintf("SQLite issue %s is not Done", facts.IssueKey)
 	return base, nil
 }
 

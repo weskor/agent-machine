@@ -1,11 +1,15 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	sh "github.com/weskor/pi-symphony/internal/shell"
 )
 
 func rawOutputPath(workspace, phase string) string {
@@ -31,6 +35,48 @@ func TestCaptureAgentOutputDoesNotPrintRawOutputByDefault(t *testing.T) {
 	}
 	if _, err := os.Stat(rawOutputPath(workspace, "implementation")); !os.IsNotExist(err) {
 		t.Fatalf("debug artifact should not exist by default, stat err=%v", err)
+	}
+}
+
+func TestCaptureAgentOutputCharacterizesCommandCwdEnvAndTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		command     string
+		env         map[string]string
+		timeout     time.Duration
+		wantOutput  []string
+		wantTimeout bool
+	}{
+		{
+			name:       "runs through sh in workspace with merged environment",
+			command:    `printf 'pwd=%s env=%s ci=%s pager=%s' "$PWD" "$RUNTIME_ENV" "$CI" "$GIT_PAGER"`,
+			env:        map[string]string{"RUNTIME_ENV": "from-test"},
+			wantOutput: []string{"pwd=WORKSPACE", "env=from-test", "ci=1", "pager=cat"},
+		},
+		{
+			name:        "returns timeout error",
+			command:     `sleep 1`,
+			timeout:     time.Millisecond,
+			wantTimeout: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			output, err := captureAgentOutput(tc.command, workspace, tc.env, tc.timeout, "implementation")
+			if tc.wantTimeout {
+				if !errors.Is(err, sh.ErrCommandTimeout) {
+					t.Fatalf("expected timeout, got %v", err)
+				}
+			} else if err != nil {
+				t.Fatalf("captureAgentOutput returned error: %v", err)
+			}
+			for _, want := range tc.wantOutput {
+				want = strings.ReplaceAll(want, "WORKSPACE", workspace)
+				if !strings.Contains(output, want) {
+					t.Fatalf("output %q missing %q", output, want)
+				}
+			}
+		})
 	}
 }
 

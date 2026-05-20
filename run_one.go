@@ -134,7 +134,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 			return true, err
 		}
 	}
-	heartbeatRunLock(workspace, time.Now())
+	heartbeatRunLockWithState(stateStore, workspace, time.Now())
 
 	piStart := time.Now()
 	piOutput, err := captureAgentOutput(fmt.Sprintf("%s @%s", config.PiCommand, sh.Quote(promptPath)), workspace, githubEnv, config.Budget.PiTimeout, "implementation")

@@ -79,6 +79,30 @@ func TestHeartbeatRunLockRenewsMirroredLease(t *testing.T) {
 	}
 }
 
+func TestHeartbeatRunLockWithStateUsesCommandScopedStore(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-107")
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	candidate := testIssue("CAG-107", "In Progress")
+	now := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	_, release, err := acquireRunLockWithState(store, workspace, &candidate, "symphony/CAG-107", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	renewed := now.Add(5 * time.Minute)
+	heartbeatRunLockWithState(store, workspace, renewed)
+	row := readLeaseFixture(t, root, "run:CAG-107")
+	if row.renewedAt != renewed.Format(time.RFC3339Nano) || row.expiresAt != renewed.Add(runLockStaleAfter).Format(time.RFC3339Nano) {
+		t.Fatalf("expected command-scoped store heartbeat renewal, got %#v", row)
+	}
+}
+
 func TestAcquireRunLockDoesNotDirtyFreshWorkspace(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "CAG-21")
 	candidate := testIssue("CAG-21", "In Progress")

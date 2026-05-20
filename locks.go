@@ -31,6 +31,10 @@ func acquireRunLockWithState(store *state.Store, workspace string, candidate *is
 
 func heartbeatRunLock(workspace string, at time.Time) { runLockManager().Heartbeat(workspace, at) }
 
+func heartbeatRunLockWithState(store *state.Store, workspace string, at time.Time) {
+	runLockManagerWithState(store).Heartbeat(workspace, at)
+}
+
 func describeExistingRunLock(path string, now time.Time) error { return ws.DescribeExisting(path, now) }
 
 func cleanupStaleRunLocks(workspaceRoot string, now time.Time) (int, error) {

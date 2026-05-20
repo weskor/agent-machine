@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -88,47 +87,9 @@ func ignoredWorkspaceDir(name string) bool {
 }
 
 func readBackfillArtifacts(workspace, workspaceRoot string) (backfillCandidate, error) {
-	path := filepath.Join(workspace, ".pi-symphony-run.json")
-	data, err := os.ReadFile(path)
+	record, evaluation, artifactTime, err := artifactManager().ReadBackfill(workspace, workspaceRoot)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return backfillCandidate{}, fmt.Errorf("missing .pi-symphony-run.json")
-		}
-		return backfillCandidate{}, fmt.Errorf("read run record: %w", err)
-	}
-	var record runRecord
-	if err := json.Unmarshal(data, &record); err != nil {
-		return backfillCandidate{}, fmt.Errorf("malformed .pi-symphony-run.json: %w", err)
-	}
-	if strings.TrimSpace(record.IssueIdentifier) == "" {
-		return backfillCandidate{}, fmt.Errorf("missing required issue_identifier")
-	}
-	if strings.TrimSpace(record.Status) == "" {
-		return backfillCandidate{}, fmt.Errorf("missing required status")
-	}
-	if record.Workspace == "" {
-		record.Workspace = workspace
-	}
-	if record.WorkspaceRoot == "" {
-		record.WorkspaceRoot = workspaceRoot
-	}
-	evaluation := evaluationForRun(workspace, record)
-	evalPath := filepath.Join(workspace, evaluationArtifactName)
-	if evalData, err := os.ReadFile(evalPath); err == nil {
-		if err := json.Unmarshal(evalData, &evaluation); err != nil {
-			return backfillCandidate{}, fmt.Errorf("malformed %s: %w", evaluationArtifactName, err)
-		}
-	} else if err != nil && !os.IsNotExist(err) {
-		return backfillCandidate{}, fmt.Errorf("read %s: %w", evaluationArtifactName, err)
-	}
-	artifactTime := record.EndedAt
-	if artifactTime.IsZero() {
-		artifactTime = record.StartedAt
-	}
-	if artifactTime.IsZero() {
-		if info, err := os.Stat(path); err == nil {
-			artifactTime = info.ModTime()
-		}
+		return backfillCandidate{}, err
 	}
 	return backfillCandidate{Workspace: workspace, Record: record, Evaluation: evaluation, ArtifactTime: artifactTime}, nil
 }

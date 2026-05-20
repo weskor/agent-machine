@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -30,6 +31,69 @@ type PiCLIAdapter struct {
 
 func (a PiCLIAdapter) Capabilities() RuntimeCapabilities {
 	return RuntimeCapabilities{SupportsReview: true}
+}
+
+func (a PiCLIAdapter) Preflight(_ context.Context, input PreflightInput) (PreflightResult, error) {
+	result := PreflightResult{Provider: "pi_cli"}
+	result.Checks = append(result.Checks, preflightCommand("implementation_command", input.ImplementationCommand))
+	if strings.TrimSpace(input.ReviewCommand) != "" {
+		result.Checks = append(result.Checks, preflightCommand("review_command", input.ReviewCommand))
+	}
+	if result.OK() {
+		return result, nil
+	}
+	for _, check := range result.Checks {
+		if !check.OK {
+			return result, RuntimeError{Kind: RuntimeErrorKindConfiguration, Message: fmt.Sprintf("provider %s preflight failed: %s", result.Provider, check.Message)}
+		}
+	}
+	return result, nil
+}
+
+func preflightCommand(name, command string) PreflightCheck {
+	check := PreflightCheck{Name: name, Command: command}
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
+		check.Message = fmt.Sprintf("provider pi_cli requires a non-empty %s", name)
+		return check
+	}
+	executable := firstCommandToken(trimmed)
+	check.Executable = executable
+	if executable == "" {
+		check.Message = fmt.Sprintf("provider pi_cli could not parse executable for %s", name)
+		return check
+	}
+	resolved, err := resolveExecutable(executable)
+	if err != nil {
+		check.Message = fmt.Sprintf("provider pi_cli could not resolve executable %q for %s on PATH or as an executable path", executable, name)
+		return check
+	}
+	check.OK = true
+	check.Resolved = resolved
+	check.Message = fmt.Sprintf("provider pi_cli resolved executable %q for %s", executable, name)
+	return check
+}
+
+func firstCommandToken(command string) string {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.Trim(fields[0], "'\"")
+}
+
+func resolveExecutable(executable string) (string, error) {
+	if strings.ContainsRune(executable, os.PathSeparator) {
+		info, err := os.Stat(executable)
+		if err != nil {
+			return "", err
+		}
+		if info.IsDir() || info.Mode()&0o111 == 0 {
+			return "", fmt.Errorf("not executable: %s", executable)
+		}
+		return executable, nil
+	}
+	return exec.LookPath(executable)
 }
 
 func (a PiCLIAdapter) StartAttempt(_ context.Context, input StartAttemptInput) (AttemptContext, error) {

@@ -446,6 +446,87 @@ func nowFixture() time.Time {
 	return time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC)
 }
 
+func TestRunOneMissingPiCommandFailsBeforeClaimOrWorkspaceMutation(t *testing.T) {
+	root := t.TempDir()
+	var updatedStates []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		switch {
+		case strings.Contains(request.Query, "issues(first"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issues": map[string]any{"nodes": []issue{testIssue("CAG-117", "Ready for Agent")}}}})
+		case strings.Contains(request.Query, "issueUpdate"):
+			updatedStates = append(updatedStates, request.Variables["stateId"].(string))
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issueUpdate": map[string]any{"success": true}}})
+		default:
+			t.Fatalf("unexpected Linear query after preflight should have failed: %s", request.Query)
+		}
+	}))
+	defer server.Close()
+
+	config := testRunnerConfig(root)
+	config.PiCommand = "missing-implementation-binary"
+	didWork, err := runOne(linearClient{apiKey: "test-key", endpoint: server.URL}, workflow{Body: "# Test workflow"}, config)
+	if err == nil || !strings.Contains(err.Error(), "pi_cli") || !strings.Contains(err.Error(), "missing-implementation-binary") {
+		t.Fatalf("expected actionable pi_cli error, got %v", err)
+	}
+	if !didWork {
+		t.Fatal("expected selected issue to count as work")
+	}
+	if len(updatedStates) != 0 {
+		t.Fatalf("preflight mutated Linear state: %#v", updatedStates)
+	}
+	if _, err := os.Stat(filepath.Join(root, "CAG-117")); !os.IsNotExist(err) {
+		t.Fatalf("workspace was created before preflight failure: %v", err)
+	}
+}
+
+func TestRunOneMissingReviewCommandFailsBeforeClaimOrWorkspaceMutation(t *testing.T) {
+	root := t.TempDir()
+	var updatedStates []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		switch {
+		case strings.Contains(request.Query, "issues(first"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issues": map[string]any{"nodes": []issue{testIssue("CAG-118", "Ready for Agent")}}}})
+		case strings.Contains(request.Query, "issueUpdate"):
+			updatedStates = append(updatedStates, request.Variables["stateId"].(string))
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issueUpdate": map[string]any{"success": true}}})
+		default:
+			t.Fatalf("unexpected Linear query after preflight should have failed: %s", request.Query)
+		}
+	}))
+	defer server.Close()
+
+	config := testRunnerConfig(root)
+	config.PiCommand = "sh"
+	config.ReviewCommand = "missing-review-binary"
+	didWork, err := runOne(linearClient{apiKey: "test-key", endpoint: server.URL}, workflow{Body: "# Test workflow"}, config)
+	if err == nil || !strings.Contains(err.Error(), "pi_cli") || !strings.Contains(err.Error(), "missing-review-binary") {
+		t.Fatalf("expected actionable review preflight error, got %v", err)
+	}
+	if !didWork {
+		t.Fatal("expected selected issue to count as work")
+	}
+	if len(updatedStates) != 0 {
+		t.Fatalf("preflight mutated Linear state: %#v", updatedStates)
+	}
+	if _, err := os.Stat(filepath.Join(root, "CAG-118")); !os.IsNotExist(err) {
+		t.Fatalf("workspace was created before preflight failure: %v", err)
+	}
+}
+
 func TestRunOneMovesNeedsInfoAndCommentsWithoutPRHandoff(t *testing.T) {
 	t.Setenv("GITHUB_APP_ID", "")
 	t.Setenv("GITHUB_APP_INSTALLATION_ID", "")

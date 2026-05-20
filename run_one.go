@@ -39,6 +39,10 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	if err != nil {
 		return true, err
 	}
+	runtime := newPiCLIRuntime()
+	if _, err := runtime.Preflight(context.Background(), agentruntime.PreflightInput{ImplementationCommand: config.PiCommand, ReviewCommand: config.ReviewCommand}); err != nil {
+		return true, err
+	}
 	branch, _ := currentGitBranch(workspace)
 	if existing, ok := reusableRunRecord(workspace); ok {
 		if feedbackRetryAvailable(workspace, candidate, existing, config) {
@@ -138,7 +142,6 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	}
 	heartbeatRunLockWithState(stateStore, workspace, time.Now())
 
-	runtime := newPiCLIRuntime()
 	attempt, err := runtime.StartAttempt(context.Background(), agentruntime.StartAttemptInput{IssueID: candidate.ID, IssueIdentifier: candidate.Identifier, Workspace: workspace, Branch: branch, ExpectedBranch: expectedWorkspaceBranch(candidate.Identifier), Attempt: 1, WorkingDir: workspace, Command: config.PiCommand, PromptPath: promptPath, Timeouts: agentruntime.AttemptTimeouts{WallClock: config.Budget.WallClock, Command: config.Budget.CommandTimeout, Review: config.Budget.ReviewTimeout}, Environment: githubEnv})
 	if err != nil {
 		return true, err

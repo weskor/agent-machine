@@ -29,6 +29,10 @@ func (stubRuntime) Capabilities() RuntimeCapabilities {
 	return RuntimeCapabilities{SupportsReview: true, SupportsCancel: false, SupportsStop: false}
 }
 
+func (stubRuntime) Preflight(context.Context, PreflightInput) (PreflightResult, error) {
+	return PreflightResult{Provider: "stub"}, nil
+}
+
 func (stubRuntime) StartAttempt(context.Context, StartAttemptInput) (AttemptContext, error) {
 	return AttemptContext{ID: "attempt-id"}, nil
 }

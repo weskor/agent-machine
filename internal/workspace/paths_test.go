@@ -46,7 +46,7 @@ func TestAssertSafeDeletePathRejectsUnsafeTargetsTable(t *testing.T) {
 	}
 }
 
-func TestHasChangesIgnoresOnlyZeroByteTopLevelFalseMarker(t *testing.T) {
+func TestHasChangesIgnoresFalseScratchMarkers(t *testing.T) {
 	workspace := initGitWorkspace(t)
 	if err := os.WriteFile(filepath.Join(workspace, "false"), nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -57,6 +57,18 @@ func TestHasChangesIgnoresOnlyZeroByteTopLevelFalseMarker(t *testing.T) {
 	}
 	if changed {
 		t.Fatal("zero-byte top-level false marker should be ignored")
+	}
+
+	reviewerScratch := "PASS\n\n## Review\n- Looks good.\n\nDid not write /tmp/workspace/false because the task also says “Do not modify files.”\n"
+	if err := os.WriteFile(filepath.Join(workspace, "false"), []byte(reviewerScratch), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed, err = HasChanges(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed {
+		t.Fatal("bounded subagent reviewer false scratch output should be ignored")
 	}
 
 	if err := os.WriteFile(filepath.Join(workspace, "false"), []byte("real change"), 0o600); err != nil {

@@ -20,6 +20,15 @@ type cleanupOptions struct {
 	StateStore *orchstate.Store
 }
 
+type cleanupPRFacts struct {
+	State       string
+	Merged      bool
+	HeadRefName string
+	BaseRefName string
+}
+
+var cleanupPRFactsForURL = githubCleanupPRFactsForURL
+
 func cleanupWorkspaces(workspaceRoot string, options cleanupOptions) error {
 	safeRoot, err := safeWorkspaceRoot(workspaceRoot)
 	if err != nil {
@@ -237,6 +246,9 @@ func cleanupDecisionFromSQLite(ctx context.Context, store *orchstate.Store, work
 	}
 	category := cleanupCategoryForTerminalStatus(status)
 	if !terminalRunStatus(status) {
+		if doneIssues[facts.IssueKey] || (doneIssues[identifier] && identifier != facts.IssueKey) {
+			return cleanupDecisionFromMergedPR(facts, base, status)
+		}
 		base.Category = "non-terminal"
 		base.Reason = fmt.Sprintf("SQLite status %s is not terminal", status)
 		return base, nil
@@ -250,6 +262,73 @@ func cleanupDecisionFromSQLite(ctx context.Context, store *orchstate.Store, work
 	base.Category = "not-done"
 	base.Reason = fmt.Sprintf("SQLite issue %s is not Done", facts.IssueKey)
 	return base, nil
+}
+
+func cleanupDecisionFromMergedPR(facts orchstate.CleanupFacts, base cleanupResult, status string) (cleanupResult, error) {
+	if strings.TrimSpace(facts.PRURL) == "" {
+		base.Category = "reconciliation-needed"
+		base.Reason = fmt.Sprintf("SQLite issue %s is Done but non-terminal status %s has no PR mapping", facts.IssueKey, status)
+		return base, nil
+	}
+	expectedBranch := expectedWorkspaceBranch(facts.IssueKey)
+	if branch := strings.TrimSpace(facts.BranchName); branch == "" || branch != expectedBranch {
+		base.Category = "reconciliation-needed"
+		base.Reason = fmt.Sprintf("SQLite issue %s is Done but PR mapping branch %s does not match expected branch %s", facts.IssueKey, emptyAsNA(facts.BranchName), expectedBranch)
+		return base, nil
+	}
+	prFacts, err := cleanupPRFactsForURL(facts.PRURL)
+	if err != nil {
+		base.Category = "reconciliation-needed"
+		base.Reason = fmt.Sprintf("SQLite issue %s is Done but PR state lookup failed for %s: %v", facts.IssueKey, facts.PRURL, err)
+		return base, nil
+	}
+	if prFacts.HeadRefName != expectedBranch {
+		base.Category = "reconciliation-needed"
+		base.Reason = fmt.Sprintf("SQLite issue %s is Done but PR %s head branch %s does not match expected branch %s", facts.IssueKey, facts.PRURL, emptyAsNA(prFacts.HeadRefName), expectedBranch)
+		return base, nil
+	}
+	if baseBranch := strings.TrimSpace(facts.BaseBranch); baseBranch != "" && prFacts.BaseRefName != "" && prFacts.BaseRefName != baseBranch {
+		base.Category = "reconciliation-needed"
+		base.Reason = fmt.Sprintf("SQLite issue %s is Done but PR %s base branch %s does not match expected base %s", facts.IssueKey, facts.PRURL, prFacts.BaseRefName, baseBranch)
+		return base, nil
+	}
+	if prFacts.Merged || strings.EqualFold(prFacts.State, "MERGED") {
+		base.Delete = true
+		base.Category = "merged-pr"
+		base.Reason = fmt.Sprintf("SQLite issue %s is Done, PR %s is merged, and durable status is %s", facts.IssueKey, facts.PRURL, status)
+		return base, nil
+	}
+	base.Category = "reconciliation-needed"
+	base.Reason = fmt.Sprintf("SQLite issue %s is Done but PR %s is state %s and durable status is %s", facts.IssueKey, facts.PRURL, emptyAsUnknown(prFacts.State), status)
+	return base, nil
+}
+
+func githubCleanupPRFactsForURL(prURL string) (cleanupPRFacts, error) {
+	owner, repo, ok := parseGitHubPRRepository(prURL)
+	if !ok {
+		return cleanupPRFacts{}, fmt.Errorf("invalid GitHub PR URL %q", prURL)
+	}
+	expectedOwner, expectedRepo, err := currentGitHubRepo()
+	if err != nil {
+		return cleanupPRFacts{}, err
+	}
+	if !strings.EqualFold(owner, expectedOwner) || !strings.EqualFold(repo, expectedRepo) {
+		return cleanupPRFacts{}, fmt.Errorf("PR repository is %s/%s; expected %s/%s", owner, repo, expectedOwner, expectedRepo)
+	}
+	github, ctx, cancel, err := githubClientWithTimeout(defaultGitHubCommandTimeout)
+	if err != nil {
+		return cleanupPRFacts{}, err
+	}
+	defer cancel()
+	details, err := github.PullRequestHandoffDetails(ctx, prURL)
+	if err != nil {
+		return cleanupPRFacts{}, err
+	}
+	state, merged, err := github.PullRequestState(ctx, prURL)
+	if err != nil {
+		return cleanupPRFacts{}, err
+	}
+	return cleanupPRFacts{State: state, Merged: merged, HeadRefName: details.HeadRefName, BaseRefName: details.BaseRefName}, nil
 }
 
 func mirrorCleanupState(store *orchstate.Store, workspaceRoot string, decision cleanupResult, eligible bool, deletionResult string, workspaceExists bool) {

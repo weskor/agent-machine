@@ -124,6 +124,7 @@ type CleanupFacts struct {
 	Attempt         int
 	WorkspacePath   string
 	BranchName      string
+	BaseBranch      string
 	Status          string
 	TerminalOutcome string
 	PRURL           string
@@ -538,13 +539,13 @@ func (s *Store) CleanupFacts(ctx context.Context, issueKey string) (CleanupFacts
 	}
 	var facts CleanupFacts
 	var updatedRaw string
-	err := s.db.QueryRowContext(ctx, `SELECT a.issue_key, a.attempt, a.workspace_path, a.branch_name, a.status, COALESCE(t.outcome, ''), COALESCE(p.pr_url, ''), COALESCE(c.decision, ''), COALESCE(c.deletion_result, ''), COALESCE(c.artifact_ref, ''), a.updated_at
+	err := s.db.QueryRowContext(ctx, `SELECT a.issue_key, a.attempt, a.workspace_path, a.branch_name, a.base_branch, a.status, COALESCE(t.outcome, ''), COALESCE(p.pr_url, ''), COALESCE(c.decision, ''), COALESCE(c.deletion_result, ''), COALESCE(c.artifact_ref, ''), a.updated_at
 FROM issue_attempts a
 LEFT JOIN terminal_outcomes t ON t.attempt_id = a.id
 LEFT JOIN pr_mappings p ON p.attempt_id = a.id
 LEFT JOIN cleanup_states c ON c.attempt_id = a.id
 WHERE a.issue_key = ?
-ORDER BY a.attempt DESC LIMIT 1`, issueKey).Scan(&facts.IssueKey, &facts.Attempt, &facts.WorkspacePath, &facts.BranchName, &facts.Status, &facts.TerminalOutcome, &facts.PRURL, &facts.CleanupDecision, &facts.DeletionResult, &facts.ArtifactRef, &updatedRaw)
+ORDER BY a.attempt DESC LIMIT 1`, issueKey).Scan(&facts.IssueKey, &facts.Attempt, &facts.WorkspacePath, &facts.BranchName, &facts.BaseBranch, &facts.Status, &facts.TerminalOutcome, &facts.PRURL, &facts.CleanupDecision, &facts.DeletionResult, &facts.ArtifactRef, &updatedRaw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return CleanupFacts{}, false, nil
 	}

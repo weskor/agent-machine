@@ -38,7 +38,9 @@ func nextRunnableCandidate(client linearClient, config runnerConfig, store *stat
 			return &candidates[i], pr, nil
 		}
 		log("skipping %s: lifecycle=%s blockers=%s next=%s", candidates[i].Identifier, decision.Lifecycle, strings.Join(decision.Blockers, "; "), decision.NextAction)
-		emitCandidateEvent(store, state.EventCandidateSkipped, candidates[i], map[string]any{"reason": "not_runnable", "state": candidates[i].State.Name, "lifecycle": decision.Lifecycle, "blockers": decision.Blockers, "next_action": decision.NextAction})
+		if !decision.CanRun {
+			emitCandidateEvent(store, state.EventCandidateSkipped, candidates[i], map[string]any{"reason": "not_runnable", "state": candidates[i].State.Name, "lifecycle": decision.Lifecycle, "blockers": decision.Blockers, "next_action": decision.NextAction})
+		}
 	}
 	for i := range candidates {
 		pr := prsByIssue[candidates[i].Identifier]

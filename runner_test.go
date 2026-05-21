@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	sh "github.com/weskor/pi-symphony/internal/shell"
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 func init() {
@@ -63,6 +65,60 @@ func TestNextRunnableCandidatePrefersReadyCandidate(t *testing.T) {
 	}
 	if candidate == nil || candidate.Identifier != "CAG-2" {
 		t.Fatalf("expected ready candidate CAG-2, got %#v", candidate)
+	}
+}
+
+func TestNextRunnableCandidateRecordsSelectedAndSkippedEvents(t *testing.T) {
+	root := t.TempDir()
+	writeRunRecordFixture(t, root, "CAG-1", `{"status":"review_failed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/1"}`)
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	client := linearClientWithCandidates(t, []issue{
+		testIssue("CAG-1", "Ready for Agent"),
+		testIssue("CAG-2", "Ready for Agent"),
+	})
+
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate == nil || candidate.Identifier != "CAG-2" {
+		t.Fatalf("expected ready candidate CAG-2, got %#v", candidate)
+	}
+	events, err := store.Events(context.Background(), state.EventFilter{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := candidateEventTypes(events); !reflect.DeepEqual(got, []string{"CAG-1:" + state.EventCandidateSkipped, "CAG-2:" + state.EventCandidateSelected}) {
+		t.Fatalf("candidate events = %#v; all=%+v", got, events)
+	}
+}
+
+func TestNextRunnableCandidateDoesNotRecordSkipForFallbackSelection(t *testing.T) {
+	root := t.TempDir()
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	client := linearClientWithCandidates(t, []issue{testIssue("CAG-1", "In Progress")})
+
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate == nil || candidate.Identifier != "CAG-1" {
+		t.Fatalf("expected fallback candidate CAG-1, got %#v", candidate)
+	}
+	events, err := store.Events(context.Background(), state.EventFilter{IssueKey: "CAG-1", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := candidateEventTypes(events); !reflect.DeepEqual(got, []string{"CAG-1:" + state.EventCandidateSelected}) {
+		t.Fatalf("candidate events = %#v; want selected without prior skipped; all=%+v", got, events)
 	}
 }
 
@@ -742,6 +798,13 @@ func TestRunOneCreatesRunnerOwnedPRWhenPiFinishesWithChangesAndNoPRURL(t *testin
 	if record.Status != "success" || record.PRURL != "https://github.com/weskor/pi-symphony/pull/900" {
 		t.Fatalf("unexpected run record: %#v", record)
 	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	assertRunRecordEvents(t, store, record, true, false, false)
+	assertRunOneRuntimeEvents(t, store, record.IssueIdentifier)
 }
 
 func TestRunOneFailsClearlyWhenPiFinishesWithoutChangesOrPRURL(t *testing.T) {
@@ -1016,5 +1079,30 @@ func writeRunRecordFixture(t *testing.T, root, identifier, record string) {
 	}
 	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(record), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func candidateEventTypes(events []state.Event) []string {
+	out := make([]string, 0, len(events))
+	for _, event := range events {
+		out = append(out, event.IssueKey+":"+event.Type)
+	}
+	return out
+}
+
+func assertRunOneRuntimeEvents(t *testing.T, store *state.Store, issueKey string) {
+	t.Helper()
+	events, err := store.Events(context.Background(), state.EventFilter{IssueKey: issueKey, Attempt: 1, Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	types := map[string]int{}
+	for _, event := range events {
+		types[event.Type]++
+	}
+	for _, eventType := range []string{state.EventAttemptStarted, state.EventRuntimeStarted, state.EventRuntimeFinished, state.EventPRDetected, state.EventAttemptFinished} {
+		if types[eventType] != 1 {
+			t.Fatalf("%s events = %d, want 1; all=%v", eventType, types[eventType], types)
+		}
 	}
 }

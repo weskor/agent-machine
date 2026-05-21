@@ -92,7 +92,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 - `agent.max_concurrent_agents` is currently accepted but not enforced by scheduler logic.
 - `agent.max_turns` is enforced at the AgentRuntime/config preflight boundary for `pi_cli`: normalized `1` preserves the single implementation attempt, while values greater than `1` fail before claim, lease acquisition, workspace mutation, Linear state movement, or Agent execution.
 - `pi_cli` does not gate or stop an in-flight attempt by turn count; future session-runtime Adapters must declare and enforce a `max_turns` capability rather than relying on scheduler guesses.
-- `max_retry_backoff_ms` is currently parsed and stored but not used to gate retry timing.
+- `max_retry_backoff_ms` gates retry timing for durable retry decisions: retryable failed or blocked attempts write retry metadata to SQLite, candidate selection skips the issue until the exponential backoff delay elapses, and the delay is capped by the configured maximum.
 - Duplicate dispatch prevention relies on workspace-level run lock artifacts and SQLite lease acquisition when available.
 - For duplicate-claim safety, the runner:
   - cleans stale/dead run locks before candidate selection;

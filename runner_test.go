@@ -298,6 +298,43 @@ func TestNextRunnableCandidateDoesNotRetryTerminalArtifactWithoutFeedback(t *tes
 	}
 }
 
+func TestNextRunnableCandidateRetriesFailedArtifactAfterPersistedBackoff(t *testing.T) {
+	root := t.TempDir()
+	writeRunRecordFixture(t, root, "CAG-99", `{"status":"failed","error":"test failure"}`)
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{
+		IssueKey:         "CAG-99",
+		Attempt:          1,
+		WorkspacePath:    filepath.Join(root, "CAG-99"),
+		BranchName:       expectedWorkspaceBranch("CAG-99"),
+		BaseBranch:       "main",
+		Status:           "failed",
+		RetryNextState:   "retry_after_backoff",
+		RetryBudgetState: "available",
+		RetryReason:      "test failure",
+		TerminalOutcome:  "operational_failure",
+		StartedAt:        time.Now().Add(-2 * time.Minute),
+		UpdatedAt:        time.Now().Add(-2 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	config := testRunnerConfig(root)
+	config.WorkflowPath = writeRetryWorkflow(t, 10000)
+	client := linearClientWithCandidates(t, []issue{testIssue("CAG-99", "Ready for Agent"), testIssue("CAG-100", "In Progress")})
+
+	selected, _, err := nextRunnableCandidate(client, config, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected == nil || selected.Identifier != "CAG-99" {
+		t.Fatalf("expected persisted failed candidate after backoff, got %#v", selected)
+	}
+}
+
 func TestNextRunnableCandidateSelectsChangesRequestedReviewFailure(t *testing.T) {
 	root := t.TempDir()
 	writeRunRecordFixture(t, root, "CAG-35", `{"status":"review_failed","review_status":"failed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/440"}`)

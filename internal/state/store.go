@@ -51,6 +51,8 @@ const (
 	EventCandidateSelected = "candidate_selected"
 	EventCandidateSkipped  = "candidate_skipped"
 	EventAttemptStarted    = "attempt_started"
+	EventRuntimeStarted    = "runtime_started"
+	EventRuntimeFinished   = "runtime_finished"
 	EventAttemptFinished   = "attempt_finished"
 	EventPRDetected        = "pr_detected"
 	EventReviewCompleted   = "review_completed"
@@ -689,10 +691,17 @@ ON CONFLICT(attempt_id) DO UPDATE SET outcome=excluded.outcome, reason=excluded.
 			return fmt.Errorf("record external artifact ref: %w", err)
 		}
 	}
-	if _, err := appendEvent(ctx, tx, runArtifactEventInput(snap, now)); err != nil {
-		return fmt.Errorf("append run artifact event: %w", err)
+	if err := tx.Commit(); err != nil {
+		return err
 	}
-	return tx.Commit()
+	s.appendRunArtifactEventsBestEffort(ctx, snap, now)
+	return nil
+}
+
+func (s *Store) appendRunArtifactEventsBestEffort(ctx context.Context, snap RunArtifactSnapshot, occurredAt time.Time) {
+	for _, input := range runArtifactEventInputs(snap, occurredAt) {
+		_, _ = s.AppendEvent(ctx, input)
+	}
 }
 
 func (s *Store) SnapshotAttempts(ctx context.Context) ([]SnapshotAttempt, error) {
@@ -752,6 +761,10 @@ func (s *Store) SnapshotHeartbeats(ctx context.Context) ([]SnapshotHeartbeat, er
 }
 
 func runArtifactEventInput(snap RunArtifactSnapshot, occurredAt time.Time) EventInput {
+	return runArtifactEventInputs(snap, occurredAt)[0]
+}
+
+func runArtifactEventInputs(snap RunArtifactSnapshot, occurredAt time.Time) []EventInput {
 	eventType := EventAttemptStarted
 	if snap.TerminalOutcome != "" {
 		eventType = EventAttemptFinished
@@ -778,7 +791,7 @@ func runArtifactEventInput(snap RunArtifactSnapshot, occurredAt time.Time) Event
 	if snap.FeedbackNextAction != "" {
 		payload["next_action"] = snap.FeedbackNextAction
 	}
-	return EventInput{
+	base := EventInput{
 		OccurredAt: occurredAt,
 		IssueKey:   snap.IssueKey,
 		IssueID:    snap.IssueID,
@@ -788,6 +801,20 @@ func runArtifactEventInput(snap RunArtifactSnapshot, occurredAt time.Time) Event
 		Type:       eventType,
 		Payload:    payload,
 	}
+	inputs := []EventInput{base}
+	if snap.PRURL != "" {
+		prPayload := map[string]any{"pr_url": snap.PRURL, "status": snap.Status}
+		inputs = append(inputs, EventInput{OccurredAt: occurredAt, IssueKey: snap.IssueKey, IssueID: snap.IssueID, Attempt: snap.Attempt, RunID: snap.WorkspacePath, Source: "runner.run_attempt", Type: EventPRDetected, Payload: prPayload})
+	}
+	if snap.ReviewStatus != "" || snap.ReviewClassification != "" {
+		reviewPayload := map[string]any{"review_status": snap.ReviewStatus, "classification": snap.ReviewClassification, "status": snap.Status}
+		inputs = append(inputs, EventInput{OccurredAt: occurredAt, IssueKey: snap.IssueKey, IssueID: snap.IssueID, Attempt: snap.Attempt, RunID: snap.WorkspacePath, Source: "runner.run_attempt", Type: EventReviewCompleted, Payload: reviewPayload})
+	}
+	if snap.TerminalOutcome != "" && snap.TerminalOutcome != "handoff_ready" && snap.TerminalOutcome != "merged" {
+		errorPayload := map[string]any{"status": snap.Status, "terminal_outcome": snap.TerminalOutcome, "reason": snap.TerminalReason}
+		inputs = append(inputs, EventInput{OccurredAt: occurredAt, IssueKey: snap.IssueKey, IssueID: snap.IssueID, Attempt: snap.Attempt, RunID: snap.WorkspacePath, Source: "runner.run_attempt", Type: EventErrorRecorded, Payload: errorPayload})
+	}
+	return inputs
 }
 
 func (s *Store) RecordArtifactExportFailure(ctx context.Context, issueKey string, attempt int, artifact string, message string, capturedAt time.Time) error {

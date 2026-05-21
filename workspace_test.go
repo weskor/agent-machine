@@ -44,6 +44,7 @@ func TestWriteRunRecordPersistsSQLiteBeforeArtifactsForTerminalOutcomes(t *testi
 			assertFileExists(t, filepath.Join(workspace, ".pi-symphony-run.json"))
 			assertFileExists(t, filepath.Join(workspace, ".pi-symphony-evaluation.json"))
 			assertSQLiteAttempt(t, store, record.IssueIdentifier, tc.status)
+			assertRunRecordEvents(t, store, record, tc.prURL != "", tc.review != nil, tc.status == runAttemptStatusFailed || tc.status == runAttemptStatusReviewFailed)
 		})
 	}
 }
@@ -101,7 +102,11 @@ func TestWriteRunRecordRecordsExportFailureAfterSQLiteCommit(t *testing.T) {
 
 func testWorkspaceRunRecord(workspace, status, prURL string, review *reviewResult) runRecord {
 	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
-	return runAttemptOutcome{StartedAt: now, EndedAt: now.Add(time.Minute), Review: review, PRURL: prURL, Status: status, Error: "missing PR URL"}.Record(&issue{ID: "issue-id", Identifier: "CAG-108", Title: "DB first", URL: "https://linear.app/acme/issue/CAG-108/db-first"}, workspace, "pi")
+	errorMessage := ""
+	if status != runAttemptStatusSuccess {
+		errorMessage = "missing PR URL"
+	}
+	return runAttemptOutcome{StartedAt: now, EndedAt: now.Add(time.Minute), Review: review, PRURL: prURL, Status: status, Error: errorMessage}.Record(&issue{ID: "issue-id", Identifier: "CAG-108", Title: "DB first", URL: "https://linear.app/acme/issue/CAG-108/db-first"}, workspace, "pi")
 }
 
 func assertFileExists(t *testing.T, path string) {
@@ -126,5 +131,29 @@ func assertSQLiteAttempt(t *testing.T, store *state.Store, issueKey, status stri
 	}
 	if got != status {
 		t.Fatalf("SQLite status = %q, want %q", got, status)
+	}
+}
+
+func assertRunRecordEvents(t *testing.T, store *state.Store, record runRecord, wantPR, wantReview, wantError bool) {
+	t.Helper()
+	events, err := store.Events(context.Background(), state.EventFilter{IssueKey: record.IssueIdentifier, Attempt: 1, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	types := map[string]int{}
+	for _, event := range events {
+		types[event.Type]++
+	}
+	if types[state.EventAttemptFinished] != 1 {
+		t.Fatalf("attempt_finished events = %d, want 1; all=%v", types[state.EventAttemptFinished], types)
+	}
+	if wantPR && types[state.EventPRDetected] != 1 {
+		t.Fatalf("pr_detected events = %d, want 1; all=%v", types[state.EventPRDetected], types)
+	}
+	if wantReview && types[state.EventReviewCompleted] != 1 {
+		t.Fatalf("review_completed events = %d, want 1; all=%v", types[state.EventReviewCompleted], types)
+	}
+	if wantError && types[state.EventErrorRecorded] != 1 {
+		t.Fatalf("error_recorded events = %d, want 1; all=%v", types[state.EventErrorRecorded], types)
 	}
 }

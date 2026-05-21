@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	sh "github.com/weskor/pi-symphony/internal/shell"
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 func init() {
@@ -57,12 +59,66 @@ func TestNextRunnableCandidatePrefersReadyCandidate(t *testing.T) {
 		testIssue("CAG-2", "Ready for Agent"),
 	})
 
-	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if candidate == nil || candidate.Identifier != "CAG-2" {
 		t.Fatalf("expected ready candidate CAG-2, got %#v", candidate)
+	}
+}
+
+func TestNextRunnableCandidateRecordsSelectedAndSkippedEvents(t *testing.T) {
+	root := t.TempDir()
+	writeRunRecordFixture(t, root, "CAG-1", `{"status":"review_failed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/1"}`)
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	client := linearClientWithCandidates(t, []issue{
+		testIssue("CAG-1", "Ready for Agent"),
+		testIssue("CAG-2", "Ready for Agent"),
+	})
+
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate == nil || candidate.Identifier != "CAG-2" {
+		t.Fatalf("expected ready candidate CAG-2, got %#v", candidate)
+	}
+	events, err := store.Events(context.Background(), state.EventFilter{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := candidateEventTypes(events); !reflect.DeepEqual(got, []string{"CAG-1:" + state.EventCandidateSkipped, "CAG-2:" + state.EventCandidateSelected}) {
+		t.Fatalf("candidate events = %#v; all=%+v", got, events)
+	}
+}
+
+func TestNextRunnableCandidateDoesNotRecordSkipForFallbackSelection(t *testing.T) {
+	root := t.TempDir()
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	client := linearClientWithCandidates(t, []issue{testIssue("CAG-1", "In Progress")})
+
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate == nil || candidate.Identifier != "CAG-1" {
+		t.Fatalf("expected fallback candidate CAG-1, got %#v", candidate)
+	}
+	events, err := store.Events(context.Background(), state.EventFilter{IssueKey: "CAG-1", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := candidateEventTypes(events); !reflect.DeepEqual(got, []string{"CAG-1:" + state.EventCandidateSelected}) {
+		t.Fatalf("candidate events = %#v; want selected without prior skipped; all=%+v", got, events)
 	}
 }
 
@@ -74,7 +130,7 @@ func TestNextRunnableCandidateSkipsUnresolvedReviewFailures(t *testing.T) {
 		testIssue("CAG-2", "In Progress"),
 	})
 
-	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +150,7 @@ func TestNextRunnableCandidateOrdersBySafetyPriorityAndAge(t *testing.T) {
 	addLabels(&harness, "harness")
 	client := linearClientWithCandidates(t, []issue{feature, harness})
 
-	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +169,7 @@ func TestNextRunnableCandidateOrdersPriorityBeforeAge(t *testing.T) {
 	newerHighPriority.CreatedAt = "2026-02-01T00:00:00Z"
 	client := linearClientWithCandidates(t, []issue{older, newerHighPriority})
 
-	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +188,7 @@ func TestNextRunnableCandidateUsesAgeAsTieBreaker(t *testing.T) {
 	older.CreatedAt = "2026-01-01T00:00:00Z"
 	client := linearClientWithCandidates(t, []issue{newer, older})
 
-	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +206,7 @@ func TestNextRunnableCandidateSkipsBlockedLabel(t *testing.T) {
 	available.Priority = 2
 	client := linearClientWithCandidates(t, []issue{blocked, available})
 
-	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +224,7 @@ func TestNextRunnableCandidateReturnsNilWhenAllCandidatesHaveUnresolvedReviewFai
 		testIssue("CAG-2", "In Progress"),
 	})
 
-	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +244,7 @@ func TestNextRunnableCandidateSkipsActiveLocks(t *testing.T) {
 	defer release()
 	client := linearClientWithCandidates(t, []issue{candidate, testIssue("CAG-2", "In Progress")})
 
-	selected, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	selected, _, err := nextRunnableCandidate(client, testRunnerConfig(root), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +258,7 @@ func TestNextRunnableCandidateSkipsExistingSuccessfulPRArtifact(t *testing.T) {
 	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/pennywise-investments/compound-web/pull/21"}`)
 	client := linearClientWithCandidates(t, []issue{testIssue("CAG-1", "Ready for Agent"), testIssue("CAG-2", "In Progress")})
 
-	selected, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	selected, _, err := nextRunnableCandidate(client, testRunnerConfig(root), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +275,7 @@ func TestNextRunnableCandidateAllowsReadyFeedbackRetryWithTerminalArtifact(t *te
 	}
 	client := linearClientWithCandidates(t, []issue{testIssue("CAG-1", "Ready for Agent"), testIssue("CAG-2", "In Progress")})
 
-	selected, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	selected, _, err := nextRunnableCandidate(client, testRunnerConfig(root), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +289,7 @@ func TestNextRunnableCandidateDoesNotRetryTerminalArtifactWithoutFeedback(t *tes
 	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/pennywise-investments/compound-web/pull/429"}`)
 	client := linearClientWithCandidates(t, []issue{testIssue("CAG-1", "Ready for Agent"), testIssue("CAG-2", "In Progress")})
 
-	selected, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	selected, _, err := nextRunnableCandidate(client, testRunnerConfig(root), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +309,7 @@ func TestNextRunnableCandidateSelectsChangesRequestedReviewFailure(t *testing.T)
 	}
 	t.Cleanup(func() { openPRsByIssueForSelection = original })
 
-	selected, pr, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	selected, pr, err := nextRunnableCandidate(client, testRunnerConfig(root), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +326,7 @@ func TestNextRunnableCandidateDoesNotSelectNeedsInfoIssues(t *testing.T) {
 	config := testRunnerConfig(root)
 	config.ActiveStates = []string{"Ready for Agent", "In Progress"}
 
-	candidate, _, err := nextRunnableCandidate(client, config)
+	candidate, _, err := nextRunnableCandidate(client, config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +344,7 @@ func TestNextRunnableCandidateDoesNotSelectHumanReviewDoneOrCanceledIssues(t *te
 		testIssue("CAG-4", "Ready for Agent"),
 	})
 
-	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root))
+	candidate, _, err := nextRunnableCandidate(client, testRunnerConfig(root), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -742,6 +798,13 @@ func TestRunOneCreatesRunnerOwnedPRWhenPiFinishesWithChangesAndNoPRURL(t *testin
 	if record.Status != "success" || record.PRURL != "https://github.com/weskor/pi-symphony/pull/900" {
 		t.Fatalf("unexpected run record: %#v", record)
 	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	assertRunRecordEvents(t, store, record, true, false, false)
+	assertRunOneRuntimeEvents(t, store, record.IssueIdentifier)
 }
 
 func TestRunOneFailsClearlyWhenPiFinishesWithoutChangesOrPRURL(t *testing.T) {
@@ -1016,5 +1079,30 @@ func writeRunRecordFixture(t *testing.T, root, identifier, record string) {
 	}
 	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(record), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func candidateEventTypes(events []state.Event) []string {
+	out := make([]string, 0, len(events))
+	for _, event := range events {
+		out = append(out, event.IssueKey+":"+event.Type)
+	}
+	return out
+}
+
+func assertRunOneRuntimeEvents(t *testing.T, store *state.Store, issueKey string) {
+	t.Helper()
+	events, err := store.Events(context.Background(), state.EventFilter{IssueKey: issueKey, Attempt: 1, Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	types := map[string]int{}
+	for _, event := range events {
+		types[event.Type]++
+	}
+	for _, eventType := range []string{state.EventAttemptStarted, state.EventRuntimeStarted, state.EventRuntimeFinished, state.EventPRDetected, state.EventAttemptFinished} {
+		if types[eventType] != 1 {
+			t.Fatalf("%s events = %d, want 1; all=%v", eventType, types[eventType], types)
+		}
 	}
 }

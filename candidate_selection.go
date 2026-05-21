@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,9 +9,11 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
-func nextRunnableCandidate(client linearClient, config runnerConfig) (*issue, *pullRequestSummary, error) {
+func nextRunnableCandidate(client linearClient, config runnerConfig, store *state.Store) (*issue, *pullRequestSummary, error) {
 	candidates, err := client.candidates(config.ProjectSlug, config.ActiveStates)
 	if err != nil || len(candidates) == 0 {
 		return nil, nil, err
@@ -27,12 +30,17 @@ func nextRunnableCandidate(client linearClient, config runnerConfig) (*issue, *p
 		if decision.Lifecycle == lifecycleBlocked && strings.Contains(strings.Join(decision.Blockers, ","), "blocked label") {
 			blockedCount++
 			log("skipping %s: blocked label", candidates[i].Identifier)
+			emitCandidateEvent(store, state.EventCandidateSkipped, candidates[i], map[string]any{"reason": "blocked_label", "lifecycle": decision.Lifecycle, "blockers": decision.Blockers, "next_action": decision.NextAction})
 			continue
 		}
 		if candidates[i].State.Name == config.ReadyState && decision.CanRun {
+			emitCandidateEvent(store, state.EventCandidateSelected, candidates[i], map[string]any{"state": candidates[i].State.Name, "reason": candidateOrderReason(candidates[i], config.ReadyState)})
 			return &candidates[i], pr, nil
 		}
 		log("skipping %s: lifecycle=%s blockers=%s next=%s", candidates[i].Identifier, decision.Lifecycle, strings.Join(decision.Blockers, "; "), decision.NextAction)
+		if !decision.CanRun {
+			emitCandidateEvent(store, state.EventCandidateSkipped, candidates[i], map[string]any{"reason": "not_runnable", "state": candidates[i].State.Name, "lifecycle": decision.Lifecycle, "blockers": decision.Blockers, "next_action": decision.NextAction})
+		}
 	}
 	for i := range candidates {
 		pr := prsByIssue[candidates[i].Identifier]
@@ -41,6 +49,7 @@ func nextRunnableCandidate(client linearClient, config runnerConfig) (*issue, *p
 			continue
 		}
 		if decision.CanRun {
+			emitCandidateEvent(store, state.EventCandidateSelected, candidates[i], map[string]any{"state": candidates[i].State.Name, "reason": candidateOrderReason(candidates[i], config.ReadyState)})
 			return &candidates[i], pr, nil
 		}
 	}
@@ -50,6 +59,18 @@ func nextRunnableCandidate(client linearClient, config runnerConfig) (*issue, *p
 	}
 	log("all eligible issues are waiting on prior review-failure findings, terminal run artifacts, or active locks")
 	return nil, nil, nil
+}
+
+func emitCandidateEvent(store *state.Store, eventType string, candidate issue, payload map[string]any) {
+	if store == nil {
+		return
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	if _, err := store.AppendEvent(context.Background(), state.EventInput{OccurredAt: time.Now().UTC(), IssueKey: candidate.Identifier, IssueID: candidate.ID, Attempt: 1, Source: "runner.candidate_selection", Type: eventType, Payload: payload}); err != nil {
+		log("failed to append orchestration event %s for %s: %v", eventType, candidate.Identifier, err)
+	}
 }
 
 func openPRsByIssue(config runnerConfig) (map[string]*pullRequestSummary, error) {

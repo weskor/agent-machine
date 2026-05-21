@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	ws "github.com/weskor/pi-symphony/internal/workspace"
 )
 
 type explainReport struct {
@@ -201,15 +203,10 @@ func workspaceHasChangesForExplain(workspace string) (bool, error) {
 			continue
 		}
 		path := strings.TrimSpace(strings.TrimPrefix(line, "??"))
-		if strings.HasPrefix(path, ".pi-symphony-debug/") || path == ".pi-symphony-debug" {
+		if ws.IsIgnoredEvidencePath(workspace, path) {
 			continue
 		}
-		switch path {
-		case ".pi-symphony-run.json", ".pi-symphony-evaluation.json", ".pi-symphony-prompt.md", ".pi-symphony-review-prompt.md":
-			continue
-		default:
-			return true, nil
-		}
+		return true, nil
 	}
 	return false, nil
 }

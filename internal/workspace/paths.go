@@ -92,15 +92,34 @@ func HasChanges(workspace string) (bool, error) {
 			continue
 		}
 		path := strings.TrimSpace(strings.TrimPrefix(line, "??"))
-		if strings.HasPrefix(path, ".pi-symphony-debug/") || path == ".pi-symphony-debug" {
+		if IsIgnoredEvidencePath(workspace, path) {
 			continue
 		}
-		switch path {
-		case ".pi-symphony-run.json", ".pi-symphony-evaluation.json", ".pi-symphony-prompt.md", ".pi-symphony-review-prompt.md":
-			continue
-		default:
-			return true, nil
-		}
+		return true, nil
 	}
 	return false, nil
+}
+
+// IsIgnoredEvidencePath reports whether a git-status path is runner/operator
+// evidence that must not make an otherwise clean workspace look dirty.
+// It intentionally ignores only exact, bounded artifact paths. The top-level
+// zero-byte "false" marker is a known external subagent output=false scratch
+// artifact; non-empty files, nested files, and symlinks remain dirty.
+func IsIgnoredEvidencePath(workspace, path string) bool {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return false
+	}
+	if strings.HasPrefix(path, ".pi-symphony-debug/") || path == ".pi-symphony-debug" {
+		return true
+	}
+	switch path {
+	case ".pi-symphony-run.json", ".pi-symphony-evaluation.json", ".pi-symphony-prompt.md", ".pi-symphony-review-prompt.md":
+		return true
+	case "false":
+		info, err := os.Lstat(filepath.Join(workspace, path))
+		return err == nil && info.Mode().IsRegular() && info.Size() == 0
+	default:
+		return false
+	}
 }

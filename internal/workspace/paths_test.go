@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -43,4 +44,76 @@ func TestAssertSafeDeletePathRejectsUnsafeTargetsTable(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHasChangesIgnoresOnlyZeroByteTopLevelFalseMarker(t *testing.T) {
+	workspace := initGitWorkspace(t)
+	if err := os.WriteFile(filepath.Join(workspace, "false"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := HasChanges(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed {
+		t.Fatal("zero-byte top-level false marker should be ignored")
+	}
+
+	if err := os.WriteFile(filepath.Join(workspace, "false"), []byte("real change"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed, err = HasChanges(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("non-empty false file must remain dirty")
+	}
+}
+
+func TestHasChangesTreatsNestedFalseMarkerAsDirty(t *testing.T) {
+	workspace := initGitWorkspace(t)
+	nested := filepath.Join(workspace, "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "false"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := HasChanges(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("nested false file must remain dirty")
+	}
+}
+
+func TestHasChangesTreatsFalseSymlinkAsDirty(t *testing.T) {
+	workspace := initGitWorkspace(t)
+	target := filepath.Join(workspace, "target")
+	if err := os.WriteFile(target, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(workspace, "false")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	changed, err := HasChanges(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("false symlink must remain dirty")
+	}
+}
+
+func initGitWorkspace(t *testing.T) string {
+	t.Helper()
+	workspace := t.TempDir()
+	cmd := exec.Command("git", "init")
+	cmd.Dir = workspace
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+	return workspace
 }

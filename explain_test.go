@@ -98,3 +98,20 @@ func TestExplainCleanupDoesNotDeleteEligibleWorkspace(t *testing.T) {
 		t.Fatalf("cleanup explanation is not structured JSON: valid=%t err=%v data=%q", json.Valid(data), err, data)
 	}
 }
+
+func TestExplainCleanupIgnoresZeroByteFalseMarker(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-126")
+	writeCleanRunArtifact(t, workspace, "success")
+	if err := os.WriteFile(filepath.Join(workspace, "false"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	decisions, err := explainCleanup(root, map[string]bool{"CAG-126": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decisions) != 1 || !decisions[0].Eligible || decisions[0].Category == "dirty" {
+		t.Fatalf("cleanup decisions = %+v, want false marker ignored", decisions)
+	}
+}

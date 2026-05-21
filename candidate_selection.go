@@ -28,8 +28,9 @@ func nextRunnableCandidate(client linearClient, config runnerConfig, store *stat
 	for i := range candidates {
 		pr := prsByIssue[candidates[i].Identifier]
 		decision := reconcileIssue(config, candidates[i], pr)
+		retryDecision, retryDecisionFound := retryBackoffDecision(context.Background(), store, candidates[i], config, time.Now().UTC())
 		if store != nil {
-			if retryDecision, ok := retryBackoffDecision(context.Background(), store, candidates[i], config, time.Now().UTC()); ok && !retryDecision.runnable {
+			if retryDecisionFound && !retryDecision.runnable {
 				log("skipping %s: %s", candidates[i].Identifier, retryDecision.reason)
 				emitCandidateEvent(store, state.EventCandidateSkipped, candidates[i], map[string]any{"reason": retryDecision.reason})
 				continue
@@ -41,7 +42,7 @@ func nextRunnableCandidate(client linearClient, config runnerConfig, store *stat
 			emitCandidateEvent(store, state.EventCandidateSkipped, candidates[i], map[string]any{"reason": "blocked_label", "lifecycle": decision.Lifecycle, "blockers": decision.Blockers, "next_action": decision.NextAction})
 			continue
 		}
-		if candidates[i].State.Name == config.ReadyState && decision.CanRun {
+		if candidates[i].State.Name == config.ReadyState && (decision.CanRun || retryBackoffOverridesTerminalBlock(decision, retryDecision, retryDecisionFound)) {
 			emitCandidateEvent(store, state.EventCandidateSelected, candidates[i], map[string]any{"state": candidates[i].State.Name, "reason": candidateOrderReason(candidates[i], config.ReadyState)})
 			return &candidates[i], pr, nil
 		}
@@ -53,15 +54,16 @@ func nextRunnableCandidate(client linearClient, config runnerConfig, store *stat
 	for i := range candidates {
 		pr := prsByIssue[candidates[i].Identifier]
 		decision := reconcileIssue(config, candidates[i], pr)
+		retryDecision, retryDecisionFound := retryBackoffDecision(context.Background(), store, candidates[i], config, time.Now().UTC())
 		if store != nil {
-			if retryDecision, ok := retryBackoffDecision(context.Background(), store, candidates[i], config, time.Now().UTC()); ok && !retryDecision.runnable {
+			if retryDecisionFound && !retryDecision.runnable {
 				continue
 			}
 		}
 		if decision.Lifecycle == lifecycleBlocked && strings.Contains(strings.Join(decision.Blockers, ","), "blocked label") {
 			continue
 		}
-		if decision.CanRun {
+		if decision.CanRun || retryBackoffOverridesTerminalBlock(decision, retryDecision, retryDecisionFound) {
 			emitCandidateEvent(store, state.EventCandidateSelected, candidates[i], map[string]any{"state": candidates[i].State.Name, "reason": candidateOrderReason(candidates[i], config.ReadyState)})
 			return &candidates[i], pr, nil
 		}
@@ -93,7 +95,10 @@ func retryBackoffDecision(ctx context.Context, store *state.Store, candidate iss
 		}
 		return candidateRetryDecision{}, false
 	}
-	if facts.TerminalOutcome != "" || facts.RetryNextState == "no_retry" {
+	if facts.RetryNextState == "no_retry" {
+		return candidateRetryDecision{runnable: false, reason: "terminal_or_no_retry"}, true
+	}
+	if facts.RetryNextState != "retry_after_backoff" {
 		return candidateRetryDecision{runnable: false, reason: "terminal_or_no_retry"}, true
 	}
 	backoff := retryBackoffDuration(facts.RetryCount, configuredMaxRetryBackoff(config))
@@ -101,6 +106,16 @@ func retryBackoffDecision(ctx context.Context, store *state.Store, candidate iss
 		return candidateRetryDecision{runnable: true, reason: "retry_backoff_elapsed"}, true
 	}
 	return candidateRetryDecision{runnable: false, reason: fmt.Sprintf("retry_backoff_until_%s", facts.RetryDecidedAt.Add(backoff).Format(time.RFC3339))}, true
+}
+
+func retryBackoffOverridesTerminalBlock(decision reconciliationDecision, retryDecision candidateRetryDecision, retryDecisionFound bool) bool {
+	if !retryDecisionFound || !retryDecision.runnable || decision.PR != nil || decision.RunRecord == nil {
+		return false
+	}
+	if decision.Lifecycle != lifecycleBlocked || decision.NextAction != "operator_repair_or_clear_artifact" {
+		return false
+	}
+	return retryableRunStatus(decision.RunRecord.Status)
 }
 
 func configuredMaxRetryBackoff(config runnerConfig) time.Duration {

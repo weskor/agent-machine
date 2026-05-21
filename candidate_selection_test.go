@@ -30,6 +30,63 @@ func TestRetryBackoffDecisionFirstFailureWaitsThenRuns(t *testing.T) {
 	}
 }
 
+func TestRetryBackoffDecisionAllowsRetryableTerminalOutcomeAfterBackoff(t *testing.T) {
+	store := openCandidateTestStateStore(t)
+	candidate := issue{Identifier: "CAG-99", State: struct {
+		Name string `json:"name"`
+	}{Name: "Ready for Agent"}}
+	now := time.Date(2026, 5, 21, 10, 0, 0, 0, time.UTC)
+	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{
+		IssueKey:         candidate.Identifier,
+		Attempt:          1,
+		BranchName:       candidate.Identifier,
+		BaseBranch:       "main",
+		Status:           "failed",
+		RetryNextState:   "retry_after_backoff",
+		RetryBudgetState: "available",
+		RetryReason:      "test failure",
+		TerminalOutcome:  "operational_failure",
+		StartedAt:        now.Add(-time.Minute),
+		UpdatedAt:        now,
+	}); err != nil {
+		t.Fatalf("UpsertRunArtifact() error = %v", err)
+	}
+
+	config := runnerConfig{WorkflowPath: writeRetryWorkflow(t, 10000), ReadyState: "Ready for Agent", NeedsInfoState: "Needs Info", DoneState: "Done"}
+	decision, ok := retryBackoffDecision(context.Background(), store, candidate, config, now.Add(time.Second))
+	if !ok || !decision.runnable {
+		t.Fatalf("decision after terminal retryable failure = %+v, %v; want runnable", decision, ok)
+	}
+}
+
+func TestRetryBackoffDecisionBlocksNoRetryState(t *testing.T) {
+	store := openCandidateTestStateStore(t)
+	candidate := issue{Identifier: "CAG-99", State: struct {
+		Name string `json:"name"`
+	}{Name: "Ready for Agent"}}
+	now := time.Date(2026, 5, 21, 10, 0, 0, 0, time.UTC)
+	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{
+		IssueKey:        candidate.Identifier,
+		Attempt:         1,
+		BranchName:      candidate.Identifier,
+		BaseBranch:      "main",
+		Status:          "failed",
+		RetryNextState:  "no_retry",
+		RetryReason:     "terminal",
+		TerminalOutcome: "operational_failure",
+		StartedAt:       now.Add(-time.Minute),
+		UpdatedAt:       now,
+	}); err != nil {
+		t.Fatalf("UpsertRunArtifact() error = %v", err)
+	}
+
+	config := runnerConfig{WorkflowPath: writeRetryWorkflow(t, 10000), ReadyState: "Ready for Agent", NeedsInfoState: "Needs Info", DoneState: "Done"}
+	decision, ok := retryBackoffDecision(context.Background(), store, candidate, config, now.Add(time.Second))
+	if !ok || decision.runnable {
+		t.Fatalf("decision for no_retry = %+v, %v; want blocked", decision, ok)
+	}
+}
+
 func TestRetryBackoffDecisionRepeatedFailurePersistsAcrossRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
 	store, err := state.Open(context.Background(), path)

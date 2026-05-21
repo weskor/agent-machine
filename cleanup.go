@@ -85,21 +85,21 @@ func cleanupWorkspaces(workspaceRoot string, options cleanupOptions) error {
 			recordCleanupError(store, decision, err)
 			return err
 		}
+		recordCleanupEvent(store, orchstate.EventCleanupCandidateFound, decision, map[string]any{"reason": decision.Reason, "category": decision.Category, "delete": decision.Delete})
 		categories[decision.Category]++
 		if !decision.Delete {
 			kept++
 			mirrorCleanupState(store, safeRoot, decision, false, cleanupDeletionResult(decision, "kept"), true)
-			recordCleanupEvent(store, orchstate.EventCleanupSkipped, decision, map[string]any{"reason": decision.Reason, "category": decision.Category})
 			log("keep %s [%s]: %s", workspace, decision.Category, decision.Reason)
 			continue
 		}
 		eligible++
 		if !options.Apply {
 			mirrorCleanupState(store, safeRoot, decision, true, "dry_run", true)
-			recordCleanupEvent(store, orchstate.EventCleanupSkipped, decision, map[string]any{"reason": decision.Reason, "category": decision.Category, "eligible": true, "deletion_result": "dry_run"})
 			log("would delete %s [%s]: %s", workspace, decision.Category, decision.Reason)
 			continue
 		}
+		recordCleanupEvent(store, orchstate.EventCleanupDeletionAttempted, decision, map[string]any{"reason": decision.Reason, "category": decision.Category})
 		if err := assertSafeDeletePath(safeRoot, workspace); err != nil {
 			mirrorCleanupState(store, safeRoot, decision, true, "failed", true)
 			recordCleanupError(store, decision, err)
@@ -112,6 +112,7 @@ func cleanupWorkspaces(workspaceRoot string, options cleanupOptions) error {
 		}
 		removed++
 		mirrorCleanupState(store, safeRoot, decision, true, "deleted", false)
+		recordCleanupEvent(store, orchstate.EventCleanupDeletionSucceeded, decision, map[string]any{"reason": decision.Reason, "category": decision.Category})
 		log("deleted %s [%s]: %s", workspace, decision.Category, decision.Reason)
 	}
 	if options.Apply {

@@ -233,8 +233,8 @@ func TestCleanupWorkspacesEmitsSkippedAndStartedEvents(t *testing.T) {
 	for _, event := range events {
 		types[event.Type]++
 	}
-	if types[state.EventCleanupStarted] != 1 || types[state.EventCleanupSkipped] != 1 {
-		t.Fatalf("cleanup event counts = %#v, want started and skipped", types)
+	if types[state.EventCleanupStarted] != 1 || types[state.EventCleanupCandidateFound] != 1 || types[state.EventCleanupSkipped] != 1 || types[state.EventCleanupCompleted] != 0 {
+		t.Fatalf("cleanup event counts = %#v, want started, candidate_found, skipped, and no completed for dry-run", types)
 	}
 }
 
@@ -252,12 +252,18 @@ func TestCleanupWorkspacesEmitsCompletedEventOnApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	events, err := store.Events(context.Background(), state.EventFilter{IssueKey: "CAG-105", Type: state.EventCleanupCompleted, Limit: 10})
+	events, err := store.Events(context.Background(), state.EventFilter{IssueKey: "CAG-105", Limit: 20})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 1 {
-		t.Fatalf("cleanup_completed events = %d, want 1", len(events))
+	types := eventTypeCounts(events)
+	for _, eventType := range []string{state.EventCleanupCandidateFound, state.EventCleanupDeletionAttempted, state.EventCleanupDeletionSucceeded, state.EventCleanupCompleted} {
+		if types[eventType] != 1 {
+			t.Fatalf("%s events = %d, want 1; all=%#v", eventType, types[eventType], types)
+		}
+	}
+	if types[state.EventCleanupSkipped] != 0 || types[state.EventCleanupDeletionFailed] != 0 {
+		t.Fatalf("unexpected skip/failure cleanup events: %#v", types)
 	}
 }
 

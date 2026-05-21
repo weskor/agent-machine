@@ -95,20 +95,33 @@ func mergeApprovedPRs(client linearClient, config runnerConfig) error {
 				log("%s approved but merge is blocked: lifecycle=%s blockers=%s next=%s", pr.URL, decision.Lifecycle, strings.Join(decision.Blockers, "; "), decision.NextAction)
 				continue
 			}
+			recordMergeEvent(store, orchstate.EventMergeAttempted, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "head_ref": pr.HeadRefName, "base_ref": pr.BaseRefName})
 			if err := github.SquashMergePullRequest(ctx, pr.Number); err != nil {
+				recordMergeEvent(store, orchstate.EventMergeFailed, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "phase": "squash_merge", "error": err.Error()})
 				recordMergeError(store, candidate.Identifier, candidate.ID, pr.Number, err)
 				return fmt.Errorf("GitHub API squash merge failed for PR #%d: %w", pr.Number, err)
 			}
+			recordMergeEvent(store, orchstate.EventMergeSucceeded, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "head_ref": pr.HeadRefName})
+			recordMergeEvent(store, orchstate.EventBranchDeletionAttempted, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "head_ref": pr.HeadRefName})
 			if err := github.DeleteBranch(ctx, pr.HeadRefName); err != nil {
+				recordMergeEvent(store, orchstate.EventBranchDeletionFinished, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "head_ref": pr.HeadRefName, "result": "failed", "error": err.Error()})
+				recordMergeEvent(store, orchstate.EventMergeFailed, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "phase": "branch_deletion", "error": err.Error()})
 				recordMergeError(store, candidate.Identifier, candidate.ID, pr.Number, err)
 				return fmt.Errorf("GitHub API branch deletion failed for %s after merged PR #%d: %w", pr.HeadRefName, pr.Number, err)
 			}
+			recordMergeEvent(store, orchstate.EventBranchDeletionFinished, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "head_ref": pr.HeadRefName, "result": "success"})
 			if id := stateID(states, config.DoneState); id != "" {
+				recordMergeEvent(store, orchstate.EventLinearDoneTransitionAttempted, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "done_state": config.DoneState})
 				if err := client.updateIssueState(candidate.ID, id); err != nil {
+					recordMergeEvent(store, orchstate.EventLinearDoneTransitionFinished, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "done_state": config.DoneState, "result": "failed", "error": err.Error()})
+					recordMergeEvent(store, orchstate.EventMergeFailed, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "phase": "linear_done_transition", "error": err.Error()})
+					recordMergeError(store, candidate.Identifier, candidate.ID, pr.Number, err)
 					return err
 				}
+				recordMergeEvent(store, orchstate.EventLinearDoneTransitionFinished, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "done_state": config.DoneState, "result": "success"})
 			}
 			if err := removeDoneWorkspace(config.WorkspaceRoot, candidate.Identifier); err != nil {
+				recordMergeEvent(store, orchstate.EventMergeFailed, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "phase": "workspace_cleanup", "error": err.Error()})
 				recordMergeError(store, candidate.Identifier, candidate.ID, pr.Number, err)
 				return err
 			}

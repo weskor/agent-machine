@@ -441,12 +441,23 @@ func TestMergeApprovedPRsEmitsCompletedEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	events, err := store.Events(context.Background(), state.EventFilter{IssueKey: "CAG-104", Type: state.EventMergeCompleted, Limit: 10})
+	events, err := store.Events(context.Background(), state.EventFilter{IssueKey: "CAG-104", Limit: 20})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 1 {
-		t.Fatalf("merge_completed events = %d, want 1", len(events))
+	types := eventTypeCounts(events)
+	for _, eventType := range []string{
+		state.EventMergeAttempted,
+		state.EventMergeSucceeded,
+		state.EventBranchDeletionAttempted,
+		state.EventBranchDeletionFinished,
+		state.EventLinearDoneTransitionAttempted,
+		state.EventLinearDoneTransitionFinished,
+		state.EventMergeCompleted,
+	} {
+		if types[eventType] != 1 {
+			t.Fatalf("%s events = %d, want 1; all=%#v", eventType, types[eventType], types)
+		}
 	}
 }
 
@@ -506,6 +517,29 @@ func TestMergeApprovedPRsStopsIfBranchDeletionFails(t *testing.T) {
 	if _, err := os.Stat(workspace); err != nil {
 		t.Fatalf("workspace should remain for repair after branch deletion failure: %v", err)
 	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	events, err := store.Events(context.Background(), state.EventFilter{IssueKey: "CAG-41", Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	types := eventTypeCounts(events)
+	for _, eventType := range []string{state.EventMergeAttempted, state.EventMergeSucceeded, state.EventBranchDeletionAttempted, state.EventBranchDeletionFinished, state.EventMergeFailed, state.EventErrorRecorded} {
+		if types[eventType] != 1 {
+			t.Fatalf("%s events = %d, want 1; all=%#v", eventType, types[eventType], types)
+		}
+	}
+}
+
+func eventTypeCounts(events []state.Event) map[string]int {
+	types := map[string]int{}
+	for _, event := range events {
+		types[event.Type]++
+	}
+	return types
 }
 
 func mergeTestLinearClient(t *testing.T, identifier string, updatedStates *[]string, comments *[]string) linearClient {

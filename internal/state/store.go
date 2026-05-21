@@ -59,6 +59,7 @@ const (
 	EventMergeBlocked      = "merge_blocked"
 	EventMergeCompleted    = "merge_completed"
 	EventCleanupStarted    = "cleanup_started"
+	EventCleanupSkipped    = "cleanup_skipped"
 	EventCleanupCompleted  = "cleanup_completed"
 	EventErrorRecorded     = "error_recorded"
 )

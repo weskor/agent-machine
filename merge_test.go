@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	sh "github.com/weskor/pi-symphony/internal/shell"
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 func TestIssueIdentifierFromBranch(t *testing.T) {
@@ -412,6 +414,64 @@ func TestMergeApprovedPRsSquashMergesAndDeletesBranchViaGitHubAPI(t *testing.T) 
 	}
 	if _, err := os.Stat(workspace); !os.IsNotExist(err) {
 		t.Fatalf("expected Done workspace removed, stat err=%v", err)
+	}
+}
+
+func TestMergeApprovedPRsEmitsCompletedEvent(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-104")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeMergeableRunArtifact(t, workspace, "https://github.com/pennywise-investments/compound-web/pull/104")
+	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 104, URL: "https://github.com/pennywise-investments/compound-web/pull/104", BaseRefName: "develop", HeadRefName: "symphony/CAG-104-workspace", Author: prAuthor{Login: "app/compound-symphony-bot"}, Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: map[int]bool{}, deletedBranches: map[string]bool{}})
+
+	var updatedStates []string
+	var comments []string
+	config := testRunnerConfig(root)
+	config.HandoffState = "Human Review"
+	config.DoneState = "Done"
+	config.BaseBranch = "develop"
+	if err := mergeApprovedPRs(mergeTestLinearClient(t, "CAG-104", &updatedStates, &comments), config); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	events, err := store.Events(context.Background(), state.EventFilter{IssueKey: "CAG-104", Type: state.EventMergeCompleted, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("merge_completed events = %d, want 1", len(events))
+	}
+}
+
+func TestMergeApprovedPRsEmitsBlockedEvent(t *testing.T) {
+	root := t.TempDir()
+	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 105, URL: "https://github.com/pennywise-investments/compound-web/pull/105", BaseRefName: "develop", HeadRefName: "symphony/CAG-105-workspace", Author: prAuthor{Login: "app/compound-symphony-bot"}, Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}})
+	var updatedStates []string
+	var comments []string
+	config := testRunnerConfig(root)
+	config.HandoffState = "Human Review"
+	config.ReadyState = "Ready for Agent"
+	if err := mergeApprovedPRs(mergeTestLinearClient(t, "CAG-105", &updatedStates, &comments), config); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	events, err := store.Events(context.Background(), state.EventFilter{IssueKey: "CAG-105", Type: state.EventMergeBlocked, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("merge_blocked events = %d, want 1", len(events))
 	}
 }
 

@@ -85,6 +85,15 @@ type EventInput struct {
 	Payload    any
 }
 
+// EventFilter selects orchestration events in append order. Zero values are ignored.
+type EventFilter struct {
+	IssueKey string
+	IssueID  string
+	Attempt  int
+	Type     string
+	Limit    int
+}
+
 type DaemonHeartbeat struct {
 	ProcessID        string
 	LaneName         string
@@ -842,14 +851,53 @@ func appendEvent(ctx context.Context, execer eventExecer, input EventInput) (Eve
 }
 
 func (s *Store) RecentEvents(ctx context.Context, limit int) ([]Event, error) {
+	return s.Events(ctx, EventFilter{Limit: limit})
+}
+
+func (s *Store) Events(ctx context.Context, filter EventFilter) ([]Event, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("events: store is nil")
+	}
+	limit := filter.Limit
 	if limit <= 0 {
 		limit = 10
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT sequence, event_id, occurred_at, issue_key, issue_id, COALESCE(attempt, 0), run_id, source, event_type, payload_json FROM orchestration_events ORDER BY sequence DESC LIMIT ?`, limit)
+	where := []string{"1=1"}
+	args := []any{}
+	if filter.IssueKey != "" {
+		where = append(where, "issue_key = ?")
+		args = append(args, filter.IssueKey)
+	}
+	if filter.IssueID != "" {
+		where = append(where, "issue_id = ?")
+		args = append(args, filter.IssueID)
+	}
+	if filter.Attempt > 0 {
+		where = append(where, "attempt = ?")
+		args = append(args, filter.Attempt)
+	}
+	if filter.Type != "" {
+		where = append(where, "event_type = ?")
+		args = append(args, filter.Type)
+	}
+	args = append(args, limit)
+	query := `SELECT sequence, event_id, occurred_at, issue_key, issue_id, COALESCE(attempt, 0), run_id, source, event_type, payload_json FROM orchestration_events WHERE ` + strings.Join(where, " AND ") + ` ORDER BY sequence DESC LIMIT ?`
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("recent events: %w", err)
+		return nil, fmt.Errorf("events: %w", err)
 	}
 	defer rows.Close()
+	events, err := scanEvents(rows)
+	if err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
+		events[i], events[j] = events[j], events[i]
+	}
+	return events, nil
+}
+
+func scanEvents(rows *sql.Rows) ([]Event, error) {
 	var events []Event
 	for rows.Next() {
 		var event Event
@@ -857,18 +905,16 @@ func (s *Store) RecentEvents(ctx context.Context, limit int) ([]Event, error) {
 		if err := rows.Scan(&event.Sequence, &event.ID, &occurredRaw, &event.IssueKey, &event.IssueID, &event.Attempt, &event.RunID, &event.Source, &event.Type, &payload); err != nil {
 			return nil, fmt.Errorf("scan event: %w", err)
 		}
-		event.OccurredAt, err = parseTime(occurredRaw)
+		occurredAt, err := parseTime(occurredRaw)
 		if err != nil {
 			return nil, fmt.Errorf("parse event occurred_at: %w", err)
 		}
+		event.OccurredAt = occurredAt
 		event.Payload = json.RawMessage(payload)
 		events = append(events, event)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("recent events: %w", err)
-	}
-	for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
-		events[i], events[j] = events[j], events[i]
+		return nil, fmt.Errorf("events: %w", err)
 	}
 	return events, nil
 }

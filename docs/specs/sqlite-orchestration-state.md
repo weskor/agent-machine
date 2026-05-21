@@ -141,6 +141,7 @@ Implementation tickets may add more specific event types, but they must not coll
 Baseline implementation notes:
 
 - Schema version 2 adds `orchestration_events` as an append-only table with writer-generated `event_id`, SQLite `sequence`, UTC `occurred_at`, issue key/id, nullable attempt, run id, source, event type, and compact JSON payload.
+- The store API exposes standalone append plus read APIs for recent global events and filtered reads by issue key, issue ID, attempt, and event type. Readers return matching events in append order after applying the recent limit.
 - The initial production emission records run-attempt artifact mirror updates as `attempt_started` or `attempt_finished` evidence from source `runner.run_attempt`.
 - Status consumes the event log only as a count in the SQLite health summary. Existing lifecycle decisions continue to use current tables and artifacts as before.
 

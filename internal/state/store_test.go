@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -117,6 +118,50 @@ func TestAppendEventOrdersAndRoundTripsPayload(t *testing.T) {
 	}
 }
 
+func TestEventsFiltersByIssueAttemptTypeAndGlobalRecentOrder(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	now := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	inputs := []EventInput{
+		{OccurredAt: now, IssueKey: "CAG-1", IssueID: "issue-1", Attempt: 1, Source: "test", Type: EventAttemptStarted, Payload: map[string]any{"n": 1}},
+		{OccurredAt: now.Add(time.Second), IssueKey: "CAG-1", IssueID: "issue-1", Attempt: 2, Source: "test", Type: EventAttemptStarted, Payload: map[string]any{"n": 2}},
+		{OccurredAt: now.Add(2 * time.Second), IssueKey: "CAG-2", IssueID: "issue-2", Attempt: 1, Source: "test", Type: EventAttemptFinished, Payload: map[string]any{"n": 3}},
+	}
+	for _, input := range inputs {
+		if _, err := s.AppendEvent(ctx, input); err != nil {
+			t.Fatalf("AppendEvent(%+v) error = %v", input, err)
+		}
+	}
+
+	recent, err := s.RecentEvents(ctx, 2)
+	if err != nil {
+		t.Fatalf("RecentEvents() error = %v", err)
+	}
+	if got := eventIssueAttempts(recent); !reflect.DeepEqual(got, []string{"CAG-1#2", "CAG-2#1"}) {
+		t.Fatalf("recent issue attempts = %v; want latest two in append order", got)
+	}
+
+	filtered, err := s.Events(ctx, EventFilter{IssueKey: "CAG-1", Attempt: 2, Type: EventAttemptStarted, Limit: 10})
+	if err != nil {
+		t.Fatalf("Events(filter) error = %v", err)
+	}
+	if got := eventIssueAttempts(filtered); !reflect.DeepEqual(got, []string{"CAG-1#2"}) {
+		t.Fatalf("filtered issue attempts = %v; want CAG-1#2", got)
+	}
+
+	byIssueID, err := s.Events(ctx, EventFilter{IssueID: "issue-2", Limit: 10})
+	if err != nil {
+		t.Fatalf("Events(issue id) error = %v", err)
+	}
+	if got := eventIssueAttempts(byIssueID); !reflect.DeepEqual(got, []string{"CAG-2#1"}) {
+		t.Fatalf("issue-id filtered events = %v; want CAG-2#1", got)
+	}
+}
+
 func TestAppendEventRejectsInvalidPayloadWithoutMutatingLog(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
@@ -133,6 +178,70 @@ func TestAppendEventRejectsInvalidPayloadWithoutMutatingLog(t *testing.T) {
 	}
 	if counts.Events != 0 {
 		t.Fatalf("events count = %d; want 0", counts.Events)
+	}
+}
+
+func TestAppendEventWriteFailureIsIsolatedFromPrimaryError(t *testing.T) {
+	ctx := context.Background()
+	primaryErr := errors.New("primary runner error")
+	_, eventErr := appendEvent(ctx, failingEventExecer{err: errors.New("disk full")}, EventInput{Source: "test", Type: EventErrorRecorded})
+	if eventErr == nil {
+		t.Fatal("appendEvent() error = nil; want write error")
+	}
+	if !errors.Is(primaryErr, primaryErr) {
+		t.Fatalf("primary error was not preserved: %v", primaryErr)
+	}
+	combined := errors.Join(primaryErr, eventErr)
+	if !errors.Is(combined, primaryErr) || !errors.Is(combined, eventErr) {
+		t.Fatalf("combined error does not preserve primary and event failures: %v", combined)
+	}
+}
+
+func TestOpenMigratesV1DatabaseToEventLogWithoutRewritingExistingState(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx() error = %v", err)
+	}
+	if err := ensureMigrationTable(ctx, tx); err != nil {
+		t.Fatalf("ensureMigrationTable() error = %v", err)
+	}
+	if err := migrateV1(ctx, tx); err != nil {
+		t.Fatalf("migrateV1() error = %v", err)
+	}
+	seededAt := time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO issue_attempts(issue_key, attempt, branch_name, base_branch, status, created_at, updated_at) VALUES ('CAG-OLD', 1, 'symphony/CAG-OLD', 'main', 'running', ?, ?)`, seededAt, seededAt); err != nil {
+		t.Fatalf("seed v1 attempt: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit seed v1 db: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("Close seed db: %v", err)
+	}
+
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open(v1) error = %v", err)
+	}
+	defer s.Close()
+	if version, err := s.SchemaVersion(ctx); err != nil || version != CurrentSchemaVersion {
+		t.Fatalf("SchemaVersion() = %d, %v; want %d, nil", version, err, CurrentSchemaVersion)
+	}
+	var status string
+	if err := s.db.QueryRowContext(ctx, `SELECT status FROM issue_attempts WHERE issue_key = 'CAG-OLD' AND attempt = 1`).Scan(&status); err != nil {
+		t.Fatalf("read migrated attempt: %v", err)
+	}
+	if status != "running" {
+		t.Fatalf("status = %q; want running", status)
+	}
+	if _, err := s.AppendEvent(ctx, EventInput{IssueKey: "CAG-OLD", Attempt: 1, Source: "test", Type: EventAttemptStarted}); err != nil {
+		t.Fatalf("AppendEvent() on migrated db error = %v", err)
 	}
 }
 
@@ -447,6 +556,22 @@ func names(t *testing.T, ctx context.Context, db *sql.DB, query string) []string
 	}
 	sort.Strings(out)
 	return out
+}
+
+func eventIssueAttempts(events []Event) []string {
+	values := make([]string, 0, len(events))
+	for _, event := range events {
+		values = append(values, fmt.Sprintf("%s#%d", event.IssueKey, event.Attempt))
+	}
+	return values
+}
+
+type failingEventExecer struct {
+	err error
+}
+
+func (e failingEventExecer) ExecContext(context.Context, string, ...any) (sql.Result, error) {
+	return nil, e.err
 }
 
 func contains(values []string, want string) bool {

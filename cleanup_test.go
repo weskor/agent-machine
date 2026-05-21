@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -225,6 +226,139 @@ func TestCleanupWorkspacesUsesSQLiteRunStatusWhenTerminalOutcomeIsOperationalFai
 	}
 }
 
+func TestCleanupWorkspacesDeletesDoneMergedPRWithNonTerminalSQLiteStatus(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-125")
+	writeCleanRunArtifact(t, workspace, "review_not_ready")
+	seedCleanupAttemptWithPR(t, root, workspace, "CAG-125", "review_not_ready", "https://github.com/weskor/pi-symphony/pull/125", expectedWorkspaceBranch("CAG-125"))
+	stubCleanupPRFactsForURL(t, func(prURL string) (cleanupPRFacts, error) {
+		if prURL != "https://github.com/weskor/pi-symphony/pull/125" {
+			t.Fatalf("unexpected PR URL lookup: %s", prURL)
+		}
+		return cleanupPRFacts{State: "MERGED", Merged: true, HeadRefName: expectedWorkspaceBranch("CAG-125"), BaseRefName: "main"}, nil
+	})
+
+	if err := cleanupWorkspaces(root, cleanupOptions{Apply: true, DoneIssues: map[string]bool{"CAG-125": true}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(workspace); !os.IsNotExist(err) {
+		t.Fatalf("expected merged Done workspace to be deleted, stat err=%v", err)
+	}
+	row := readCleanupState(t, root, "CAG-125")
+	if row.decision != "merged-pr" || row.deletionResult != "deleted" {
+		t.Fatalf("expected merged PR cleanup state, got %+v", row)
+	}
+}
+
+func TestCleanupDecisionKeepsDoneNonTerminalClosedUnmergedPRForReconciliation(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-126")
+	writeCleanRunArtifact(t, workspace, "review_not_ready")
+	seedCleanupAttemptWithPR(t, root, workspace, "CAG-126", "review_not_ready", "https://github.com/weskor/pi-symphony/pull/126", expectedWorkspaceBranch("CAG-126"))
+	stubCleanupPRFactsForURL(t, func(string) (cleanupPRFacts, error) {
+		return cleanupPRFacts{State: "CLOSED", HeadRefName: expectedWorkspaceBranch("CAG-126"), BaseRefName: "main"}, nil
+	})
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	decision, err := cleanupDecisionFromSQLite(context.Background(), store, root, workspace, map[string]bool{"CAG-126": true}, cleanupResult{IssueIdentifier: "CAG-126", Category: "non-terminal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Delete || decision.Category != "reconciliation-needed" || !strings.Contains(decision.Reason, "state CLOSED") {
+		t.Fatalf("expected closed-unmerged PR to require reconciliation, got %+v", decision)
+	}
+}
+
+func TestCleanupDecisionKeepsDoneNonTerminalMissingPRMappingForReconciliation(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-127")
+	writeCleanRunArtifact(t, workspace, "review_not_ready")
+	seedCleanupAttemptWithPR(t, root, workspace, "CAG-127", "review_not_ready", "", expectedWorkspaceBranch("CAG-127"))
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	decision, err := cleanupDecisionFromSQLite(context.Background(), store, root, workspace, map[string]bool{"CAG-127": true}, cleanupResult{IssueIdentifier: "CAG-127", Category: "non-terminal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Delete || decision.Category != "reconciliation-needed" || !strings.Contains(decision.Reason, "no PR mapping") {
+		t.Fatalf("expected missing PR mapping to require reconciliation, got %+v", decision)
+	}
+}
+
+func TestCleanupDecisionKeepsDoneNonTerminalWrongBranchPRForReconciliation(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-128")
+	writeCleanRunArtifact(t, workspace, "review_not_ready")
+	seedCleanupAttemptWithPR(t, root, workspace, "CAG-128", "review_not_ready", "https://github.com/weskor/pi-symphony/pull/128", "symphony/other-workspace")
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	decision, err := cleanupDecisionFromSQLite(context.Background(), store, root, workspace, map[string]bool{"CAG-128": true}, cleanupResult{IssueIdentifier: "CAG-128", Category: "non-terminal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Delete || decision.Category != "reconciliation-needed" || !strings.Contains(decision.Reason, "does not match expected branch") {
+		t.Fatalf("expected wrong branch PR mapping to require reconciliation, got %+v", decision)
+	}
+}
+
+func TestCleanupDecisionKeepsDoneNonTerminalWrongPRHeadForReconciliation(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-129")
+	writeCleanRunArtifact(t, workspace, "review_not_ready")
+	seedCleanupAttemptWithPR(t, root, workspace, "CAG-129", "review_not_ready", "https://github.com/weskor/pi-symphony/pull/129", expectedWorkspaceBranch("CAG-129"))
+	stubCleanupPRFactsForURL(t, func(string) (cleanupPRFacts, error) {
+		return cleanupPRFacts{State: "MERGED", Merged: true, HeadRefName: "symphony/other-workspace", BaseRefName: "main"}, nil
+	})
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	decision, err := cleanupDecisionFromSQLite(context.Background(), store, root, workspace, map[string]bool{"CAG-129": true}, cleanupResult{IssueIdentifier: "CAG-129", Category: "non-terminal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Delete || decision.Category != "reconciliation-needed" || !strings.Contains(decision.Reason, "head branch") {
+		t.Fatalf("expected wrong PR head branch to require reconciliation, got %+v", decision)
+	}
+}
+
+func TestCleanupDecisionKeepsDoneNonTerminalPRLookupFailureForReconciliation(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-130")
+	writeCleanRunArtifact(t, workspace, "review_not_ready")
+	seedCleanupAttemptWithPR(t, root, workspace, "CAG-130", "review_not_ready", "https://github.com/weskor/pi-symphony/pull/130", expectedWorkspaceBranch("CAG-130"))
+	stubCleanupPRFactsForURL(t, func(string) (cleanupPRFacts, error) {
+		return cleanupPRFacts{}, errors.New("GitHub unavailable")
+	})
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	decision, err := cleanupDecisionFromSQLite(context.Background(), store, root, workspace, map[string]bool{"CAG-130": true}, cleanupResult{IssueIdentifier: "CAG-130", Category: "non-terminal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Delete || decision.Category != "reconciliation-needed" || !strings.Contains(decision.Reason, "lookup failed") {
+		t.Fatalf("expected PR lookup failure to require reconciliation, got %+v", decision)
+	}
+}
+
 func TestCleanupDecisionPreservesDirtyDoneWorkspaces(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "CAG-3")
@@ -390,6 +524,16 @@ func seedCleanupAttempt(t *testing.T, workspaceRoot, workspace, issueKey, status
 
 func seedCleanupAttemptWithOutcome(t *testing.T, workspaceRoot, workspace, issueKey, status, outcome string) {
 	t.Helper()
+	seedCleanupAttemptSnapshot(t, workspaceRoot, state.RunArtifactSnapshot{IssueKey: issueKey, Attempt: 1, WorkspacePath: workspace, BranchName: "symphony/" + issueKey, BaseBranch: "main", Status: status, TerminalOutcome: outcome, TerminalReason: "test terminal outcome", RunArtifactRef: filepath.Join(workspace, ".pi-symphony-run.json")})
+}
+
+func seedCleanupAttemptWithPR(t *testing.T, workspaceRoot, workspace, issueKey, status, prURL, branch string) {
+	t.Helper()
+	seedCleanupAttemptSnapshot(t, workspaceRoot, state.RunArtifactSnapshot{IssueKey: issueKey, Attempt: 1, WorkspacePath: workspace, BranchName: branch, BaseBranch: "main", Status: status, PRURL: prURL, RunArtifactRef: filepath.Join(workspace, ".pi-symphony-run.json")})
+}
+
+func seedCleanupAttemptSnapshot(t *testing.T, workspaceRoot string, snap state.RunArtifactSnapshot) {
+	t.Helper()
 	ctx := context.Background()
 	store, err := state.Open(ctx, state.DefaultDBPath(workspaceRoot))
 	if err != nil {
@@ -397,9 +541,22 @@ func seedCleanupAttemptWithOutcome(t *testing.T, workspaceRoot, workspace, issue
 	}
 	defer store.Close()
 	now := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
-	if err := store.UpsertRunArtifact(ctx, state.RunArtifactSnapshot{IssueKey: issueKey, Attempt: 1, WorkspacePath: workspace, BranchName: "symphony/" + issueKey, BaseBranch: "main", Status: status, StartedAt: now, UpdatedAt: now, TerminalOutcome: outcome, TerminalReason: "test terminal outcome", RunArtifactRef: filepath.Join(workspace, ".pi-symphony-run.json")}); err != nil {
+	if snap.StartedAt.IsZero() {
+		snap.StartedAt = now
+	}
+	if snap.UpdatedAt.IsZero() {
+		snap.UpdatedAt = now
+	}
+	if err := store.UpsertRunArtifact(ctx, snap); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func stubCleanupPRFactsForURL(t *testing.T, fn func(string) (cleanupPRFacts, error)) {
+	t.Helper()
+	original := cleanupPRFactsForURL
+	cleanupPRFactsForURL = fn
+	t.Cleanup(func() { cleanupPRFactsForURL = original })
 }
 
 type cleanupStateFixture struct {

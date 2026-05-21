@@ -70,6 +70,28 @@ func TestSummarizeStateStoreReportsHealthyDB(t *testing.T) {
 	}
 }
 
+func TestSummarizeStateStoreReportsRecentEvents(t *testing.T) {
+	ctx := context.Background()
+	workspaceRoot := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	store, err := state.Open(ctx, state.DefaultDBPath(workspaceRoot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendEvent(ctx, state.EventInput{IssueKey: "CAG-104", Source: "test", Type: state.EventMergeBlocked, Payload: map[string]any{"reason": "checks"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	joined := strings.Join(summarizeStateStore(workspaceRoot), "\n")
+	for _, expected := range []string{"SQLite recent events:", "merge_blocked", "issue=CAG-104", "source=test"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("expected %q in %q", expected, joined)
+		}
+	}
+}
+
 func TestSummarizeStateStoreReportsMissingDB(t *testing.T) {
 	workspaceRoot := filepath.Join(t.TempDir(), ".symphony", "workspaces")
 	joined := strings.Join(summarizeStateStore(workspaceRoot), "\n")

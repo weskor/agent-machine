@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
+
+	orchstate "github.com/weskor/pi-symphony/internal/state"
 )
 
 func mergeConflictReason(pr pullRequestSummary) string {
@@ -24,13 +28,19 @@ func mergeGateBlockReason(pr pullRequestSummary) string {
 // issues when GitHub reports an approval and every reported check is green.
 func mergeApprovedPRs(client linearClient, config runnerConfig) error {
 	log("mode=merge-approved; project=%s", config.ProjectSlug)
+	store, _ := commandScopedStateStore(context.Background(), config.WorkspaceRoot, "merge-approved")
+	if store != nil {
+		defer store.Close()
+	}
 	github, ctx, cancel, err := githubClientWithTimeout(config.Budget.MergeTimeout)
 	if err != nil {
+		recordMergeError(store, "", "", 0, err)
 		return err
 	}
 	defer cancel()
 	prs, err := github.OpenPullRequests(ctx)
 	if err != nil {
+		recordMergeError(store, "", "", 0, err)
 		return fmt.Errorf("GitHub API open PR metadata lookup failed: %w", err)
 	}
 	prs = symphonyPRs(prs)
@@ -39,6 +49,7 @@ func mergeApprovedPRs(client linearClient, config runnerConfig) error {
 		identifier := issueIdentifierFromBranch(pr.HeadRefName)
 		candidate, err := client.issueByIdentifier(identifier)
 		if err != nil {
+			recordMergeError(store, identifier, "", pr.Number, err)
 			return err
 		}
 		if candidate == nil || candidate.State.Name != config.HandoffState {
@@ -47,11 +58,13 @@ func mergeApprovedPRs(client linearClient, config runnerConfig) error {
 
 		states, err := client.workflowStates(candidate.Team.ID)
 		if err != nil {
+			recordMergeError(store, candidate.Identifier, candidate.ID, pr.Number, err)
 			return err
 		}
 		gate := evaluatePullRequestMergeGate(pr)
 		if hasString(gate.Codes(), "merge_conflict") {
 			reason := gate.Reason()
+			recordMergeEvent(store, orchstate.EventMergeBlocked, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "reason": reason, "codes": gate.Codes()})
 			workspace := filepath.Join(config.WorkspaceRoot, candidate.Identifier)
 			if err := os.MkdirAll(workspace, 0o755); err != nil {
 				return err
@@ -70,6 +83,7 @@ func mergeApprovedPRs(client linearClient, config runnerConfig) error {
 		}
 		decision := reconcileIssue(config, *candidate, &pr)
 		if decision.ShouldQuarantine && len(decision.Blockers) > 0 {
+			recordMergeEvent(store, orchstate.EventMergeBlocked, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "reason": strings.Join(decision.Blockers, "; "), "next_action": decision.NextAction})
 			_ = client.createComment(candidate.ID, fmt.Sprintf("Symphony PR blocked by reconciliation invariant; next=%s; reason: %s", decision.NextAction, strings.Join(decision.Blockers, "; ")))
 			log("%s quarantined: %s", pr.URL, strings.Join(decision.Blockers, "; "))
 			continue
@@ -77,23 +91,41 @@ func mergeApprovedPRs(client linearClient, config runnerConfig) error {
 		switch pr.ReviewDecision {
 		case "APPROVED":
 			if !decision.CanMerge {
+				recordMergeEvent(store, orchstate.EventMergeBlocked, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "reason": strings.Join(decision.Blockers, "; "), "lifecycle": decision.Lifecycle, "next_action": decision.NextAction})
 				log("%s approved but merge is blocked: lifecycle=%s blockers=%s next=%s", pr.URL, decision.Lifecycle, strings.Join(decision.Blockers, "; "), decision.NextAction)
 				continue
 			}
+			recordMergeEvent(store, orchstate.EventMergeAttempted, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "head_ref": pr.HeadRefName, "base_ref": pr.BaseRefName})
 			if err := github.SquashMergePullRequest(ctx, pr.Number); err != nil {
+				recordMergeEvent(store, orchstate.EventMergeFailed, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "phase": "squash_merge", "error": err.Error()})
+				recordMergeError(store, candidate.Identifier, candidate.ID, pr.Number, err)
 				return fmt.Errorf("GitHub API squash merge failed for PR #%d: %w", pr.Number, err)
 			}
+			recordMergeEvent(store, orchstate.EventMergeSucceeded, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "head_ref": pr.HeadRefName})
+			recordMergeEvent(store, orchstate.EventBranchDeletionAttempted, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "head_ref": pr.HeadRefName})
 			if err := github.DeleteBranch(ctx, pr.HeadRefName); err != nil {
+				recordMergeEvent(store, orchstate.EventBranchDeletionFinished, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "head_ref": pr.HeadRefName, "result": "failed", "error": err.Error()})
+				recordMergeEvent(store, orchstate.EventMergeFailed, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "phase": "branch_deletion", "error": err.Error()})
+				recordMergeError(store, candidate.Identifier, candidate.ID, pr.Number, err)
 				return fmt.Errorf("GitHub API branch deletion failed for %s after merged PR #%d: %w", pr.HeadRefName, pr.Number, err)
 			}
+			recordMergeEvent(store, orchstate.EventBranchDeletionFinished, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "head_ref": pr.HeadRefName, "result": "success"})
 			if id := stateID(states, config.DoneState); id != "" {
+				recordMergeEvent(store, orchstate.EventLinearDoneTransitionAttempted, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "done_state": config.DoneState})
 				if err := client.updateIssueState(candidate.ID, id); err != nil {
+					recordMergeEvent(store, orchstate.EventLinearDoneTransitionFinished, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "done_state": config.DoneState, "result": "failed", "error": err.Error()})
+					recordMergeEvent(store, orchstate.EventMergeFailed, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "phase": "linear_done_transition", "error": err.Error()})
+					recordMergeError(store, candidate.Identifier, candidate.ID, pr.Number, err)
 					return err
 				}
+				recordMergeEvent(store, orchstate.EventLinearDoneTransitionFinished, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "done_state": config.DoneState, "result": "success"})
 			}
 			if err := removeDoneWorkspace(config.WorkspaceRoot, candidate.Identifier); err != nil {
+				recordMergeEvent(store, orchstate.EventMergeFailed, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "phase": "workspace_cleanup", "error": err.Error()})
+				recordMergeError(store, candidate.Identifier, candidate.ID, pr.Number, err)
 				return err
 			}
+			recordMergeEvent(store, orchstate.EventMergeCompleted, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "head_ref": pr.HeadRefName, "done_state": config.DoneState})
 			_ = client.createComment(candidate.ID, fmt.Sprintf("Merged approved PR: %s", pr.URL))
 			log("merged %s and moved %s to %s", pr.URL, candidate.Identifier, config.DoneState)
 		case "CHANGES_REQUESTED":
@@ -124,6 +156,28 @@ func mergeApprovedPRs(client linearClient, config runnerConfig) error {
 		}
 	}
 	return nil
+}
+
+func recordMergeEvent(store *orchstate.Store, eventType, issueKey, issueID string, prNumber int, payload map[string]any) {
+	if store == nil {
+		return
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	if prNumber > 0 {
+		payload["pr_number"] = prNumber
+	}
+	if _, err := store.AppendEvent(context.Background(), orchstate.EventInput{OccurredAt: time.Now().UTC(), IssueKey: issueKey, IssueID: issueID, Source: "merge-lane", Type: eventType, Payload: payload}); err != nil {
+		log("skipping sqlite merge event %s: %v", eventType, err)
+	}
+}
+
+func recordMergeError(store *orchstate.Store, issueKey, issueID string, prNumber int, err error) {
+	if err == nil {
+		return
+	}
+	recordMergeEvent(store, orchstate.EventErrorRecorded, issueKey, issueID, prNumber, map[string]any{"error": err.Error(), "lane": "merge"})
 }
 
 func feedbackAlreadyAddressed(workspace, prURL, feedback string) bool {

@@ -48,19 +48,31 @@ type Counts struct {
 }
 
 const (
-	EventCandidateSelected = "candidate_selected"
-	EventCandidateSkipped  = "candidate_skipped"
-	EventAttemptStarted    = "attempt_started"
-	EventRuntimeStarted    = "runtime_started"
-	EventRuntimeFinished   = "runtime_finished"
-	EventAttemptFinished   = "attempt_finished"
-	EventPRDetected        = "pr_detected"
-	EventReviewCompleted   = "review_completed"
-	EventMergeBlocked      = "merge_blocked"
-	EventMergeCompleted    = "merge_completed"
-	EventCleanupStarted    = "cleanup_started"
-	EventCleanupCompleted  = "cleanup_completed"
-	EventErrorRecorded     = "error_recorded"
+	EventCandidateSelected             = "candidate_selected"
+	EventCandidateSkipped              = "candidate_skipped"
+	EventAttemptStarted                = "attempt_started"
+	EventRuntimeStarted                = "runtime_started"
+	EventRuntimeFinished               = "runtime_finished"
+	EventAttemptFinished               = "attempt_finished"
+	EventPRDetected                    = "pr_detected"
+	EventReviewCompleted               = "review_completed"
+	EventMergeBlocked                  = "merge_blocked"
+	EventMergeAttempted                = "merge_attempted"
+	EventMergeSucceeded                = "merge_succeeded"
+	EventMergeFailed                   = "merge_failed"
+	EventMergeCompleted                = "merge_completed"
+	EventBranchDeletionAttempted       = "branch_deletion_attempted"
+	EventBranchDeletionFinished        = "branch_deletion_finished"
+	EventLinearDoneTransitionAttempted = "linear_done_transition_attempted"
+	EventLinearDoneTransitionFinished  = "linear_done_transition_finished"
+	EventCleanupStarted                = "cleanup_started"
+	EventCleanupCandidateFound         = "cleanup_candidate_found"
+	EventCleanupSkipped                = "cleanup_skipped"
+	EventCleanupDeletionAttempted      = "cleanup_deletion_attempted"
+	EventCleanupDeletionSucceeded      = "cleanup_deletion_succeeded"
+	EventCleanupDeletionFailed         = "cleanup_deletion_failed"
+	EventCleanupCompleted              = "cleanup_completed"
+	EventErrorRecorded                 = "error_recorded"
 )
 
 type Event struct {
@@ -538,10 +550,21 @@ ON CONFLICT(attempt_id) DO UPDATE SET workspace_exists=excluded.workspace_exists
 	if err != nil {
 		return fmt.Errorf("upsert cleanup state: %w", err)
 	}
-	if _, err := appendEvent(ctx, tx, EventInput{OccurredAt: now, IssueKey: cleanup.IssueKey, Attempt: cleanup.Attempt, Source: "runner.cleanup", Type: EventCleanupCompleted, Payload: map[string]any{"decision": cleanup.Decision, "deletion_result": cleanup.DeletionResult, "eligible": cleanup.Eligible}}); err != nil {
+	if _, err := appendEvent(ctx, tx, EventInput{OccurredAt: now, IssueKey: cleanup.IssueKey, Attempt: cleanup.Attempt, Source: "runner.cleanup", Type: cleanupStateEventType(cleanup), Payload: map[string]any{"decision": cleanup.Decision, "deletion_result": cleanup.DeletionResult, "eligible": cleanup.Eligible}}); err != nil {
 		return fmt.Errorf("append cleanup event: %w", err)
 	}
 	return tx.Commit()
+}
+
+func cleanupStateEventType(cleanup CleanupState) string {
+	switch cleanup.DeletionResult {
+	case "deleted":
+		return EventCleanupCompleted
+	case "failed":
+		return EventCleanupDeletionFailed
+	default:
+		return EventCleanupSkipped
+	}
 }
 
 func (s *Store) CleanupFacts(ctx context.Context, issueKey string) (CleanupFacts, bool, error) {

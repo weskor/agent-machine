@@ -25,6 +25,32 @@ func TestOrchestrationSnapshotEmptyState(t *testing.T) {
 	}
 }
 
+func TestOrchestrationSnapshotIncludesRecentEventSummaries(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(ctx, state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendEvent(ctx, state.EventInput{IssueKey: "CAG-104", Source: "test", Type: state.EventCleanupCompleted, Payload: map[string]any{"deletion_result": "deleted"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := buildOrchestrationSnapshot(ctx, runnerConfig{WorkspaceRoot: root}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.RecentEvents) != 1 || snap.RecentEvents[0].Type != state.EventCleanupCompleted || snap.RecentEvents[0].IssueKey != "CAG-104" {
+		t.Fatalf("recent events = %+v, want cleanup_completed summary", snap.RecentEvents)
+	}
+}
+
 func TestOrchestrationSnapshotActiveLockOverridesSQLiteAndArtifact(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)

@@ -93,10 +93,17 @@ func summarizeSnapshotStateStore(workspaceRoot string, snapshot orchestrationSna
 	if health.OK {
 		status = "healthy"
 	}
-	return append(lines,
+	lines = append(lines,
 		fmt.Sprintf("SQLite state health: %s schema_version=%d journal_mode=%s busy_timeout_ms=%d", status, health.SchemaVersion, emptyAsNA(health.JournalMode), health.BusyTimeoutMS),
 		fmt.Sprintf("SQLite state counts: issue_attempts=%d pr_mappings=%d review_states=%d terminal_outcomes=%d daemon_heartbeats=%d cleanup_states=%d events=%d", health.Counts.IssueAttempts, health.Counts.PRMappings, health.Counts.ReviewStates, health.Counts.TerminalOutcomes, health.Counts.DaemonHeartbeats, health.Counts.CleanupStates, health.Counts.Events),
 	)
+	if len(snapshot.RecentEvents) > 0 {
+		lines = append(lines, "SQLite recent events:")
+		for _, event := range snapshot.RecentEvents {
+			lines = append(lines, formatEventSummary(event))
+		}
+	}
+	return lines
 }
 
 func summarizeStateStore(workspaceRoot string) []string {
@@ -116,10 +123,29 @@ func summarizeStateStore(workspaceRoot string) []string {
 	if health.OK {
 		status = "healthy"
 	}
-	return append(lines,
+	lines = append(lines,
 		fmt.Sprintf("SQLite state health: %s schema_version=%d journal_mode=%s busy_timeout_ms=%d", status, health.SchemaVersion, emptyAsNA(health.JournalMode), health.BusyTimeoutMS),
 		fmt.Sprintf("SQLite state counts: issue_attempts=%d pr_mappings=%d review_states=%d terminal_outcomes=%d daemon_heartbeats=%d cleanup_states=%d events=%d", health.Counts.IssueAttempts, health.Counts.PRMappings, health.Counts.ReviewStates, health.Counts.TerminalOutcomes, health.Counts.DaemonHeartbeats, health.Counts.CleanupStates, health.Counts.Events),
 	)
+	store, err := state.Open(context.Background(), path)
+	if err != nil {
+		return lines
+	}
+	defer store.Close()
+	events, err := store.RecentEvents(context.Background(), 5)
+	if err != nil || len(events) == 0 {
+		return lines
+	}
+	lines = append(lines, "SQLite recent events:")
+	for _, event := range events {
+		lines = append(lines, formatEventSummary(eventSummary{Sequence: event.Sequence, OccurredAt: event.OccurredAt, IssueKey: event.IssueKey, Source: event.Source, Type: event.Type}))
+	}
+	return lines
+}
+
+func formatEventSummary(event eventSummary) string {
+	issue := emptyAsNA(event.IssueKey)
+	return fmt.Sprintf("- #%d %s issue=%s source=%s at=%s", event.Sequence, event.Type, issue, event.Source, event.OccurredAt.UTC().Format(time.RFC3339))
 }
 
 func openSymphonyPRs() ([]pullRequestSummary, error) {

@@ -211,6 +211,62 @@ func TestCleanupWorkspacesUsesSQLiteRunStatusWhenTerminalOutcomeIsHandoffReady(t
 	}
 }
 
+func TestCleanupWorkspacesEmitsSkippedAndStartedEvents(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-104")
+	writeCleanRunArtifact(t, workspace, "success")
+	seedCleanupAttemptWithOutcome(t, root, workspace, "CAG-104", "success", "handoff_ready")
+
+	if err := cleanupWorkspaces(root, cleanupOptions{DoneIssues: map[string]bool{"CAG-104": true}}); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	events, err := store.Events(context.Background(), state.EventFilter{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	types := map[string]int{}
+	for _, event := range events {
+		types[event.Type]++
+	}
+	if types[state.EventCleanupStarted] != 1 || types[state.EventCleanupCandidateFound] != 1 || types[state.EventCleanupSkipped] != 1 || types[state.EventCleanupCompleted] != 0 {
+		t.Fatalf("cleanup event counts = %#v, want started, candidate_found, skipped, and no completed for dry-run", types)
+	}
+}
+
+func TestCleanupWorkspacesEmitsCompletedEventOnApply(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-105")
+	writeCleanRunArtifact(t, workspace, "success")
+	seedCleanupAttemptWithOutcome(t, root, workspace, "CAG-105", "success", "handoff_ready")
+
+	if err := cleanupWorkspaces(root, cleanupOptions{Apply: true, DoneIssues: map[string]bool{"CAG-105": true}}); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	events, err := store.Events(context.Background(), state.EventFilter{IssueKey: "CAG-105", Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	types := eventTypeCounts(events)
+	for _, eventType := range []string{state.EventCleanupCandidateFound, state.EventCleanupDeletionAttempted, state.EventCleanupDeletionSucceeded, state.EventCleanupCompleted} {
+		if types[eventType] != 1 {
+			t.Fatalf("%s events = %d, want 1; all=%#v", eventType, types[eventType], types)
+		}
+	}
+	if types[state.EventCleanupSkipped] != 0 || types[state.EventCleanupDeletionFailed] != 0 {
+		t.Fatalf("unexpected skip/failure cleanup events: %#v", types)
+	}
+}
+
 func TestCleanupWorkspacesUsesSQLiteRunStatusWhenTerminalOutcomeIsOperationalFailure(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
 	workspace := filepath.Join(root, "CAG-115")

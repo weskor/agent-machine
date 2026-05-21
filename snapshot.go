@@ -17,8 +17,17 @@ type orchestrationSnapshot struct {
 	ActiveLocks       []snapshotLock
 	ActiveLanes       []snapshotLane
 	Artifacts         []artifactSummary
+	RecentEvents      []eventSummary
 	SQLiteHealth      state.Health
 	SQLiteHealthError string
+}
+
+type eventSummary struct {
+	Sequence   int64
+	OccurredAt time.Time
+	IssueKey   string
+	Source     string
+	Type       string
 }
 
 type snapshotIssue struct {
@@ -67,9 +76,10 @@ func buildOrchestrationSnapshot(ctx context.Context, config runnerConfig, observ
 		}
 		byIssue[a.Issue] = &snapshotIssue{Issue: a.Issue, Status: a.Status, Review: a.Review, PRURL: a.PRURL, Outcome: a.Outcome, Source: "artifact", Artifact: &a}
 	}
-	rows, lanes, health, healthErr := loadSnapshotState(ctx, config.WorkspaceRoot)
+	rows, lanes, events, health, healthErr := loadSnapshotState(ctx, config.WorkspaceRoot)
 	snap.SQLiteHealth = health
 	snap.ActiveLanes = lanes
+	snap.RecentEvents = events
 	if healthErr != nil {
 		snap.SQLiteHealthError = healthErr.Error()
 	}
@@ -150,24 +160,28 @@ type snapshotStateRow struct {
 	UpdatedAt                                              time.Time
 }
 
-func loadSnapshotState(ctx context.Context, workspaceRoot string) ([]snapshotStateRow, []snapshotLane, state.Health, error) {
+func loadSnapshotState(ctx context.Context, workspaceRoot string) ([]snapshotStateRow, []snapshotLane, []eventSummary, state.Health, error) {
 	path := state.DefaultDBPath(workspaceRoot)
 	health, err := state.InspectHealth(ctx, path)
 	if err != nil || !health.OK {
-		return nil, nil, health, err
+		return nil, nil, nil, health, err
 	}
 	store, err := state.Open(ctx, path)
 	if err != nil {
-		return nil, nil, health, err
+		return nil, nil, nil, health, err
 	}
 	defer store.Close()
 	rows, err := store.SnapshotAttempts(ctx)
 	if err != nil {
-		return nil, nil, health, err
+		return nil, nil, nil, health, err
 	}
 	heartbeats, err := store.SnapshotHeartbeats(ctx)
 	if err != nil {
-		return nil, nil, health, err
+		return nil, nil, nil, health, err
+	}
+	recent, err := store.RecentEvents(ctx, 5)
+	if err != nil {
+		return nil, nil, nil, health, err
 	}
 	out := make([]snapshotStateRow, 0, len(rows))
 	for _, row := range rows {
@@ -177,5 +191,9 @@ func loadSnapshotState(ctx context.Context, workspaceRoot string) ([]snapshotSta
 	for _, heartbeat := range heartbeats {
 		lanes = append(lanes, snapshotLane{Name: heartbeat.LaneName, ProcessID: heartbeat.ProcessID, CycleNumber: heartbeat.CycleNumber, LastSuccessAt: heartbeat.LastSuccessAt, LastError: heartbeat.LastError, RecoveryRequired: heartbeat.RecoveryRequired, UpdatedAt: heartbeat.UpdatedAt, Source: "sqlite"})
 	}
-	return out, lanes, health, nil
+	events := make([]eventSummary, 0, len(recent))
+	for _, event := range recent {
+		events = append(events, eventSummary{Sequence: event.Sequence, OccurredAt: event.OccurredAt, IssueKey: event.IssueKey, Source: event.Source, Type: event.Type})
+	}
+	return out, lanes, events, health, nil
 }

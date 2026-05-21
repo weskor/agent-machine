@@ -121,7 +121,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 - `--status`: print runner/workspace status for the workflow.
 - `--run-status=<issue>`: print one compact progress line for an active or recently terminal run from the runner-owned progress snapshot under `.symphony/state/run-progress/<issue>/progress.json`. This command is local/read-only and must not require Linear or GitHub access.
 - `--explain` / `--dry-run`: print structured JSON for the next scheduling decision, merge blockers, and cleanup eligibility without mutating Linear, GitHub, workspaces, artifacts, or orchestration state.
-- `--status` includes SQLite event-log counts when the durable orchestration event schema is available; these counts are diagnostic evidence only and do not replace artifact summaries or lifecycle decisions.
+- `--status` includes SQLite event-log counts and recent event summaries when the durable orchestration event schema is available; these diagnostics do not replace artifact summaries or lifecycle decisions.
 
 ## Continuous scheduler
 

@@ -47,11 +47,12 @@ When `PI_SYMPHONY_DEBUG_RAW_OUTPUT=1`:
 - `workspaceHasChanges` / `internal/workspace.HasChanges` continues to ignore only
   expected evidence files required by existing behavior (`.pi-symphony-run.json`,
   `.pi-symphony-evaluation.json`, `.pi-symphony-prompt.md`, `.pi-symphony-review-prompt.md`).
-- Operator-side review subagents can leave a top-level zero-byte `false` scratch
-  marker when their output file option is disabled. That marker is not domain
-  evidence and must not block cleanup. Only an exact top-level, zero-byte,
-  regular file named `false` is ignored; non-empty files, nested paths, symlinks,
-  and all other untracked files remain dirty.
+- Operator-side review subagents can leave a top-level `false` scratch marker
+  when their output file option is disabled. That marker is not domain evidence
+  and must not block cleanup. Only an exact top-level regular file named `false`
+  is ignored, and only when it is zero bytes or bounded reviewer-output text with
+  the known subagent scratch signature. Non-matching non-empty files, nested
+  paths, symlinks, and all other untracked files remain dirty.
 - Since new raw traces are not written under the workspace, they do not affect
   cleanup readiness.
 
@@ -63,7 +64,7 @@ When `PI_SYMPHONY_DEBUG_RAW_OUTPUT=1`:
 - Completed workspaces containing only expected evidence files plus old
   `implementation-raw.log`/`review-raw.log` in legacy locations can still be cleaned
   by the cleanup lane.
-- Completed workspaces containing only expected evidence files plus a top-level
-  zero-byte `false` scratch marker can still be cleaned by the cleanup lane.
+- Completed workspaces containing only expected evidence files plus a matching
+  top-level `false` scratch marker can still be cleaned by the cleanup lane.
 - No existing run/evaluation artifact behavior is changed in this slice.
 

@@ -103,8 +103,9 @@ func HasChanges(workspace string) (bool, error) {
 // IsIgnoredEvidencePath reports whether a git-status path is runner/operator
 // evidence that must not make an otherwise clean workspace look dirty.
 // It intentionally ignores only exact, bounded artifact paths. The top-level
-// zero-byte "false" marker is a known external subagent output=false scratch
-// artifact; non-empty files, nested files, and symlinks remain dirty.
+// "false" marker is a known external subagent output=false scratch artifact;
+// only zero-byte files or bounded reviewer-output scratch files match. Other
+// non-empty files, nested files, and symlinks remain dirty.
 func IsIgnoredEvidencePath(workspace, path string) bool {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -117,9 +118,30 @@ func IsIgnoredEvidencePath(workspace, path string) bool {
 	case ".pi-symphony-run.json", ".pi-symphony-evaluation.json", ".pi-symphony-prompt.md", ".pi-symphony-review-prompt.md":
 		return true
 	case "false":
-		info, err := os.Lstat(filepath.Join(workspace, path))
-		return err == nil && info.Mode().IsRegular() && info.Size() == 0
+		return isSubagentFalseScratch(filepath.Join(workspace, path))
 	default:
 		return false
 	}
+}
+
+func isSubagentFalseScratch(path string) bool {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	if info.Size() == 0 {
+		return true
+	}
+	if info.Size() > 16*1024 {
+		return false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	content := strings.TrimSpace(string(data))
+	if !(strings.HasPrefix(content, "PASS") || strings.HasPrefix(content, "BLOCK")) {
+		return false
+	}
+	return strings.Contains(content, "Did not write ") && strings.Contains(content, "/false")
 }

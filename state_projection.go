@@ -24,7 +24,7 @@ func (stateProjection) RunArtifact(workspace string, record runRecord, evaluatio
 		sum := sha256.Sum256([]byte(record.ReviewFindings))
 		reviewHash = fmt.Sprintf("%x", sum[:])
 	}
-	return artifactio.RunArtifactSnapshot(workspace, record, evaluation, artifactio.SnapshotOptions{
+	snapshot := artifactio.RunArtifactSnapshot(workspace, record, evaluation, artifactio.SnapshotOptions{
 		BranchName:       firstNonEmpty(record.Branch, record.ExpectedBranch),
 		BaseBranch:       baseBranchForWorkspace(workspace),
 		Repository:       repo,
@@ -32,6 +32,21 @@ func (stateProjection) RunArtifact(workspace string, record runRecord, evaluatio
 		ReviewOutputHash: reviewHash,
 		TerminalStatus:   terminalRunStatus(record.Status),
 	})
+	if retryableRunStatus(record.Status) {
+		snapshot.RetryBudgetState = "available"
+		snapshot.RetryReason = firstNonEmpty(record.Error, record.BudgetExceeded, record.Status)
+		snapshot.RetryNextState = "retry_after_backoff"
+	}
+	return snapshot
+}
+
+func retryableRunStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "failed", "failure", "blocked", "timeout", "budget_exceeded":
+		return true
+	default:
+		return false
+	}
 }
 
 func (stateProjection) Cleanup(decision cleanupResult, eligible bool, deletionResult string, workspaceExists bool, updatedAt time.Time) state.CleanupState {

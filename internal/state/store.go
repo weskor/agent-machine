@@ -166,6 +166,8 @@ type ReconciliationFacts struct {
 	PRURL              string
 	RetryNextState     string
 	RetryReason        string
+	RetryCount         int
+	RetryDecidedAt     time.Time
 	TerminalOutcome    string
 	TerminalReason     string
 	CleanupDecision    string
@@ -597,9 +599,9 @@ func (s *Store) ReconciliationFacts(ctx context.Context, issueKey string) (Recon
 		return ReconciliationFacts{}, false, errors.New("reconciliation facts: issue key is required")
 	}
 	var facts ReconciliationFacts
-	var updatedRaw string
+	var updatedRaw, retryDecidedRaw string
 	err := s.db.QueryRowContext(ctx, `SELECT a.issue_key, a.attempt, a.workspace_path, a.branch_name, a.status,
-COALESCE(p.pr_url, ''), COALESCE(r.next_state, ''), COALESCE(r.reason, ''), COALESCE(t.outcome, ''), COALESCE(t.reason, ''),
+COALESCE(p.pr_url, ''), COALESCE(r.next_state, ''), COALESCE(r.reason, ''), COALESCE(r.retry_count, 0), COALESCE(r.decided_at, ''), COALESCE(t.outcome, ''), COALESCE(t.reason, ''),
 COALESCE(c.decision, ''), COALESCE(c.deletion_result, ''), COALESCE(c.artifact_ref, ''), a.updated_at
 FROM issue_attempts a
 LEFT JOIN pr_mappings p ON p.attempt_id = a.id
@@ -607,7 +609,7 @@ LEFT JOIN retry_decisions r ON r.attempt_id = a.id
 LEFT JOIN terminal_outcomes t ON t.attempt_id = a.id
 LEFT JOIN cleanup_states c ON c.attempt_id = a.id
 WHERE a.issue_key = ?
-ORDER BY a.attempt DESC LIMIT 1`, issueKey).Scan(&facts.IssueKey, &facts.Attempt, &facts.WorkspacePath, &facts.BranchName, &facts.Status, &facts.PRURL, &facts.RetryNextState, &facts.RetryReason, &facts.TerminalOutcome, &facts.TerminalReason, &facts.CleanupDecision, &facts.CleanupResult, &facts.CleanupArtifactRef, &updatedRaw)
+ORDER BY a.attempt DESC LIMIT 1`, issueKey).Scan(&facts.IssueKey, &facts.Attempt, &facts.WorkspacePath, &facts.BranchName, &facts.Status, &facts.PRURL, &facts.RetryNextState, &facts.RetryReason, &facts.RetryCount, &retryDecidedRaw, &facts.TerminalOutcome, &facts.TerminalReason, &facts.CleanupDecision, &facts.CleanupResult, &facts.CleanupArtifactRef, &updatedRaw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ReconciliationFacts{}, false, nil
 	}
@@ -616,6 +618,11 @@ ORDER BY a.attempt DESC LIMIT 1`, issueKey).Scan(&facts.IssueKey, &facts.Attempt
 	}
 	if facts.UpdatedAt, err = parseTime(updatedRaw); err != nil {
 		return ReconciliationFacts{}, false, fmt.Errorf("parse reconciliation facts updated_at: %w", err)
+	}
+	if retryDecidedRaw != "" {
+		if facts.RetryDecidedAt, err = parseTime(retryDecidedRaw); err != nil {
+			return ReconciliationFacts{}, false, fmt.Errorf("parse retry decided_at: %w", err)
+		}
 	}
 	return facts, true, nil
 }
@@ -686,6 +693,10 @@ ON CONFLICT(attempt_id) DO UPDATE SET feedback_hash=excluded.feedback_hash, next
 		return fmt.Errorf("upsert feedback state: %w", err)
 	}
 	if snap.RetryNextState != "" || snap.RetryReason != "" {
+		if snap.RetryCount <= 0 {
+			snap.RetryCount = 1
+			_ = tx.QueryRowContext(ctx, `SELECT retry_count + 1 FROM retry_decisions WHERE attempt_id = ?`, attemptID).Scan(&snap.RetryCount)
+		}
 		if _, err = tx.ExecContext(ctx, `DELETE FROM retry_decisions WHERE attempt_id = ?`, attemptID); err != nil {
 			return fmt.Errorf("replace retry decision: %w", err)
 		}

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	cfg "github.com/weskor/pi-symphony/internal/config"
 	"github.com/weskor/pi-symphony/internal/state"
 )
 
@@ -27,6 +28,13 @@ func nextRunnableCandidate(client linearClient, config runnerConfig, store *stat
 	for i := range candidates {
 		pr := prsByIssue[candidates[i].Identifier]
 		decision := reconcileIssue(config, candidates[i], pr)
+		if store != nil {
+			if retryDecision, ok := retryBackoffDecision(context.Background(), store, candidates[i], config, time.Now().UTC()); ok && !retryDecision.runnable {
+				log("skipping %s: %s", candidates[i].Identifier, retryDecision.reason)
+				emitCandidateEvent(store, state.EventCandidateSkipped, candidates[i], map[string]any{"reason": retryDecision.reason})
+				continue
+			}
+		}
 		if decision.Lifecycle == lifecycleBlocked && strings.Contains(strings.Join(decision.Blockers, ","), "blocked label") {
 			blockedCount++
 			log("skipping %s: blocked label", candidates[i].Identifier)
@@ -45,6 +53,11 @@ func nextRunnableCandidate(client linearClient, config runnerConfig, store *stat
 	for i := range candidates {
 		pr := prsByIssue[candidates[i].Identifier]
 		decision := reconcileIssue(config, candidates[i], pr)
+		if store != nil {
+			if retryDecision, ok := retryBackoffDecision(context.Background(), store, candidates[i], config, time.Now().UTC()); ok && !retryDecision.runnable {
+				continue
+			}
+		}
 		if decision.Lifecycle == lifecycleBlocked && strings.Contains(strings.Join(decision.Blockers, ","), "blocked label") {
 			continue
 		}
@@ -59,6 +72,67 @@ func nextRunnableCandidate(client linearClient, config runnerConfig, store *stat
 	}
 	log("all eligible issues are waiting on prior review-failure findings, terminal run artifacts, or active locks")
 	return nil, nil, nil
+}
+
+type candidateRetryDecision struct {
+	runnable bool
+	reason   string
+}
+
+func retryBackoffDecision(ctx context.Context, store *state.Store, candidate issue, config runnerConfig, now time.Time) (candidateRetryDecision, bool) {
+	if store == nil {
+		return candidateRetryDecision{}, false
+	}
+	if candidate.State.Name == config.NeedsInfoState || candidate.State.Name == config.DoneState {
+		return candidateRetryDecision{runnable: false, reason: "terminal_or_needs_info_state"}, true
+	}
+	facts, ok, err := store.ReconciliationFacts(ctx, candidate.Identifier)
+	if err != nil || !ok || facts.RetryNextState == "" {
+		if err != nil {
+			log("retry reconciliation unavailable for %s: %v", candidate.Identifier, err)
+		}
+		return candidateRetryDecision{}, false
+	}
+	if facts.TerminalOutcome != "" || facts.RetryNextState == "no_retry" {
+		return candidateRetryDecision{runnable: false, reason: "terminal_or_no_retry"}, true
+	}
+	backoff := retryBackoffDuration(facts.RetryCount, configuredMaxRetryBackoff(config))
+	if backoff <= 0 || facts.RetryDecidedAt.IsZero() || !now.Before(facts.RetryDecidedAt.Add(backoff)) {
+		return candidateRetryDecision{runnable: true, reason: "retry_backoff_elapsed"}, true
+	}
+	return candidateRetryDecision{runnable: false, reason: fmt.Sprintf("retry_backoff_until_%s", facts.RetryDecidedAt.Add(backoff).Format(time.RFC3339))}, true
+}
+
+func configuredMaxRetryBackoff(config runnerConfig) time.Duration {
+	wf, err := cfg.ReadWorkflow(config.WorkflowPath)
+	if err != nil {
+		return 0
+	}
+	schema, err := cfg.ParseConfig(wf.YAML)
+	if err != nil {
+		return 0
+	}
+	return schema.Agent.MaxRetryBackoff
+}
+
+func retryBackoffDuration(retryCount int, max time.Duration) time.Duration {
+	if max <= 0 {
+		return 0
+	}
+	if retryCount < 1 {
+		retryCount = 1
+	}
+	d := time.Second
+	for i := 1; i < retryCount; i++ {
+		d *= 2
+		if d >= max {
+			return max
+		}
+	}
+	if d > max {
+		return max
+	}
+	return d
 }
 
 func emitCandidateEvent(store *state.Store, eventType string, candidate issue, payload map[string]any) {

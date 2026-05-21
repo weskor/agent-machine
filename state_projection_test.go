@@ -55,7 +55,7 @@ func TestRunArtifactProjectionPersistsFinishedEventWithAttemptState(t *testing.T
 	if err := store.UpsertRunArtifact(ctx, stateProjection{}.RunArtifact(workspace, record, evaluation)); err != nil {
 		t.Fatalf("UpsertRunArtifact() error = %v", err)
 	}
-	events, err := store.RecentEvents(ctx, 1)
+	events, err := store.Events(ctx, state.EventFilter{IssueKey: "CAG-87", Type: state.EventAttemptFinished, Limit: 10})
 	if err != nil {
 		t.Fatalf("RecentEvents() error = %v", err)
 	}

@@ -27,7 +27,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	} else if removed > 0 {
 		log("removed %d stale/dead run lock(s) before candidate selection", removed)
 	}
-	candidate, selectedPR, err := nextRunnableCandidate(client, config)
+	candidate, selectedPR, err := nextRunnableCandidate(client, config, stateStore)
 	if err != nil {
 		return false, err
 	}
@@ -74,6 +74,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	claimed := runProgressForIssue(candidate, workspace, "claimed", progressStarted)
 	claimed.Branch = branch
 	writeRunProgress(config.WorkspaceRoot, claimed)
+	emitRunAttemptEvent(stateStore, state.EventAttemptStarted, candidate, branch, map[string]any{"workspace": workspace, "branch": branch})
 	states, err := client.workflowStates(candidate.Team.ID)
 	if err != nil {
 		return true, err
@@ -165,6 +166,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	if err != nil {
 		return true, err
 	}
+	emitRunAttemptEvent(stateStore, state.EventRuntimeStarted, candidate, branch, map[string]any{"attempt_id": attempt.ID})
 	implementing := runProgressForIssue(candidate, workspace, "implementing", progressStarted)
 	implementing.Branch = branch
 	writeRunProgress(config.WorkspaceRoot, implementing)
@@ -172,6 +174,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 	piStart := piResult.StartedAt
 	piEnded := piResult.EndedAt
 	piOutput := piResult.Output
+	emitRunAttemptEvent(stateStore, state.EventRuntimeFinished, candidate, branch, map[string]any{"attempt_id": attempt.ID, "outcome": piResult.AttemptOutcome, "pr_url": piResult.PRURL, "error": errorString(err)})
 	if err != nil {
 		status := runAttemptStatusFailed
 		if piResult.AttemptOutcome == agentruntime.AttemptOutcomeTimeout || errors.Is(err, sh.ErrCommandTimeout) {
@@ -473,3 +476,22 @@ func resumeReviewReadyRun(client linearClient, stateStore *state.Store, config r
 }
 
 var openPRsByIssueForSelection = openPRsByIssue
+
+func emitRunAttemptEvent(store *state.Store, eventType string, candidate *issue, runID string, payload map[string]any) {
+	if store == nil || candidate == nil {
+		return
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	if _, err := store.AppendEvent(context.Background(), state.EventInput{OccurredAt: time.Now().UTC(), IssueKey: candidate.Identifier, IssueID: candidate.ID, Attempt: 1, RunID: runID, Source: "runner.run_attempt", Type: eventType, Payload: payload}); err != nil {
+		log("failed to append orchestration event %s for %s: %v", eventType, candidate.Identifier, err)
+	}
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}

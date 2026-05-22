@@ -53,7 +53,7 @@ func cleanupWorkspaces(workspaceRoot string, options cleanupOptions) error {
 	}
 	log("mode=cleanup-workspaces; workspace_root=%s; policy=linear_done; apply=%t", workspaceRoot, options.Apply)
 	recordCleanupEvent(store, orchstate.EventCleanupStarted, cleanupResult{}, map[string]any{"workspace_root": safeRoot, "apply": options.Apply})
-	entries, err := os.ReadDir(safeRoot)
+	decisions, err := cleanupDecisions(context.Background(), safeRoot, options.DoneIssues, store, workspaceHasChanges)
 	if err != nil {
 		recordCleanupError(store, cleanupResult{}, err)
 		return err
@@ -62,29 +62,8 @@ func cleanupWorkspaces(workspaceRoot string, options cleanupOptions) error {
 	kept := 0
 	eligible := 0
 	categories := map[string]int{}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		if strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		if entry.Name() == "state" {
-			continue
-		}
-		workspace, err := safeWorkspacePath(safeRoot, entry.Name())
-		if err != nil {
-			recordCleanupError(store, cleanupResult{IssueIdentifier: entry.Name()}, err)
-			return err
-		}
-		decision, err := cleanupDecisionForRoot(safeRoot, workspace, options.DoneIssues)
-		if store != nil {
-			decision, err = cleanupDecisionFromSQLite(context.Background(), store, safeRoot, workspace, options.DoneIssues, decision)
-		}
-		if err != nil {
-			recordCleanupError(store, decision, err)
-			return err
-		}
+	for _, decision := range decisions {
+		workspace := decision.WorkspacePath
 		recordCleanupEvent(store, orchstate.EventCleanupCandidateFound, decision, map[string]any{"reason": decision.Reason, "category": decision.Category, "delete": decision.Delete})
 		categories[decision.Category]++
 		if !decision.Delete {
@@ -121,6 +100,43 @@ func cleanupWorkspaces(workspaceRoot string, options cleanupOptions) error {
 		log("cleanup summary: eligible=%d kept=%d categories=%s; dry run only; pass --apply to delete workspaces for Done issues", eligible, kept, formatCleanupCategories(categories))
 	}
 	return nil
+}
+
+func cleanupDecisions(ctx context.Context, workspaceRoot string, doneIssues map[string]bool, store *orchstate.Store, hasChanges workspaceChangeChecker) ([]cleanupResult, error) {
+	safeRoot, err := safeWorkspaceRoot(workspaceRoot)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(safeRoot)
+	if err != nil {
+		return nil, err
+	}
+	decisions := []cleanupResult{}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		if entry.Name() == "state" {
+			continue
+		}
+		workspace, err := safeWorkspacePath(safeRoot, entry.Name())
+		if err != nil {
+			return nil, err
+		}
+		decision, err := cleanupDecisionForRootWithChanges(safeRoot, workspace, doneIssues, hasChanges)
+		if store != nil {
+			decision, err = cleanupDecisionFromSQLite(ctx, store, safeRoot, workspace, doneIssues, decision)
+		}
+		if err != nil {
+			return nil, err
+		}
+		decision.WorkspacePath = workspace
+		decisions = append(decisions, decision)
+	}
+	return decisions, nil
 }
 
 func recordCleanupEvent(store *orchstate.Store, eventType string, decision cleanupResult, payload map[string]any) {
@@ -180,6 +196,7 @@ type cleanupResult struct {
 	Category        string
 	IssueIdentifier string
 	ArtifactRef     string
+	WorkspacePath   string
 }
 
 func cleanupDecision(workspace string, doneIssues map[string]bool) (cleanupResult, error) {

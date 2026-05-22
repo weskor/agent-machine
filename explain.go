@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/weskor/pi-symphony/internal/state"
@@ -194,20 +193,19 @@ func explainCleanup(workspaceRoot string, doneIssues map[string]bool) ([]explain
 	if err != nil {
 		return nil, err
 	}
-	entries, err := os.ReadDir(safeRoot)
+	store, err := openExistingStateStore(context.Background(), safeRoot)
+	if err != nil {
+		return nil, err
+	}
+	if store != nil {
+		defer store.Close()
+	}
+	decisions, err := cleanupDecisions(context.Background(), safeRoot, doneIssues, store, workspaceHasChangesForExplain)
 	if err != nil {
 		return nil, err
 	}
 	out := []explainCleanupDecision{}
-	for _, entry := range entries {
-		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || entry.Name() == "state" {
-			continue
-		}
-		workspace := filepath.Join(safeRoot, entry.Name())
-		decision, err := cleanupDecisionForRootWithChanges(safeRoot, workspace, doneIssues, workspaceHasChangesForExplain)
-		if err != nil {
-			return nil, err
-		}
+	for _, decision := range decisions {
 		out = append(out, explainCleanupDecision{Issue: decision.IssueIdentifier, Eligible: decision.Delete, Category: decision.Category, Reason: decision.Reason})
 	}
 	return out, nil

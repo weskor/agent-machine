@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -111,6 +112,40 @@ func TestExplainCleanupDoesNotDeleteEligibleWorkspace(t *testing.T) {
 	}
 }
 
+func TestExplainCleanupUsesSQLiteReconciliationDecision(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-138")
+	writeCleanRunArtifact(t, workspace, "success")
+	artifactPath := filepath.Join(workspace, ".pi-symphony-run.json")
+	artifact := strings.Replace(runArtifactJSON(workspace, "success"), `"issue_identifier":"CAG-138"`, `"issue_identifier":"CAG-other"`, 1)
+	if err := os.WriteFile(artifactPath, []byte(artifact), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	seedCleanupAttempt(t, root, workspace, "CAG-138", "success")
+
+	artifactDecision, err := cleanupDecisionForRoot(root, workspace, map[string]bool{"CAG-138": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !artifactDecision.Delete {
+		t.Fatalf("artifact-only cleanup decision = %+v, want eligible", artifactDecision)
+	}
+
+	decisions, err := explainCleanup(root, map[string]bool{"CAG-138": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decisions) != 1 || decisions[0].Eligible || decisions[0].Category != "reconciliation-needed" || !strings.Contains(decisions[0].Reason, "conflicts") {
+		t.Fatalf("cleanup decisions = %+v, want SQLite reconciliation-needed conflict", decisions)
+	}
+	if _, err := os.Stat(workspace); err != nil {
+		t.Fatalf("explain cleanup mutated workspace: %v", err)
+	}
+	if countCleanupStateRows(t, root) != 0 {
+		t.Fatalf("explain cleanup wrote cleanup state rows")
+	}
+}
+
 func TestExplainCleanupIgnoresZeroByteFalseMarker(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "CAG-126")
@@ -126,4 +161,18 @@ func TestExplainCleanupIgnoresZeroByteFalseMarker(t *testing.T) {
 	if len(decisions) != 1 || !decisions[0].Eligible || decisions[0].Category == "dirty" {
 		t.Fatalf("cleanup decisions = %+v, want false marker ignored", decisions)
 	}
+}
+
+func countCleanupStateRows(t *testing.T, workspaceRoot string) int {
+	t.Helper()
+	db, err := sql.Open("sqlite", state.DefaultDBPath(workspaceRoot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM cleanup_states`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
 }

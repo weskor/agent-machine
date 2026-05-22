@@ -256,3 +256,63 @@ func TestReviewEvidenceFromPRDetailsIncludesChecksAndProgressPath(t *testing.T) 
 		t.Fatalf("progress path = %q", evidence.ProgressPath)
 	}
 }
+
+func TestReviewReadinessShouldResumeOnlyForMatchingNotReadySuccess(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	candidate := &issue{Identifier: "CAG-139", Title: "Extract lifecycle"}
+	started := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+	snapshot := runProgressForIssue(candidate, filepath.Join(workspaceRoot, "CAG-139"), "review_not_ready", started)
+	snapshot.PRURL = "https://github.com/acme/repo/pull/139"
+	if err := writeRunProgressResult(workspaceRoot, snapshot); err != nil {
+		t.Fatalf("write progress: %v", err)
+	}
+
+	module := newReviewReadinessModule(workspaceRoot)
+	successPR := pullRequestSummary{
+		URL:               "https://github.com/acme/repo/pull/139",
+		StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS", Name: "ci"}},
+	}
+	if !module.ShouldResume(candidate.Identifier, successPR) {
+		t.Fatal("expected matching review_not_ready snapshot with successful checks to resume review")
+	}
+
+	pendingPR := successPR
+	pendingPR.StatusCheckRollup = []statusCheck{{Typename: "CheckRun", Status: "IN_PROGRESS", Name: "ci"}}
+	if module.ShouldResume(candidate.Identifier, pendingPR) {
+		t.Fatal("did not expect pending checks to resume review")
+	}
+
+	otherPR := successPR
+	otherPR.URL = "https://github.com/acme/repo/pull/140"
+	if module.ShouldResume(candidate.Identifier, otherPR) {
+		t.Fatal("did not expect a different PR URL to resume review")
+	}
+
+	if module.ShouldResume("CAG-404", successPR) {
+		t.Fatal("did not expect missing progress snapshot to resume review")
+	}
+}
+
+func TestReviewReadinessNotReadyProgressCharacterizesReviewWaitRouting(t *testing.T) {
+	module := newReviewReadinessModule(t.TempDir())
+	candidate := &issue{Identifier: "CAG-139", Title: "Extract lifecycle"}
+	started := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+
+	pending := module.NotReadyProgress(candidate, "/tmp/work", "symphony/CAG-139-workspace", "https://github.com/acme/repo/pull/139", started, reviewEvidence{ChecksStatus: "pending", ChecksSummary: "ci=IN_PROGRESS"})
+	if pending.Phase != "review_not_ready" || pending.Status != "waiting_for_checks" || pending.NextAction != "wait_for_github_checks_then_retry" {
+		t.Fatalf("unexpected pending progress routing: %+v", pending)
+	}
+	if pending.Branch != "symphony/CAG-139-workspace" || pending.PRURL != "https://github.com/acme/repo/pull/139" || pending.ChecksStatus != "pending" || pending.Error != "ci=IN_PROGRESS" {
+		t.Fatalf("pending progress lost observable fields: %+v", pending)
+	}
+
+	failed := module.NotReadyProgress(candidate, "/tmp/work", "symphony/CAG-139-workspace", "https://github.com/acme/repo/pull/139", started, reviewEvidence{ChecksStatus: "failed", ChecksSummary: "ci=FAILURE"})
+	if failed.NextAction != "fix_failing_github_checks_before_review" {
+		t.Fatalf("expected failed checks to route to fix action, got %+v", failed)
+	}
+
+	resumeFailed := module.ResumeNotReadyProgress(candidate, "/tmp/work", "symphony/CAG-139-workspace", "https://github.com/acme/repo/pull/139", started, reviewEvidence{ChecksStatus: "failed", ChecksSummary: "ci=FAILURE"})
+	if resumeFailed.NextAction != "wait_for_github_checks_then_retry" {
+		t.Fatalf("expected resumed review not-ready path to preserve wait routing, got %+v", resumeFailed)
+	}
+}

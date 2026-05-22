@@ -55,6 +55,29 @@ func TestEnsureRunnerPRHandoffCreatesPRWhenAgentEmitsStaleMissingURL(t *testing.
 	}
 }
 
+func TestEnsureRunnerPRHandoffIgnoresWrongBranchAdvisoryPR(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	workspace := runnerHandoffGitWorkspace(t, "main")
+	candidate := testIssue("CAG-129", "In Progress")
+	if err := sh.Run("git switch -q -C "+sh.Quote(expectedWorkspaceBranch(candidate.Identifier))+" && echo change > handoff.go", workspace); err != nil {
+		t.Fatal(err)
+	}
+	config := testRunnerConfig(filepath.Dir(workspace))
+	config.BaseBranch = "main"
+	staleURL := "https://github.com/weskor/pi-symphony/pull/25"
+	withFakeGitHubAPI(t, fakeGitHubAPI{
+		handoffDetailsByURL: map[string]prHandoffDetails{staleURL: {Number: 25, URL: staleURL, BaseRefName: "main", HeadRefName: "symphony/CAG-86-workspace"}},
+	})
+
+	prURL, err := ensureRunnerPRHandoff(config, &candidate, workspace, staleURL, nil)
+	if err != nil {
+		t.Fatalf("ensureRunnerPRHandoff returned error: %v", err)
+	}
+	if prURL != "https://github.com/weskor/pi-symphony/pull/900" {
+		t.Fatalf("expected runner-created PR URL, got %q", prURL)
+	}
+}
+
 func TestEnsureRunnerPRHandoffFailsOnNoBranchChanges(t *testing.T) {
 	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
 	workspace := runnerHandoffGitWorkspace(t, "main")

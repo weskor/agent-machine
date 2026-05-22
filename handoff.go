@@ -280,6 +280,9 @@ func validateAdvisoryPRForHandoff(ctx context.Context, github githubAPI, config 
 	if details.URL == "" {
 		details.URL = prURL
 	}
+	if details.HeadRefName != expectedWorkspaceBranch(candidate.Identifier) {
+		return "", "", false, nil
+	}
 	return details.URL, prHandoffBlockReason(config, candidate, details), true, nil
 }
 

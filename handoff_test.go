@@ -78,6 +78,41 @@ func TestEnsureRunnerPRHandoffIgnoresWrongBranchAdvisoryPR(t *testing.T) {
 	}
 }
 
+func TestEnsureRunnerPRHandoffUpdatesExistingRetryBranch(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	workspace := runnerHandoffGitWorkspace(t, "main")
+	candidate := testIssue("CAG-130", "In Progress")
+	branch := expectedWorkspaceBranch(candidate.Identifier)
+	if err := sh.Run("git switch -q -C "+sh.Quote(branch)+" && echo first > handoff.go && git add handoff.go && git commit -qm first && git push origin HEAD:refs/heads/"+sh.Quote(branch), workspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := sh.Run("echo second > handoff.go", workspace); err != nil {
+		t.Fatal(err)
+	}
+	config := testRunnerConfig(filepath.Dir(workspace))
+	config.BaseBranch = "main"
+	withFakeGitHubAPI(t, fakeGitHubAPI{})
+
+	prURL, err := ensureRunnerPRHandoff(config, &candidate, workspace, "", nil)
+	if err != nil {
+		t.Fatalf("ensureRunnerPRHandoff returned error: %v", err)
+	}
+	if prURL != "https://github.com/weskor/pi-symphony/pull/900" {
+		t.Fatalf("expected runner-created PR URL, got %q", prURL)
+	}
+	remoteHead, err := sh.CaptureQuiet("git rev-parse origin/"+sh.Quote(branch), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localHead, err := sh.CaptureQuiet("git rev-parse HEAD", workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(remoteHead) != strings.TrimSpace(localHead) {
+		t.Fatalf("remote retry branch was not updated: remote=%s local=%s", remoteHead, localHead)
+	}
+}
+
 func TestEnsureRunnerPRHandoffFailsOnNoBranchChanges(t *testing.T) {
 	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
 	workspace := runnerHandoffGitWorkspace(t, "main")

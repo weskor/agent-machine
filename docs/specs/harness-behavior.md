@@ -170,6 +170,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 - When `PI_SYMPHONY_DEBUG_RAW_OUTPUT=1` is set, raw agent output is written to capped debug artifacts outside the issue workspace (for example `.symphony/debug/<issue>/*-raw.log` under the workspace root), and the primary log includes the artifact path.
 - Workspace dirtiness ignores only bounded runner/operator evidence artifacts. A top-level regular file named `false` is treated as a non-authoritative external subagent scratch marker only when it is zero bytes or bounded reviewer-output text with the known subagent scratch signature. Non-matching non-empty `false` files, nested `false` files, symlinks, and all other untracked files still block cleanup and merge readiness as real dirty workspace state.
 - After a successful implementation diff, the runner attempts deterministic Git/PR handoff. A same-repository Agent PR hint whose head branch does not match the expected workspace branch is treated as stale and ignored; the run fails only when runner handoff cannot prove branch changes, push the branch, create/reuse exactly one PR, or validate repository/base/head ownership for the expected branch.
+- Runner-owned handoff may update the exact expected `symphony/<issue>-workspace` remote branch on retry using a lease-protected branch update. This is limited to the validated current issue branch and must not broaden into arbitrary force-push behavior.
 
 ## Review and handoff
 

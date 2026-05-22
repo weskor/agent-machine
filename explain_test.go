@@ -69,6 +69,18 @@ func TestExplainMergeUsesMergeGateBlockers(t *testing.T) {
 	}
 }
 
+func TestExplainDoesNotCreateSQLiteStateOnFreshWorkspace(t *testing.T) {
+	root := t.TempDir()
+	config := testRunnerConfig(root)
+
+	if _, err := explain(config, []issue{testIssue("CAG-7", "Ready for Agent")}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(state.DefaultDBPath(root)); !os.IsNotExist(err) {
+		t.Fatalf("explain created SQLite state on fresh workspace: %v", err)
+	}
+}
+
 func TestExplainCleanupDoesNotDeleteEligibleWorkspace(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "CAG-8")

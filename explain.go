@@ -79,7 +79,10 @@ func printExplain(client linearClient, config runnerConfig) error {
 
 func explain(config runnerConfig, candidates []issue, prsByIssue map[string]*pullRequestSummary, doneIssues map[string]bool) (explainReport, error) {
 	report := explainReport{Mode: "explain"}
-	store, _ := commandScopedStateStore(context.Background(), config.WorkspaceRoot, "explain-reconciliation")
+	store, err := openExistingStateStore(context.Background(), config.WorkspaceRoot)
+	if err != nil {
+		return report, err
+	}
 	if store != nil {
 		defer store.Close()
 	}
@@ -91,6 +94,20 @@ func explain(config runnerConfig, candidates []issue, prsByIssue map[string]*pul
 	}
 	report.Cleanup = cleanup
 	return report, nil
+}
+
+func openExistingStateStore(ctx context.Context, workspaceRoot string) (*state.Store, error) {
+	dbPath := state.DefaultDBPath(workspaceRoot)
+	if dbPath == "" {
+		return nil, nil
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return state.Open(ctx, dbPath)
 }
 
 func explainCandidateSelection(config runnerConfig, candidates []issue, prsByIssue map[string]*pullRequestSummary, store *state.Store) explainNextDecision {

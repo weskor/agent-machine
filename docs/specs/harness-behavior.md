@@ -45,8 +45,7 @@ Agent judgment may inform review comments and handoff summaries, but the runner 
 These seams still rely too much on Agent or reviewer interpretation and should be converted gradually without changing current behavior in this documentation slice:
 
 - Ticket-contract syntax is partly prompt-enforced; malformed or prose-only scope contracts are not fully normalized into a typed issue-contract model.
-- PR URL discovery still starts from agent output and then validates the first configured-repository URL; branch/repository lookup should become primary when possible.
-- Commit/push/PR create/update are still largely prompt-assigned to the Agent in the current `pi_cli` flow; the target contract makes those runner-owned once implementation slices add safe Git/GitHub operations.
+- Agent-emitted PR URLs still exist as compatibility hints; wrong-branch stale hints should not block runner-owned branch/repository handoff, while invalid URLs, wrong repositories, non-recoverable lookups, and blockers on the expected branch remain deterministic failures.
 - Runtime readiness is implicit today: the current implementation shells to `pi`, so operators need a configured `pi` binary on `PATH`; missing binary/auth/model/provider issues should become pre-claim failures with actionable messages.
 - Missing-PR outcomes depend on parsing agent text for `NEEDS_INFO` versus failure; a typed outcome envelope would make classification less brittle.
 - Review output classification depends on text markers and reviewer wording; behavior/spec blockers versus missing-evidence-only should be structured.
@@ -162,15 +161,15 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 ## Pi implementation attempt
 
 - The implementation prompt includes the workflow body, Linear issue description, ticket-contract preflight, behavior-contract preflight, PR feedback when present, and runner constraints.
-- The agent must create or update exactly one PR from the expected workspace branch into the configured base branch.
+- The agent leaves the scoped code/test/doc diff and validation notes in the workspace; the runner creates or updates exactly one PR from the expected workspace branch into the configured base branch.
 - Current production behavior shells to the local `pi` CLI (`pi_cli` provider). Operators must have the configured implementation command installed, discoverable on `PATH` or as an executable path, and configured for the desired auth/provider/model. When review is configured, the configured review command executable must also resolve. Missing command setup fails during preflight before claim or workspace mutation.
-- The agent should stop after scoped diff, validation notes, and PR handoff.
-- The runner parses Pi usage and the first configured-repository GitHub PR URL from the output.
+- The agent should stop after scoped diff and validation notes. Any Agent-emitted PR URL is advisory compatibility input only.
+- The runner parses Pi usage from output and may read an Agent-emitted configured-repository GitHub PR URL as a hint, but branch-based runner-owned handoff is authoritative for the current attempt.
 - When a Linear issue includes machine-readable `Allowed paths:` or `Out of scope:` bullets, the runner checks changed files against that path contract before review and handoff. Scope violations are recorded as behavior/spec blockers and move the issue back to the configured Ready state. Issues without a machine-readable path contract continue with a warning so legacy tickets remain runnable.
 - Primary daemon logs record concise lifecycle summaries and do not print the raw Pi JSONL implementation or review stream during normal operation.
 - When `PI_SYMPHONY_DEBUG_RAW_OUTPUT=1` is set, raw agent output is written to capped debug artifacts outside the issue workspace (for example `.symphony/debug/<issue>/*-raw.log` under the workspace root), and the primary log includes the artifact path.
 - Workspace dirtiness ignores only bounded runner/operator evidence artifacts. A top-level regular file named `false` is treated as a non-authoritative external subagent scratch marker only when it is zero bytes or bounded reviewer-output text with the known subagent scratch signature. Non-matching non-empty `false` files, nested `false` files, symlinks, and all other untracked files still block cleanup and merge readiness as real dirty workspace state.
-- If no Agent PR URL is detected after a successful implementation, the runner attempts deterministic Git/PR handoff. The run fails only when runner handoff cannot prove branch changes, push the branch, create/reuse exactly one PR, or validate repository/base/head ownership.
+- After a successful implementation diff, the runner attempts deterministic Git/PR handoff. A same-repository Agent PR hint whose head branch does not match the expected workspace branch is treated as stale and ignored; the run fails only when runner handoff cannot prove branch changes, push the branch, create/reuse exactly one PR, or validate repository/base/head ownership for the expected branch.
 
 ## Review and handoff
 

@@ -417,6 +417,37 @@ func TestMergeApprovedPRsSquashMergesAndDeletesBranchViaGitHubAPI(t *testing.T) 
 	}
 }
 
+func TestMergeApprovedPRsFailsClosedWhenSQLiteUnavailable(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "state"), []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	githubCalled := false
+	previousGitHub := newGitHubAPI
+	newGitHubAPI = func() (githubAPI, error) {
+		githubCalled = true
+		return fakeGitHubAPI{}, nil
+	}
+	t.Cleanup(func() { newGitHubAPI = previousGitHub })
+
+	var updatedStates []string
+	var comments []string
+	config := testRunnerConfig(root)
+	config.HandoffState = "Human Review"
+	config.DoneState = "Done"
+
+	err := mergeApprovedPRs(mergeTestLinearClient(t, "CAG-41", &updatedStates, &comments), config)
+	if err == nil || !strings.Contains(err.Error(), "SQLite state store unavailable for merge-approved") {
+		t.Fatalf("expected SQLite fail-closed error, got %v", err)
+	}
+	if githubCalled {
+		t.Fatal("merge lane called GitHub after SQLite state store failure")
+	}
+	if len(updatedStates) != 0 || len(comments) != 0 {
+		t.Fatalf("merge lane mutated Linear after SQLite failure: states=%#v comments=%#v", updatedStates, comments)
+	}
+}
+
 func TestMergeApprovedPRsEmitsCompletedEvent(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "CAG-104")

@@ -253,6 +253,47 @@ func TestNextRunnableCandidateSkipsActiveLocks(t *testing.T) {
 	}
 }
 
+func TestClaimNextRunAttemptClaimsDistinctCandidatesBeforeExecution(t *testing.T) {
+	root := t.TempDir()
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	client := linearClientWithCandidates(t, []issue{
+		testIssue("CAG-1", "Ready for Agent"),
+		testIssue("CAG-2", "Ready for Agent"),
+	})
+	config := testRunnerConfig(root)
+	config.PiCommand = "sh"
+	wf := workflow{Body: "# Test workflow"}
+
+	first, didWork, err := claimNextRunAttempt(client, wf, config, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didWork || first == nil || first.Candidate.Identifier != "CAG-1" {
+		t.Fatalf("first claim = %#v didWork=%t, want CAG-1", first, didWork)
+	}
+	defer first.ReleaseLock()
+
+	second, didWork, err := claimNextRunAttempt(client, wf, config, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didWork || second == nil || second.Candidate.Identifier != "CAG-2" {
+		t.Fatalf("second claim = %#v didWork=%t, want CAG-2", second, didWork)
+	}
+	defer second.ReleaseLock()
+
+	if first.Candidate.Identifier == second.Candidate.Identifier {
+		t.Fatalf("claims should be distinct, both selected %s", first.Candidate.Identifier)
+	}
+	if !hasRunLock(first.Workspace) || !hasRunLock(second.Workspace) {
+		t.Fatalf("expected both claimed workspaces to hold run locks")
+	}
+}
+
 func TestNextRunnableCandidateSkipsExistingSuccessfulPRArtifact(t *testing.T) {
 	root := t.TempDir()
 	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/pennywise-investments/compound-web/pull/21"}`)

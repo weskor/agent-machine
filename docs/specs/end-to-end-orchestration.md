@@ -118,10 +118,10 @@ Terminal failure must include the failing phase, evidence pointer, and side effe
 ### Scheduler parameter contract (runtime semantics)
 
 - `max_concurrent_agents`:
-  - Current CLI runtime behavior: one work lane dispatches up to `agent.max_concurrent_agents` issue attempts per scheduler cycle.
+  - Current CLI runtime behavior: one work lane deterministically claims up to `agent.max_concurrent_agents` distinct runnable attempts per scheduler cycle, then executes the claimed attempts concurrently.
   - Default of `1` preserves current behavior.
   - Invalid/zero handling is delegated to configuration parsing, which currently falls back to `1` for missing/malformed/negative values.
-  - Duplicate dispatch protection remains authoritative in candidate selection, reusable terminal artifact checks, run locks, and SQLite leases; increasing capacity must not intentionally bypass those protections.
+  - Duplicate dispatch protection remains authoritative in candidate selection, reusable terminal artifact checks, run locks, and SQLite leases before Agent execution starts; increasing capacity must not intentionally bypass those protections.
 - `max_turns`:
   - Current `pi_cli` runtime behavior: no continuation/session loop exists today, so missing, invalid, zero, or `1` resolves to exactly one implementation attempt for the selected issue.
   - A normalized value greater than `1` is unsupported for `pi_cli` and fails runtime preflight before claim, lease acquisition, workspace mutation, Linear state movement, or Agent execution.
@@ -188,4 +188,3 @@ References:
 - Merge lane decisions use current GitHub state and durable Pi Symphony blockers.
 - Cleanup decisions are recorded and explain why each workspace was kept, dry-run eligible, deleted, or failed to delete.
 - ACP, MCP, web UI, and cloud surfaces reuse the same core Modules instead of reimplementing policy.
-

@@ -19,7 +19,7 @@ func TestExplainCandidateSelectionReportsOrderedSkipsAndSelection(t *testing.T) 
 	selected := testIssue("CAG-2", "Ready for Agent")
 	selected.Priority = 2
 
-	report := explainCandidateSelection(testRunnerConfig(root), []issue{selected, blocked}, nil)
+	report := explainCandidateSelection(testRunnerConfig(root), []issue{selected, blocked}, nil, nil)
 
 	if report.Selected != "CAG-2" {
 		t.Fatalf("Selected = %q, want CAG-2", report.Selected)
@@ -44,9 +44,9 @@ func TestExplainCandidateSelectionReportsSQLiteMissingPRReconciliation(t *testin
 	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: "CAG-115", Attempt: 1, BranchName: expectedWorkspaceBranch("CAG-115"), Status: "success", Repository: "weskor/pi-symphony", PRNumber: 115, PRURL: "https://github.com/weskor/pi-symphony/pull/115", TerminalOutcome: "handoff_ready"}); err != nil {
 		t.Fatal(err)
 	}
-	store.Close()
+	defer store.Close()
 
-	report := explainCandidateSelection(testRunnerConfig(root), []issue{testIssue("CAG-115", "Ready for Agent")}, nil)
+	report := explainCandidateSelection(testRunnerConfig(root), []issue{testIssue("CAG-115", "Ready for Agent")}, nil, store)
 
 	if report.Selected != "" || len(report.Candidates) != 1 || !strings.Contains(report.Candidates[0].Reason, "SQLite PR mapping") || !strings.Contains(report.Candidates[0].Reason, "reconciliation_needed") {
 		t.Fatalf("expected missing PR reconciliation in explain output, got %+v", report)
@@ -59,7 +59,7 @@ func TestExplainMergeUsesMergeGateBlockers(t *testing.T) {
 	candidate := testIssue("CAG-7", config.HandoffState)
 	pr := pullRequestSummary{URL: "https://github.com/acme/repo/pull/7", HeadRefName: "symphony/CAG-7-workspace", ReviewDecision: "APPROVED", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"}
 
-	decisions := explainMergeDecisions(config, map[string]*pullRequestSummary{"CAG-7": &pr}, []issue{candidate})
+	decisions := explainMergeDecisions(config, map[string]*pullRequestSummary{"CAG-7": &pr}, []issue{candidate}, nil)
 
 	if len(decisions) != 1 || decisions[0].CanMerge {
 		t.Fatalf("merge decisions = %+v", decisions)

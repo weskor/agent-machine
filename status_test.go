@@ -243,12 +243,12 @@ func TestReadyReconciliationReportsSQLiteArtifactConflict(t *testing.T) {
 	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: "CAG-116", Attempt: 1, BranchName: expectedWorkspaceBranch("CAG-116"), Status: "success", TerminalOutcome: "handoff_ready"}); err != nil {
 		t.Fatal(err)
 	}
-	store.Close()
+	defer store.Close()
 	candidate := testIssue("CAG-116", "Ready for Agent")
 	config := runnerConfig{WorkspaceRoot: root, ReadyState: "Ready for Agent"}
 	artifacts := map[string]artifactSummary{"CAG-116": {Issue: "CAG-116", Status: "review_failed", Outcome: "review_failed", Cleanable: true, HasArtifact: true}}
 
-	lines := summarizeReadyReconciliationDecisions(reconcileIssues(config, []issue{candidate}, nil, artifacts), config.ReadyState)
+	lines := summarizeReadyReconciliationDecisions(newReconciliationModule(store).ReconcileIssues(config, []issue{candidate}, nil, artifacts), config.ReadyState)
 
 	if !strings.Contains(strings.Join(lines, "\n"), "reconciliation_needed=true") {
 		t.Fatalf("expected status reconciliation-needed marker, got %#v", lines)
@@ -264,11 +264,11 @@ func TestReadyReconciliationReportsDurableStateWithoutWorkspaceArtifact(t *testi
 	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: "CAG-117", Attempt: 1, BranchName: expectedWorkspaceBranch("CAG-117"), Status: "success", Repository: "weskor/pi-symphony", PRNumber: 117, PRURL: "https://github.com/weskor/pi-symphony/pull/117", TerminalOutcome: "handoff_ready"}); err != nil {
 		t.Fatal(err)
 	}
-	store.Close()
+	defer store.Close()
 	candidate := testIssue("CAG-117", "Ready for Agent")
 	config := runnerConfig{WorkspaceRoot: root, ReadyState: "Ready for Agent"}
 
-	lines := summarizeReadyReconciliationDecisions(reconcileIssues(config, []issue{candidate}, nil, nil), config.ReadyState)
+	lines := summarizeReadyReconciliationDecisions(newReconciliationModule(store).ReconcileIssues(config, []issue{candidate}, nil, nil), config.ReadyState)
 	joined := strings.Join(lines, "\n")
 
 	for _, expected := range []string{"Reconcile Ready issue from durable state", "CAG-117", "status=success", "pull/117", "next=reconcile_missing_or_closed_pr_mapping", "reconciliation_needed=true"} {

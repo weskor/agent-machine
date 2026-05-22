@@ -27,7 +27,7 @@ func nextRunnableCandidate(client linearClient, config runnerConfig, store *stat
 	blockedCount := 0
 	for i := range candidates {
 		pr := prsByIssue[candidates[i].Identifier]
-		decision := reconcileIssue(config, candidates[i], pr)
+		decision := newReconciliationModule(store).ReconcileIssue(config, candidates[i], pr)
 		retryDecision, retryDecisionFound := retryBackoffDecision(context.Background(), store, candidates[i], config, time.Now().UTC())
 		if store != nil {
 			if retryDecisionFound && !retryDecision.runnable {
@@ -53,7 +53,7 @@ func nextRunnableCandidate(client linearClient, config runnerConfig, store *stat
 	}
 	for i := range candidates {
 		pr := prsByIssue[candidates[i].Identifier]
-		decision := reconcileIssue(config, candidates[i], pr)
+		decision := newReconciliationModule(store).ReconcileIssue(config, candidates[i], pr)
 		retryDecision, retryDecisionFound := retryBackoffDecision(context.Background(), store, candidates[i], config, time.Now().UTC())
 		if store != nil {
 			if retryDecisionFound && !retryDecision.runnable {

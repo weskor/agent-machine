@@ -84,7 +84,7 @@ func mergeApprovedPRs(client linearClient, config runnerConfig) error {
 			log("blocked merge for %s: %s", candidate.Identifier, reason)
 			continue
 		}
-		decision := reconcileIssue(config, *candidate, &pr)
+		decision := newReconciliationModule(store).ReconcileIssue(config, *candidate, &pr)
 		if decision.ShouldQuarantine && len(decision.Blockers) > 0 {
 			recordMergeEvent(store, orchstate.EventMergeBlocked, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "reason": strings.Join(decision.Blockers, "; "), "next_action": decision.NextAction})
 			_ = client.createComment(candidate.ID, fmt.Sprintf("Symphony PR blocked by reconciliation invariant; next=%s; reason: %s", decision.NextAction, strings.Join(decision.Blockers, "; ")))

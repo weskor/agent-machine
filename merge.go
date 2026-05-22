@@ -28,7 +28,10 @@ func mergeGateBlockReason(pr pullRequestSummary) string {
 // issues when GitHub reports an approval and every reported check is green.
 func mergeApprovedPRs(client linearClient, config runnerConfig) error {
 	log("mode=merge-approved; project=%s", config.ProjectSlug)
-	store, _ := commandScopedStateStore(context.Background(), config.WorkspaceRoot, "merge-approved")
+	store, stateDBPath := commandScopedStateStore(context.Background(), config.WorkspaceRoot, "merge-approved")
+	if store == nil {
+		return fmt.Errorf("SQLite state store unavailable for merge-approved at %s", stateDBPath)
+	}
 	if store != nil {
 		defer store.Close()
 	}

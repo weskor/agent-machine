@@ -201,7 +201,7 @@ func ensureRunnerPRHandoff(config runnerConfig, candidate *issue, workspace, age
 	if err := sh.RunWithTimeout("git diff --quiet "+sh.Quote("origin/"+base+"...HEAD"), workspace, config.Budget.CommandTimeout); err == nil {
 		return "", fmt.Errorf("no branch changes to hand off for %s", candidate.Identifier)
 	}
-	if _, err := sh.CaptureEnvWithOutputTimeout("git push origin HEAD:refs/heads/"+sh.Quote(branch), workspace, githubEnv, true, config.Budget.CommandTimeout); err != nil {
+	if _, err := sh.CaptureEnvWithOutputTimeout("git push --force-with-lease origin HEAD:refs/heads/"+sh.Quote(branch), workspace, githubEnv, true, config.Budget.CommandTimeout); err != nil {
 		return "", fmt.Errorf("git push failed for %s: %w", branch, err)
 	}
 

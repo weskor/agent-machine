@@ -181,6 +181,7 @@ func TestContinuousSchedulerConfiguredCapacityPreventsDuplicateDispatch(t *testi
 	var lockHeld atomic.Bool
 	var didWork atomic.Int32
 	var duplicates atomic.Int32
+	var secondIssue atomic.Bool
 	start := make(chan struct{})
 	allowDone := make(chan struct{})
 
@@ -194,6 +195,10 @@ func TestContinuousSchedulerConfiguredCapacityPreventsDuplicateDispatch(t *testi
 					<-start
 					if !lockHeld.CompareAndSwap(false, true) {
 						duplicates.Add(1)
+						if secondIssue.CompareAndSwap(false, true) {
+							didWork.Add(1)
+							return true, nil
+						}
 						return false, nil
 					}
 					defer lockHeld.Store(false)
@@ -226,7 +231,7 @@ func TestContinuousSchedulerConfiguredCapacityPreventsDuplicateDispatch(t *testi
 	case <-time.After(time.Second):
 		t.Fatal("scheduler did not stop after duplicate was skipped")
 	}
-	if didWork.Load() != 1 || duplicates.Load() != 1 {
-		t.Fatalf("didWork=%d duplicates=%d, want exactly one work dispatch and one duplicate skip", didWork.Load(), duplicates.Load())
+	if didWork.Load() != 2 || duplicates.Load() != 1 {
+		t.Fatalf("didWork=%d duplicates=%d, want capacity filled after one duplicate skip", didWork.Load(), duplicates.Load())
 	}
 }

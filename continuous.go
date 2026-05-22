@@ -177,10 +177,20 @@ func runContinuousLaneCycle(ctx context.Context, lane continuousLane) (bool, err
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			didWork, err := lane.run()
-			select {
-			case results <- result{didWork: didWork, err: err}:
-			case <-ctx.Done():
+			for attempt := 0; attempt < capacity; attempt++ {
+				didWork, err := lane.run()
+				if didWork || err != nil || attempt == capacity-1 {
+					select {
+					case results <- result{didWork: didWork, err: err}:
+					case <-ctx.Done():
+					}
+					return
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(250 * time.Millisecond):
+				}
 			}
 		}()
 	}

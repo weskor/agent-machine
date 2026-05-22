@@ -61,3 +61,17 @@ func TestEnvMapParsesKeyValueEntries(t *testing.T) {
 		t.Fatalf("malformed env entry should be ignored: %#v", env)
 	}
 }
+
+func TestLoadDotEnvLocalSetsMissingValues(t *testing.T) {
+	t.Setenv("LINEAR_API_KEY", "")
+	path := t.TempDir() + "/.env.local"
+	if err := os.WriteFile(path, []byte("LINEAR_API_KEY=from-file\nexport GH_TOKEN='gh-file'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loadDotEnvLocal(path)
+
+	if os.Getenv("LINEAR_API_KEY") != "from-file" || os.Getenv("GH_TOKEN") != "gh-file" {
+		t.Fatalf("dotenv values were not loaded")
+	}
+}

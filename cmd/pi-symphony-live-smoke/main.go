@@ -51,7 +51,14 @@ func main() {
 
 func run(ctx context.Context, args []string, environ []string) error {
 	opts := parseOptions(args)
+	loadDotEnvLocal(".env.local")
+	loadDotEnvLocal(filepath.Join(filepath.Dir(opts.workflow), ".env.local"))
 	env := envMap(environ)
+	for _, key := range []string{"LINEAR_API_KEY", "LIVE_LINEAR", "LIVE_SMOKE_APPLY"} {
+		if value := os.Getenv(key); value != "" {
+			env[key] = value
+		}
+	}
 	if err := livesmoke.ValidateEnvironment(env, opts.applyMerge); err != nil {
 		return err
 	}
@@ -485,4 +492,30 @@ func indentBlock(value string, spaces int) string {
 
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
+
+func loadDotEnvLocal(path string) {
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(strings.TrimPrefix(key, "export "))
+		value = strings.Trim(strings.TrimSpace(value), `"'`)
+		if key == "" || os.Getenv(key) != "" {
+			continue
+		}
+		_ = os.Setenv(key, value)
+	}
 }

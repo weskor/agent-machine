@@ -96,7 +96,7 @@ mise exec go -- go run . --status WORKFLOW.md
 Required gates:
 
 - `LIVE_LINEAR=1`
-- `LINEAR_API_KEY`
+- `LINEAR_API_KEY` exported or present in `.env.local`
 - GitHub credentials accepted by the runner, usually the local GitHub App variables from `.env.local`
 
 Basic fake-agent smoke:

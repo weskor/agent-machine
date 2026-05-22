@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,16 @@ import (
 	sh "github.com/weskor/pi-symphony/internal/shell"
 	"github.com/weskor/pi-symphony/internal/state"
 )
+
+type failingReconciliationReader struct{ err error }
+
+func (f failingReconciliationReader) ReconciliationFacts(context.Context, string) (state.ReconciliationFacts, bool, error) {
+	return state.ReconciliationFacts{}, false, f.err
+}
+
+func (f failingReconciliationReader) Lease(context.Context, string) (state.Lease, bool, error) {
+	return state.Lease{}, false, f.err
+}
 
 func TestReconcileIssueAllowsFeedbackRetryToSupersedeTerminalArtifact(t *testing.T) {
 	root := t.TempDir()
@@ -35,6 +46,17 @@ func TestReconcileIssueBlocksTerminalArtifactWithoutNewFeedback(t *testing.T) {
 
 	if decision.CanRun || decision.Lifecycle != lifecycleHandoffReady || !strings.Contains(strings.Join(decision.Blockers, "; "), "terminal success artifact") {
 		t.Fatalf("expected terminal artifact block, got %#v", decision)
+	}
+}
+
+func TestReconcileIssueFailClosedWhenStateReaderFails(t *testing.T) {
+	root := t.TempDir()
+	reader := failingReconciliationReader{err: errors.New("database unavailable")}
+
+	decision := newReconciliationModule(reader).ReconcileIssue(testRunnerConfig(root), testIssue("CAG-36", "Ready for Agent"), nil)
+
+	if decision.CanRun || !decision.ReconciliationNeeded || decision.StateStoreError == nil || decision.NextAction != "repair_sqlite_state_store" {
+		t.Fatalf("expected fail-closed degraded SQLite reconciliation, got %#v", decision)
 	}
 }
 
@@ -107,9 +129,9 @@ func TestReconcileIssueUsesSQLiteStateWhenWorkspaceDeleted(t *testing.T) {
 	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: "CAG-111", Attempt: 1, BranchName: expectedWorkspaceBranch("CAG-111"), BaseBranch: "develop", Status: "success", Repository: "weskor/pi-symphony", PRNumber: 111, PRURL: "https://github.com/weskor/pi-symphony/pull/111", TerminalOutcome: "handoff_ready"}); err != nil {
 		t.Fatal(err)
 	}
-	store.Close()
+	defer store.Close()
 
-	decision := reconcileIssue(testRunnerConfig(root), testIssue("CAG-111", "Ready for Agent"), nil)
+	decision := newReconciliationModule(store).ReconcileIssue(testRunnerConfig(root), testIssue("CAG-111", "Ready for Agent"), nil)
 
 	if decision.Lifecycle != lifecycleBlocked || !decision.ReconciliationNeeded || !strings.Contains(strings.Join(decision.Blockers, "; "), "SQLite PR mapping") {
 		t.Fatalf("expected durable missing-PR mapping reconciliation, got %#v", decision)
@@ -123,9 +145,9 @@ func TestReconcileIssueBlocksActiveSQLiteLease(t *testing.T) {
 	if err := store.UpsertLease(context.Background(), state.Lease{Name: "run:CAG-112", Scope: root, Owner: "daemon", AcquiredAt: now, RenewedAt: now, ExpiresAt: now.Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
-	store.Close()
+	defer store.Close()
 
-	decision := reconcileIssue(testRunnerConfig(root), testIssue("CAG-112", "Ready for Agent"), nil)
+	decision := newReconciliationModule(store).ReconcileIssue(testRunnerConfig(root), testIssue("CAG-112", "Ready for Agent"), nil)
 
 	if decision.CanRun || decision.Lifecycle != lifecycleRunning || !strings.Contains(strings.Join(decision.Blockers, "; "), "SQLite run lease") {
 		t.Fatalf("expected active SQLite lease block, got %#v", decision)
@@ -138,9 +160,9 @@ func TestReconcileIssueReportsClosedOrMissingPRMapping(t *testing.T) {
 	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: "CAG-113", Attempt: 1, BranchName: expectedWorkspaceBranch("CAG-113"), BaseBranch: "develop", Status: "success", Repository: "weskor/pi-symphony", PRNumber: 113, PRURL: "https://github.com/weskor/pi-symphony/pull/113", TerminalOutcome: "handoff_ready"}); err != nil {
 		t.Fatal(err)
 	}
-	store.Close()
+	defer store.Close()
 
-	decision := reconcileIssue(testRunnerConfig(root), testIssue("CAG-113", "Human Review"), nil)
+	decision := newReconciliationModule(store).ReconcileIssue(testRunnerConfig(root), testIssue("CAG-113", "Human Review"), nil)
 
 	if decision.CanRun || !decision.ReconciliationNeeded || decision.NextAction != "reconcile_missing_or_closed_pr_mapping" {
 		t.Fatalf("expected missing current PR to require reconciliation, got %#v", decision)
@@ -154,9 +176,9 @@ func TestReconcileIssueTerminalSQLiteOutcomeBlocksStaleArtifact(t *testing.T) {
 	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: "CAG-114", Attempt: 1, BranchName: expectedWorkspaceBranch("CAG-114"), Status: "merged", TerminalOutcome: "merged"}); err != nil {
 		t.Fatal(err)
 	}
-	store.Close()
+	defer store.Close()
 
-	decision := reconcileIssue(testRunnerConfig(root), testIssue("CAG-114", "Ready for Agent"), nil)
+	decision := newReconciliationModule(store).ReconcileIssue(testRunnerConfig(root), testIssue("CAG-114", "Ready for Agent"), nil)
 
 	if decision.Lifecycle != lifecycleDone || !decision.ReconciliationNeeded {
 		t.Fatalf("expected SQLite terminal outcome to supersede stale artifact, got %#v", decision)

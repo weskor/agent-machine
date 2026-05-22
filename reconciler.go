@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -40,14 +40,40 @@ type reconciliationDecision struct {
 	PR                   *pullRequestSummary
 	Artifact             *artifactSummary
 	DBFacts              *state.ReconciliationFacts
+	StateStoreError      error
 	ReconciliationNeeded bool
 }
 
+type reconciliationStateReader interface {
+	ReconciliationFacts(context.Context, string) (state.ReconciliationFacts, bool, error)
+	Lease(context.Context, string) (state.Lease, bool, error)
+}
+
+type reconciliationModule struct {
+	reader reconciliationStateReader
+	now    func() time.Time
+}
+
+func newReconciliationModule(reader reconciliationStateReader) reconciliationModule {
+	if reader == nil || reflect.ValueOf(reader).Kind() == reflect.Ptr && reflect.ValueOf(reader).IsNil() {
+		return reconciliationModule{now: func() time.Time { return time.Now().UTC() }}
+	}
+	return reconciliationModule{reader: reader, now: func() time.Time { return time.Now().UTC() }}
+}
+
 func reconcileIssue(config runnerConfig, candidate issue, pr *pullRequestSummary) reconciliationDecision {
-	return reconcileIssueWithArtifact(config, candidate, pr, nil)
+	return newReconciliationModule(nil).ReconcileIssue(config, candidate, pr)
 }
 
 func reconcileIssueWithArtifact(config runnerConfig, candidate issue, pr *pullRequestSummary, artifact *artifactSummary) reconciliationDecision {
+	return newReconciliationModule(nil).ReconcileIssueWithArtifact(config, candidate, pr, artifact)
+}
+
+func (m reconciliationModule) ReconcileIssue(config runnerConfig, candidate issue, pr *pullRequestSummary) reconciliationDecision {
+	return m.ReconcileIssueWithArtifact(config, candidate, pr, nil)
+}
+
+func (m reconciliationModule) ReconcileIssueWithArtifact(config runnerConfig, candidate issue, pr *pullRequestSummary, artifact *artifactSummary) reconciliationDecision {
 	workspace := filepath.Join(config.WorkspaceRoot, candidate.Identifier)
 	decision := reconciliationDecision{IssueIdentifier: candidate.Identifier, StateName: candidate.State.Name, Lifecycle: lifecycleReady, NextAction: "run_agent"}
 	if pr != nil {
@@ -61,7 +87,10 @@ func reconcileIssueWithArtifact(config runnerConfig, candidate issue, pr *pullRe
 			decision.RunRecord = &runRecord{Status: copy.Status, PRURL: copy.PRURL, ReviewStatus: copy.Review}
 		}
 	}
-	if facts, ok := reconciliationFactsFromSQLite(config.WorkspaceRoot, candidate.Identifier); ok {
+	if facts, ok, err := m.reconciliationFacts(context.Background(), candidate.Identifier); err != nil {
+		decision.StateStoreError = err
+		decision.ReconciliationNeeded = true
+	} else if ok {
 		decision.DBFacts = &facts
 		if facts.Status != "" && terminalRunStatus(facts.Status) && decision.RunRecord == nil {
 			decision.RunRecord = &runRecord{Status: facts.Status, PRURL: facts.PRURL}
@@ -88,7 +117,16 @@ func reconcileIssueWithArtifact(config runnerConfig, candidate issue, pr *pullRe
 		decision.block(lifecycleRunning, "active run lock exists", "wait_for_or_clear_run_lock")
 		return decision
 	}
-	if activeSQLiteRunLease(config.WorkspaceRoot, candidate.Identifier, time.Now().UTC()) {
+	if decision.StateStoreError != nil {
+		decision.block(lifecycleBlocked, fmt.Sprintf("SQLite reconciliation state unavailable: %v", decision.StateStoreError), "repair_sqlite_state_store")
+		return decision
+	}
+	if active, err := m.activeRunLease(context.Background(), candidate.Identifier); err != nil {
+		decision.StateStoreError = err
+		decision.ReconciliationNeeded = true
+		decision.block(lifecycleBlocked, fmt.Sprintf("SQLite run lease unavailable: %v", err), "repair_sqlite_state_store")
+		return decision
+	} else if active {
 		decision.block(lifecycleRunning, "active SQLite run lease exists", "wait_for_or_release_run_lease")
 		return decision
 	}
@@ -124,44 +162,33 @@ func reconcileIssueWithArtifact(config runnerConfig, candidate issue, pr *pullRe
 	return decision
 }
 
-func reconciliationFactsFromSQLite(workspaceRoot, issueKey string) (state.ReconciliationFacts, bool) {
-	path := state.DefaultDBPath(workspaceRoot)
-	if path == "" {
-		return state.ReconciliationFacts{}, false
+func (m reconciliationModule) reconciliationFacts(ctx context.Context, issueKey string) (state.ReconciliationFacts, bool, error) {
+	if m.reader == nil {
+		return state.ReconciliationFacts{}, false, nil
 	}
-	if _, err := os.Stat(path); err != nil {
-		return state.ReconciliationFacts{}, false
-	}
-	store, err := state.Open(context.Background(), path)
-	if err != nil {
-		return state.ReconciliationFacts{}, false
-	}
-	defer store.Close()
-	facts, ok, err := store.ReconciliationFacts(context.Background(), issueKey)
-	if err != nil {
-		return state.ReconciliationFacts{}, false
-	}
-	return facts, ok
+	return m.reader.ReconciliationFacts(ctx, issueKey)
 }
 
-func activeSQLiteRunLease(workspaceRoot, issueKey string, now time.Time) bool {
-	path := state.DefaultDBPath(workspaceRoot)
-	if path == "" {
-		return false
+func (m reconciliationModule) activeRunLease(ctx context.Context, issueKey string) (bool, error) {
+	if m.reader == nil {
+		return false, nil
 	}
-	if _, err := os.Stat(path); err != nil {
-		return false
+	lease, ok, err := m.reader.Lease(ctx, "run:"+issueKey)
+	if err != nil || !ok {
+		return false, err
 	}
-	store, err := state.Open(context.Background(), path)
-	if err != nil {
-		return false
+	now := time.Now().UTC()
+	if m.now != nil {
+		now = m.now()
 	}
-	defer store.Close()
-	lease, ok, err := store.Lease(context.Background(), "run:"+issueKey)
-	return err == nil && ok && lease.ReleasedAt.IsZero() && lease.ExpiresAt.After(now)
+	return lease.ReleasedAt.IsZero() && lease.ExpiresAt.After(now), nil
 }
 
 func reconcileIssues(config runnerConfig, issues []issue, prsByIssue map[string]*pullRequestSummary, artifactsByIssue map[string]artifactSummary) []reconciliationDecision {
+	return newReconciliationModule(nil).ReconcileIssues(config, issues, prsByIssue, artifactsByIssue)
+}
+
+func (m reconciliationModule) ReconcileIssues(config runnerConfig, issues []issue, prsByIssue map[string]*pullRequestSummary, artifactsByIssue map[string]artifactSummary) []reconciliationDecision {
 	decisions := make([]reconciliationDecision, 0, len(issues))
 	for _, issue := range issues {
 		var artifact *artifactSummary
@@ -174,7 +201,7 @@ func reconcileIssues(config runnerConfig, issues []issue, prsByIssue map[string]
 		if prsByIssue != nil {
 			pr = prsByIssue[issue.Identifier]
 		}
-		decisions = append(decisions, reconcileIssueWithArtifact(config, issue, pr, artifact))
+		decisions = append(decisions, m.ReconcileIssueWithArtifact(config, issue, pr, artifact))
 	}
 	return decisions
 }

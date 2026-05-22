@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/weskor/pi-symphony/internal/state"
 	ws "github.com/weskor/pi-symphony/internal/workspace"
 )
 
@@ -77,8 +79,15 @@ func printExplain(client linearClient, config runnerConfig) error {
 
 func explain(config runnerConfig, candidates []issue, prsByIssue map[string]*pullRequestSummary, doneIssues map[string]bool) (explainReport, error) {
 	report := explainReport{Mode: "explain"}
-	report.Next = explainCandidateSelection(config, candidates, prsByIssue)
-	report.Merge = explainMergeDecisions(config, prsByIssue, candidates)
+	store, err := openExistingStateStore(context.Background(), config.WorkspaceRoot)
+	if err != nil {
+		return report, err
+	}
+	if store != nil {
+		defer store.Close()
+	}
+	report.Next = explainCandidateSelection(config, candidates, prsByIssue, store)
+	report.Merge = explainMergeDecisions(config, prsByIssue, candidates, store)
 	cleanup, err := explainCleanup(config.WorkspaceRoot, doneIssues)
 	if err != nil {
 		return report, err
@@ -87,14 +96,28 @@ func explain(config runnerConfig, candidates []issue, prsByIssue map[string]*pul
 	return report, nil
 }
 
-func explainCandidateSelection(config runnerConfig, candidates []issue, prsByIssue map[string]*pullRequestSummary) explainNextDecision {
+func openExistingStateStore(ctx context.Context, workspaceRoot string) (*state.Store, error) {
+	dbPath := state.DefaultDBPath(workspaceRoot)
+	if dbPath == "" {
+		return nil, nil
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return state.Open(ctx, dbPath)
+}
+
+func explainCandidateSelection(config runnerConfig, candidates []issue, prsByIssue map[string]*pullRequestSummary, store *state.Store) explainNextDecision {
 	ordered := orderCandidates(candidates, config.ReadyState)
 	decisions := make([]explainCandidateDecision, 0, len(ordered))
 	selected := ""
 	for pass := 0; pass < 2 && selected == ""; pass++ {
 		for i := range ordered {
 			candidate := ordered[i]
-			decision := reconcileIssue(config, candidate, prsByIssue[candidate.Identifier])
+			decision := newReconciliationModule(store).ReconcileIssue(config, candidate, prsByIssue[candidate.Identifier])
 			if pass == 0 && candidate.State.Name != config.ReadyState {
 				continue
 			}
@@ -109,7 +132,7 @@ func explainCandidateSelection(config runnerConfig, candidates []issue, prsByIss
 	}
 	for i := range ordered {
 		candidate := ordered[i]
-		decision := reconcileIssue(config, candidate, prsByIssue[candidate.Identifier])
+		decision := newReconciliationModule(store).ReconcileIssue(config, candidate, prsByIssue[candidate.Identifier])
 		reason := "would run"
 		if !decision.CanRun {
 			reason = strings.Join(decision.Blockers, "; ")
@@ -136,7 +159,7 @@ func explainCandidateSelection(config runnerConfig, candidates []issue, prsByIss
 	return explainNextDecision{Selected: selected, Candidates: decisions}
 }
 
-func explainMergeDecisions(config runnerConfig, prsByIssue map[string]*pullRequestSummary, candidates []issue) []explainMergeDecision {
+func explainMergeDecisions(config runnerConfig, prsByIssue map[string]*pullRequestSummary, candidates []issue, store *state.Store) []explainMergeDecision {
 	issues := map[string]issue{}
 	for _, candidate := range candidates {
 		issues[candidate.Identifier] = candidate
@@ -146,7 +169,7 @@ func explainMergeDecisions(config runnerConfig, prsByIssue map[string]*pullReque
 		gate := evaluatePullRequestMergeGate(*pr)
 		decision := reconciliationDecision{}
 		if candidate, ok := issues[identifier]; ok {
-			decision = reconcileIssue(config, candidate, pr)
+			decision = newReconciliationModule(store).ReconcileIssue(config, candidate, pr)
 		}
 		reason := gate.Reason()
 		canMerge := gate.Eligible && decision.CanMerge && pr.ReviewDecision == "APPROVED"

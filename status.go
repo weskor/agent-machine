@@ -50,7 +50,11 @@ func printStatus(client linearClient, config runnerConfig) error {
 		log("- %s", summary)
 	}
 	prsByIssue := indexPRsByIssue(prs)
-	decisions := reconcileIssues(config, issues, prsByIssue, artifactIndex.byIssue)
+	store, _ := commandScopedStateStore(context.Background(), config.WorkspaceRoot, "status-reconciliation")
+	if store != nil {
+		defer store.Close()
+	}
+	decisions := newReconciliationModule(store).ReconcileIssues(config, issues, prsByIssue, artifactIndex.byIssue)
 	for _, line := range summarizeReadyReconciliationDecisions(decisions, config.ReadyState) {
 		log("- %s", line)
 	}

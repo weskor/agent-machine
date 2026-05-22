@@ -86,7 +86,7 @@ func (h *scenarioHarness) reconcile() []reconciliationDecision {
 }
 
 func (h *scenarioHarness) simulateSuccessfulRun(identifier string) string {
-	selection := explainCandidateSelection(h.config, h.candidates, h.prs)
+	selection := explainCandidateSelection(h.config, h.candidates, h.prs, nil)
 	if selection.Selected != identifier {
 		h.t.Fatalf("selected candidate = %q, want %q", selection.Selected, identifier)
 	}

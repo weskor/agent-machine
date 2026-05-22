@@ -89,6 +89,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
   - `--continuous` starts one merge lane and one work lane;
   - the work lane deterministically claims up to `agent.max_concurrent_agents` distinct runnable attempts per iteration, then executes the claimed attempts concurrently;
   - the default value of `1` preserves the historical single-agent behavior.
+- Live dogfood smoke test CAG-131 validated that the claim-first split still lets a `Ready for Agent` issue enter the normal isolated workspace flow; no scheduler or state-machine policy changed as part of that smoke test.
 - `agent.max_concurrent_agents` controls only work-lane claim capacity. Duplicate work prevention remains enforced before Agent execution by candidate reconciliation, reusable terminal run artifacts, run locks, and SQLite leases.
 - `agent.max_turns` is enforced at the AgentRuntime/config preflight boundary for `pi_cli`: normalized `1` preserves the single implementation attempt, while values greater than `1` fail before claim, lease acquisition, workspace mutation, Linear state movement, or Agent execution.
 - `pi_cli` does not gate or stop an in-flight attempt by turn count; future session-runtime Adapters must declare and enforce a `max_turns` capability rather than relying on scheduler guesses.

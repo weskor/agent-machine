@@ -123,9 +123,11 @@ The harness never runs merge-approved unless both controls are present:
 ```bash
 LIVE_LINEAR=1 LIVE_SMOKE_APPLY=1 mise exec go -- go run ./cmd/pi-symphony-live-smoke \
   --workflow WORKFLOW.md \
-  --issue CAG-123 \
+  --from-report .symphony/live-smoke/live-smoke-YYYYMMDDTHHMMSSZ.json \
   --apply-merge
 ```
+
+Use `--from-report` for follow-up merge checks so the harness reuses the original smoke workspace root and artifact evidence. Supplying only `--issue` with a fresh workspace root is intentionally rejected for `--apply-merge` because merge gates need the original run artifacts.
 
 Architecture and behavior docs live in `CONTEXT.md`, `LANGUAGE.md`, `docs/adr/`, and `docs/specs/`. Broad refactors should cite the relevant specs/ADRs in PR handoff notes, update specs when observable behavior changes, or state that no spec changes were needed for a mechanical move.
 

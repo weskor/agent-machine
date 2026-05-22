@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	cfg "github.com/weskor/pi-symphony/internal/config"
+	"github.com/weskor/pi-symphony/internal/livesmoke"
 )
 
 func TestParseOptionsUsesProvidedIssuesAsCount(t *testing.T) {
@@ -73,5 +74,19 @@ func TestLoadDotEnvLocalSetsMissingValues(t *testing.T) {
 
 	if os.Getenv("LINEAR_API_KEY") != "from-file" || os.Getenv("GH_TOKEN") != "gh-file" {
 		t.Fatalf("dotenv values were not loaded")
+	}
+}
+
+func TestApplyReportOptionsReusesWorkspaceAndIssues(t *testing.T) {
+	opts := applyReportOptions(options{workflow: "WORKFLOW.md"}, livesmoke.Report{
+		WorkflowPath:  "WORKFLOW.md",
+		WorkspaceRoot: "/tmp/smoke/.symphony/workspaces",
+		Issues:        []livesmoke.IssueRef{{Identifier: "CAG-1"}, {Identifier: "CAG-2"}},
+	})
+	if opts.workspaceRoot != "/tmp/smoke/.symphony/workspaces" {
+		t.Fatalf("workspaceRoot = %q", opts.workspaceRoot)
+	}
+	if opts.count != 2 || strings.Join(opts.issues, ",") != "CAG-1,CAG-2" {
+		t.Fatalf("unexpected issues/count: %#v", opts)
 	}
 }

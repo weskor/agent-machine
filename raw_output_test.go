@@ -13,7 +13,29 @@ import (
 )
 
 func rawOutputPath(workspace, phase string) string {
-	return filepath.Join(filepath.Dir(workspace), ".symphony", "debug", filepath.Base(workspace), phase+"-raw.log")
+	return debugRawArtifactPath(workspace, phase)
+}
+
+func TestDebugRawArtifactPathUsesRepoSymphonyRootForStandardWorkspaceLayout(t *testing.T) {
+	repo := t.TempDir()
+	workspace := filepath.Join(repo, ".symphony", "workspaces", "CAG-123")
+
+	got := debugRawArtifactPath(workspace, "implementation")
+	want := filepath.Join(repo, ".symphony", "debug", "CAG-123", "implementation-raw.log")
+	if got != want {
+		t.Fatalf("debugRawArtifactPath() = %q, want %q", got, want)
+	}
+}
+
+func TestDebugRawArtifactPathPreservesParentRootFallbackForNonstandardWorkspaceLayout(t *testing.T) {
+	repo := t.TempDir()
+	workspace := filepath.Join(repo, "runner-workspaces", "CAG-123")
+
+	got := debugRawArtifactPath(workspace, "review")
+	want := filepath.Join(repo, "runner-workspaces", ".symphony", "debug", "CAG-123", "review-raw.log")
+	if got != want {
+		t.Fatalf("debugRawArtifactPath() = %q, want %q", got, want)
+	}
 }
 
 func TestCaptureAgentOutputDoesNotPrintRawOutputByDefault(t *testing.T) {

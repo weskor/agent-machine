@@ -57,13 +57,21 @@ func debugRawArtifactPath(workspace, phase string) string {
 	if workspace == "" || phase == "" {
 		return ""
 	}
-	workspaceRoot := filepath.Dir(filepath.Clean(workspace))
-	issue := filepath.Base(filepath.Clean(workspace))
+	cleanWorkspace := filepath.Clean(workspace)
+	issue := filepath.Base(cleanWorkspace)
 	issue = strings.TrimSpace(issue)
 	if issue == "" {
 		return ""
 	}
-	return filepath.Join(workspaceRoot, ".symphony", "debug", issue, phase+"-raw.log")
+	return filepath.Join(rawArtifactEvidenceRoot(cleanWorkspace), "debug", issue, phase+"-raw.log")
+}
+
+func rawArtifactEvidenceRoot(workspace string) string {
+	workspaceRoot := filepath.Dir(workspace)
+	if filepath.Base(workspaceRoot) == "workspaces" && filepath.Base(filepath.Dir(workspaceRoot)) == ".symphony" {
+		return filepath.Dir(workspaceRoot)
+	}
+	return filepath.Join(workspaceRoot, ".symphony")
 }
 
 func rawAgentOutputLimitBytes() int {

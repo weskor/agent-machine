@@ -85,10 +85,11 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 
 ### Scheduler parameter behavior (current runnable contract)
 
-- Current runtime behavior is effectively single-attempt, single-worker:
-  - `--continuous` starts one work lane and one merge lane;
-  - the work lane performs `runOne` for at most one candidate per iteration and then yields.
-- `agent.max_concurrent_agents` is currently accepted but not enforced by scheduler logic.
+- Current runtime behavior is capacity-limited by `agent.max_concurrent_agents`:
+  - `--continuous` starts one merge lane and one work lane;
+  - the work lane performs up to `agent.max_concurrent_agents` concurrent `runOne` calls per iteration and then yields;
+  - the default value of `1` preserves the historical single-agent behavior.
+- `agent.max_concurrent_agents` controls only scheduler dispatch capacity. Duplicate work prevention remains enforced by run locks, reusable terminal run artifacts, and SQLite lease checks inside `runOne`/candidate selection.
 - `agent.max_turns` is enforced at the AgentRuntime/config preflight boundary for `pi_cli`: normalized `1` preserves the single implementation attempt, while values greater than `1` fail before claim, lease acquisition, workspace mutation, Linear state movement, or Agent execution.
 - `pi_cli` does not gate or stop an in-flight attempt by turn count; future session-runtime Adapters must declare and enforce a `max_turns` capability rather than relying on scheduler guesses.
 - `max_retry_backoff_ms` gates retry timing for durable retry decisions: retryable failed or blocked attempts write retry metadata to SQLite, candidate selection skips the issue until the exponential backoff delay elapses, and the delay is capped by the configured maximum.
@@ -126,7 +127,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 
 - Continuous mode starts a merge lane and a work lane concurrently.
 - The merge lane is continuous, sleeps 30 seconds between cycles, cleans Done workspaces with apply enabled, then runs merge-approved processing.
-- The work lane calls `runOne` and sleeps 60 seconds only when no work was done.
+- The work lane calls `runOne` up to `agent.max_concurrent_agents` times per cycle and sleeps 60 seconds only when none of the dispatches did work.
 - Any lane error cancels the scheduler and returns the error.
 - With `--cycles=N`, each lane exits after N cycles.
 

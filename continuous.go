@@ -8,11 +8,13 @@ import (
 	"sync"
 	"time"
 
+	cfg "github.com/weskor/pi-symphony/internal/config"
 	"github.com/weskor/pi-symphony/internal/state"
 )
 
 func runContinuous(client linearClient, wf workflow, config runnerConfig, maxCycles int) error {
-	log("mode=continuous; lanes=merge,work; project=%s; states=%s", config.ProjectSlug, strings.Join(config.ActiveStates, ", "))
+	maxConcurrentAgents := configuredMaxConcurrentAgents(config)
+	log("mode=continuous; lanes=merge,work; project=%s; states=%s; max_concurrent_agents=%d", config.ProjectSlug, strings.Join(config.ActiveStates, ", "), maxConcurrentAgents)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	stateStore, _ := commandScopedStateStore(ctx, config.WorkspaceRoot, "continuous")
@@ -41,8 +43,9 @@ func runContinuous(client linearClient, wf workflow, config runnerConfig, maxCyc
 				},
 			},
 			{
-				name:      "work",
-				idleDelay: 60 * time.Second,
+				name:          "work",
+				idleDelay:     60 * time.Second,
+				maxConcurrent: maxConcurrentAgents,
 				run: func() (bool, error) {
 					return runOne(client, wf, config)
 				},
@@ -56,7 +59,10 @@ type continuousLane struct {
 	name       string
 	idleDelay  time.Duration
 	continuous bool
-	run        func() (bool, error)
+	// maxConcurrent runs this many copies of the lane function in each cycle.
+	// Values less than one preserve the historical single-run lane behavior.
+	maxConcurrent int
+	run           func() (bool, error)
 }
 
 type continuousScheduler struct {
@@ -122,7 +128,7 @@ func runContinuousLane(ctx context.Context, lane continuousLane, maxCycles int, 
 		}
 
 		log("lane=%s cycle=%d starting", lane.name, cycles+1)
-		didWork, err := lane.run()
+		didWork, err := runContinuousLaneCycle(ctx, lane)
 		cycleNumber := cycles + 1
 		if err != nil {
 			recordContinuousHeartbeat(recordHeartbeat, continuousHeartbeat{LaneName: lane.name, CycleNumber: cycleNumber, Err: err, At: time.Now().UTC()})
@@ -150,6 +156,59 @@ func runContinuousLane(ctx context.Context, lane continuousLane, maxCycles int, 
 			}
 		}
 	}
+}
+
+func runContinuousLaneCycle(ctx context.Context, lane continuousLane) (bool, error) {
+	capacity := lane.maxConcurrent
+	if capacity < 1 {
+		capacity = 1
+	}
+	if capacity == 1 {
+		return lane.run()
+	}
+
+	type result struct {
+		didWork bool
+		err     error
+	}
+	results := make(chan result, capacity)
+	var wg sync.WaitGroup
+	for i := 0; i < capacity; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			didWork, err := lane.run()
+			select {
+			case results <- result{didWork: didWork, err: err}:
+			case <-ctx.Done():
+			}
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	didAnyWork := false
+	for result := range results {
+		if result.err != nil {
+			return didAnyWork, result.err
+		}
+		if result.didWork {
+			didAnyWork = true
+		}
+	}
+	return didAnyWork, nil
+}
+
+func configuredMaxConcurrentAgents(config runnerConfig) int {
+	wf, err := cfg.ReadWorkflow(config.WorkflowPath)
+	if err != nil {
+		return 1
+	}
+	schema, err := cfg.ParseConfig(wf.YAML)
+	if err != nil || schema.Agent.MaxConcurrentAgents < 1 {
+		return 1
+	}
+	return schema.Agent.MaxConcurrentAgents
 }
 
 func recordContinuousHeartbeat(recordHeartbeat func(continuousHeartbeat), heartbeat continuousHeartbeat) {

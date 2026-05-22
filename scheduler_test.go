@@ -92,3 +92,141 @@ func TestContinuousSchedulerRecordsLaneHeartbeats(t *testing.T) {
 		t.Fatalf("heartbeats = %+v; want successful merge and work lane heartbeats", heartbeats)
 	}
 }
+
+func TestContinuousSchedulerDefaultsWorkLaneCapacityToOne(t *testing.T) {
+	var concurrent atomic.Int32
+	var maxConcurrent atomic.Int32
+	var calls atomic.Int32
+
+	scheduler := continuousScheduler{
+		maxCycles: 1,
+		lanes: []continuousLane{
+			{
+				name: "work",
+				run: func() (bool, error) {
+					current := concurrent.Add(1)
+					for {
+						max := maxConcurrent.Load()
+						if current <= max || maxConcurrent.CompareAndSwap(max, current) {
+							break
+						}
+					}
+					calls.Add(1)
+					defer concurrent.Add(-1)
+					return true, nil
+				},
+			},
+		},
+	}
+
+	if err := scheduler.run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("work lane calls = %d, want 1", calls.Load())
+	}
+	if maxConcurrent.Load() != 1 {
+		t.Fatalf("max concurrent work lane calls = %d, want 1", maxConcurrent.Load())
+	}
+}
+
+func TestContinuousSchedulerRunsConfiguredWorkLaneCapacity(t *testing.T) {
+	const capacity = 3
+	allStarted := make(chan struct{})
+	allowDone := make(chan struct{})
+	var started atomic.Int32
+	var completed atomic.Int32
+
+	scheduler := continuousScheduler{
+		maxCycles: 1,
+		lanes: []continuousLane{
+			{
+				name:          "work",
+				maxConcurrent: capacity,
+				run: func() (bool, error) {
+					if started.Add(1) == capacity {
+						close(allStarted)
+					}
+					<-allowDone
+					completed.Add(1)
+					return true, nil
+				},
+			},
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- scheduler.run(context.Background()) }()
+
+	select {
+	case <-allStarted:
+	case <-time.After(time.Second):
+		t.Fatalf("started %d work lane calls, want %d", started.Load(), capacity)
+	}
+	close(allowDone)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("scheduler did not stop after configured capacity completed")
+	}
+	if completed.Load() != capacity {
+		t.Fatalf("completed work lane calls = %d, want %d", completed.Load(), capacity)
+	}
+}
+
+func TestContinuousSchedulerConfiguredCapacityPreventsDuplicateDispatch(t *testing.T) {
+	var lockHeld atomic.Bool
+	var didWork atomic.Int32
+	var duplicates atomic.Int32
+	start := make(chan struct{})
+	allowDone := make(chan struct{})
+
+	scheduler := continuousScheduler{
+		maxCycles: 1,
+		lanes: []continuousLane{
+			{
+				name:          "work",
+				maxConcurrent: 2,
+				run: func() (bool, error) {
+					<-start
+					if !lockHeld.CompareAndSwap(false, true) {
+						duplicates.Add(1)
+						return false, nil
+					}
+					defer lockHeld.Store(false)
+					didWork.Add(1)
+					<-allowDone
+					return true, nil
+				},
+			},
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- scheduler.run(context.Background()) }()
+	close(start)
+
+	for deadline := time.After(time.Second); duplicates.Load() == 0; {
+		select {
+		case <-deadline:
+			t.Fatal("second dispatch did not observe authoritative duplicate lock")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	close(allowDone)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("scheduler did not stop after duplicate was skipped")
+	}
+	if didWork.Load() != 1 || duplicates.Load() != 1 {
+		t.Fatalf("didWork=%d duplicates=%d, want exactly one work dispatch and one duplicate skip", didWork.Load(), duplicates.Load())
+	}
+}

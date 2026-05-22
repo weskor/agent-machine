@@ -89,6 +89,44 @@ Use `make ci` and `git diff --check` before handing off a runner change. When va
 mise exec go -- go run . --status WORKFLOW.md
 ```
 
+### Opt-in live smoke harness
+
+`cmd/pi-symphony-live-smoke` creates or uses disposable Linear issues and runs them through a generated, isolated workflow. It is off by default, uses a deterministic fake Agent by default, and is not part of `make ci`.
+
+Required gates:
+
+- `LIVE_LINEAR=1`
+- `LINEAR_API_KEY`
+- GitHub credentials accepted by the runner, usually the local GitHub App variables from `.env.local`
+
+Basic fake-agent smoke:
+
+```bash
+LIVE_LINEAR=1 mise exec go -- go run ./cmd/pi-symphony-live-smoke \
+  --workflow WORKFLOW.md \
+  --count 1
+```
+
+Concurrency-oriented setup without running the merge lane:
+
+```bash
+LIVE_LINEAR=1 mise exec go -- go run ./cmd/pi-symphony-live-smoke \
+  --workflow WORKFLOW.md \
+  --count 2 \
+  --concurrency 2
+```
+
+The harness prints every created issue identifier/URL and writes a JSON report under `.symphony/live-smoke/`. It refuses to create issues when unrelated `Ready for Agent` issues already exist, and its generated workflow only treats `Ready for Agent` as active so human `In Progress` work is not claimed.
+
+The harness never runs merge-approved unless both controls are present:
+
+```bash
+LIVE_LINEAR=1 LIVE_SMOKE_APPLY=1 mise exec go -- go run ./cmd/pi-symphony-live-smoke \
+  --workflow WORKFLOW.md \
+  --issue CAG-123 \
+  --apply-merge
+```
+
 Architecture and behavior docs live in `CONTEXT.md`, `LANGUAGE.md`, `docs/adr/`, and `docs/specs/`. Broad refactors should cite the relevant specs/ADRs in PR handoff notes, update specs when observable behavior changes, or state that no spec changes were needed for a mechanical move.
 
 ## Symphony dogfood loop

@@ -1,0 +1,63 @@
+package main
+
+import (
+	"os"
+	"strings"
+	"testing"
+
+	cfg "github.com/weskor/pi-symphony/internal/config"
+)
+
+func TestParseOptionsUsesProvidedIssuesAsCount(t *testing.T) {
+	opts := parseOptions([]string{"--issue", "CAG-1", "--issue", "CAG-2", "--count", "9", "--concurrency", "2"})
+	if opts.count != 2 {
+		t.Fatalf("count = %d, want 2", opts.count)
+	}
+	if opts.concurrency != 2 || len(opts.issues) != 2 {
+		t.Fatalf("unexpected opts: %#v", opts)
+	}
+}
+
+func TestWriteSmokeWorkflowUsesSafeGeneratedConfig(t *testing.T) {
+	root := t.TempDir()
+	config := cfg.Config{
+		Tracker:   cfg.TrackerConfig{Endpoint: "https://api.linear.app/graphql", ProjectSlug: "project-slug", NeedsInfoState: "Needs Info"},
+		Workspace: cfg.WorkspaceConfig{BaseBranch: "main"},
+		Hooks:     cfg.HooksConfig{TimeoutText: "120000"},
+		Agent:     cfg.AgentConfig{MaxRetryBackoffText: "300000"},
+		Pi:        cfg.PiConfig{AfterCreate: "git clone --branch main git@github.com:weskor/pi-symphony.git ."},
+		GitHub:    cfg.GitHubConfig{AppSlug: "pi-symphony-bot"},
+		Compound:  cfg.CompoundConfig{HandoffState: "Human Review", RunningState: "In Progress", NeedsInfoState: "Needs Info", DoneState: "Done"},
+	}
+
+	path, err := writeSmokeWorkflow(options{workspaceRoot: root, concurrency: 2}, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, expected := range []string{
+		"root: \"" + root + "\"",
+		"max_concurrent_agents: 2",
+		"go run ./cmd/pi-symphony-live-smoke-agent --role implementation",
+		"go run ./cmd/pi-symphony-live-smoke-agent --role review",
+		"active_states:\n    - Ready for Agent",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("expected %q in workflow:\n%s", expected, text)
+		}
+	}
+}
+
+func TestEnvMapParsesKeyValueEntries(t *testing.T) {
+	env := envMap([]string{"LIVE_LINEAR=1", "LINEAR_API_KEY=secret", "MALFORMED"})
+	if env["LIVE_LINEAR"] != "1" || env["LINEAR_API_KEY"] != "secret" {
+		t.Fatalf("unexpected env map: %#v", env)
+	}
+	if _, ok := env["MALFORMED"]; ok {
+		t.Fatalf("malformed env entry should be ignored: %#v", env)
+	}
+}

@@ -13,7 +13,7 @@ func cliDependencies() cli.Dependencies[linearClient] {
 }
 
 func orchestratorRunner() orchestrator.Runner[linearClient, runnerConfig] {
-	return orchestrator.Runner[linearClient, runnerConfig]{
+	setup := orchestrator.SetupDependencies[linearClient]{
 		ConfigureGitHubRepositoryFromWorkflow: configureGitHubRepositoryFromWorkflow,
 		SetGitHubTimeout: func(budget cfg.Budget) {
 			if budget.GitHubTimeout > 0 {
@@ -26,7 +26,9 @@ func orchestratorRunner() orchestrator.Runner[linearClient, runnerConfig] {
 		IssueIdentifiersByState: func(client linearClient, projectSlug, state string) (map[string]bool, error) {
 			return client.issueIdentifiersByState(projectSlug, state)
 		},
-		BackfillStateFromArtifacts: func(root string) (cli.BackfillSummary, error) {
+	}
+	modes := orchestrator.ModeOperationFuncs[linearClient, runnerConfig]{
+		BackfillFunc: func(root string) (cli.BackfillSummary, error) {
 			summary, err := backfillStateFromArtifacts(root)
 			return cli.BackfillSummary{
 				Scanned:              summary.Scanned,
@@ -35,34 +37,34 @@ func orchestratorRunner() orchestrator.Runner[linearClient, runnerConfig] {
 				Skipped:              convertBackfillSkipped(summary.Skipped),
 			}, err
 		},
-		RepairArtifacts: repairArtifacts,
-		CleanupWorkspaces: func(root string, options cli.CleanupOptions) error {
+		RepairFunc: repairArtifacts,
+		CleanupFunc: func(root string, options cli.CleanupOptions) error {
 			store, _ := commandScopedStateStore(context.Background(), root, "cleanup")
 			if store != nil {
 				defer store.Close()
 			}
 			return cleanupWorkspaces(root, cleanupOptions{Apply: options.Apply, DoneIssues: options.DoneIssues, StateStore: store})
 		},
-		PrintStatus: func(client linearClient, config runnerConfig) error {
+		StatusFunc: func(client linearClient, config runnerConfig) error {
 			return printStatus(client, config)
 		},
-		PrintRunProgress: func(workspaceRoot, issueIdentifier string) error {
+		RunStatusFunc: func(workspaceRoot, issueIdentifier string) error {
 			return printRunProgress(workspaceRoot, issueIdentifier)
 		},
-		Explain: func(client linearClient, config runnerConfig) error {
+		ExplainFunc: func(client linearClient, config runnerConfig) error {
 			return printExplain(client, config)
 		},
-		MergeApprovedPRs: func(client linearClient, config runnerConfig) error {
+		MergeFunc: func(client linearClient, config runnerConfig) error {
 			return mergeApprovedPRs(client, config)
 		},
-		RunContinuous: func(client linearClient, wf cfg.Workflow, config runnerConfig, maxCycles int) error {
+		ContinuousFunc: func(client linearClient, wf cfg.Workflow, config runnerConfig, maxCycles int) error {
 			return runContinuous(client, wf, config, maxCycles)
 		},
-		RunOne: func(client linearClient, wf cfg.Workflow, config runnerConfig) (bool, error) {
+		RunOneFunc: func(client linearClient, wf cfg.Workflow, config runnerConfig) (bool, error) {
 			return runOne(client, wf, config)
 		},
-		FromCLIConfig: runnerConfigFromCLI,
 	}
+	return orchestrator.NewRunner(setup, modes, runnerConfigFromCLI)
 }
 
 func runnerConfigFromCLI(config cli.Config) runnerConfig {

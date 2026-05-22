@@ -37,6 +37,7 @@ type options struct {
 	concurrency   int
 	workspaceRoot string
 	reportPath    string
+	fromReport    string
 	fakeAgent     bool
 	applyMerge    bool
 	issues        issueList
@@ -61,6 +62,16 @@ func run(ctx context.Context, args []string, environ []string) error {
 	}
 	if err := livesmoke.ValidateEnvironment(env, opts.applyMerge); err != nil {
 		return err
+	}
+	if opts.fromReport != "" {
+		report, err := readReport(opts.fromReport)
+		if err != nil {
+			return err
+		}
+		opts = applyReportOptions(opts, report)
+	}
+	if opts.applyMerge && len(opts.issues) > 0 && opts.workspaceRoot == "" {
+		return errors.New("--apply-merge for existing issues requires --from-report or --workspace-root from the original smoke run")
 	}
 	if opts.count < 1 {
 		return errors.New("--count must be at least 1")
@@ -155,10 +166,31 @@ func parseOptions(args []string) options {
 	flags.IntVar(&opts.concurrency, "concurrency", opts.concurrency, "agent.max_concurrent_agents value written to the generated workflow")
 	flags.StringVar(&opts.workspaceRoot, "workspace-root", "", "isolated workspace root for the smoke workflow")
 	flags.StringVar(&opts.reportPath, "report", "", "JSON report path")
+	flags.StringVar(&opts.fromReport, "from-report", "", "reuse issue list and workspace root from a previous live smoke JSON report")
 	flags.BoolVar(&opts.fakeAgent, "fake-agent", opts.fakeAgent, "use the deterministic fake smoke agent")
 	flags.BoolVar(&opts.applyMerge, "apply-merge", false, "also run merge-approved; requires LIVE_SMOKE_APPLY=1")
 	flags.Var(&opts.issues, "issue", "existing disposable Linear issue identifier to use; repeatable")
 	_ = flags.Parse(args)
+	if len(opts.issues) > 0 {
+		opts.count = len(opts.issues)
+	}
+	return opts
+}
+
+func applyReportOptions(opts options, report livesmoke.Report) options {
+	if opts.workspaceRoot == "" {
+		opts.workspaceRoot = report.WorkspaceRoot
+	}
+	if opts.workflow == "WORKFLOW.md" && report.WorkflowPath != "" {
+		opts.workflow = report.WorkflowPath
+	}
+	if len(opts.issues) == 0 {
+		for _, issue := range report.Issues {
+			if strings.TrimSpace(issue.Identifier) != "" {
+				opts.issues = append(opts.issues, issue.Identifier)
+			}
+		}
+	}
 	if len(opts.issues) > 0 {
 		opts.count = len(opts.issues)
 	}
@@ -457,6 +489,21 @@ func writeReport(report livesmoke.Report) error {
 		return err
 	}
 	return os.WriteFile(report.ReportPath, append(data, '\n'), 0o600)
+}
+
+func readReport(path string) (livesmoke.Report, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return livesmoke.Report{}, err
+	}
+	var report livesmoke.Report
+	if err := json.Unmarshal(data, &report); err != nil {
+		return livesmoke.Report{}, err
+	}
+	if report.WorkspaceRoot == "" || len(report.Issues) == 0 {
+		return livesmoke.Report{}, fmt.Errorf("live smoke report %s is missing workspace_root or issues", path)
+	}
+	return report, nil
 }
 
 func envMap(environ []string) map[string]string {

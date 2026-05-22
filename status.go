@@ -15,7 +15,7 @@ import (
 
 func printStatus(client linearClient, config runnerConfig) error {
 	log("mode=status; project=%s", config.ProjectSlug)
-	issues, err := client.candidates(config.ProjectSlug, append(config.ActiveStates, config.DoneState))
+	issues, err := client.candidates(config.ProjectSlug, statusIssueStates(config))
 	if err != nil {
 		return err
 	}
@@ -61,6 +61,21 @@ func printStatus(client linearClient, config runnerConfig) error {
 		log("- %s", line)
 	}
 	return nil
+}
+
+func statusIssueStates(config runnerConfig) []string {
+	states := append([]string{}, config.ActiveStates...)
+	states = append(states, config.HandoffState, config.DoneState)
+	seen := map[string]bool{}
+	unique := states[:0]
+	for _, state := range states {
+		if state == "" || seen[state] {
+			continue
+		}
+		seen[state] = true
+		unique = append(unique, state)
+	}
+	return unique
 }
 
 func indexPRsByIssue(prs []pullRequestSummary) map[string]*pullRequestSummary {

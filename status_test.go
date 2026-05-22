@@ -115,6 +115,23 @@ func TestSummarizeStateStoreReportsUnopenableDB(t *testing.T) {
 	}
 }
 
+func TestStatusIssueStatesIncludesHandoffState(t *testing.T) {
+	config := runnerConfig{
+		ActiveStates:  []string{"Ready for Agent", "In Progress"},
+		HandoffState:  "Human Review",
+		DoneState:     "Done",
+		RunningState:  "In Progress",
+		ReadyState:    "Ready for Agent",
+		WorkspaceRoot: t.TempDir(),
+	}
+
+	got := strings.Join(statusIssueStates(config), ",")
+	want := "Ready for Agent,In Progress,Human Review,Done"
+	if got != want {
+		t.Fatalf("statusIssueStates() = %q, want %q", got, want)
+	}
+}
+
 func TestSummarizePRAnnotatesArtifactGate(t *testing.T) {
 	artifact := artifactSummary{HasEvaluation: true, Outcome: "review_failed", NextAction: "repair_review_findings_before_handoff", ShouldRetry: true, OperatorAttention: true}
 	line := summarizePR(pullRequestSummary{Number: 402, URL: "https://github.com/pennywise-investments/compound-web/pull/402", HeadRefName: "symphony/CAG-12-workspace", Mergeable: "MERGEABLE", ReviewDecision: "CHANGES_REQUESTED"}, &artifact)

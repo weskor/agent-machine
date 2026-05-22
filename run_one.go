@@ -22,25 +22,42 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		return false, fmt.Errorf("SQLite state store unavailable for run-one at %s", stateDBPath)
 	}
 	defer stateStore.Close()
+	claim, didWork, err := claimNextRunAttempt(client, wf, config, stateStore)
+	if err != nil || claim == nil {
+		return didWork, err
+	}
+	return executeClaimedRunAttempt(client, wf, config, stateStore, *claim)
+}
+
+type claimedRunAttempt struct {
+	Candidate       *issue
+	SelectedPR      *pullRequestSummary
+	Workspace       string
+	Branch          string
+	ProgressStarted time.Time
+	ReleaseLock     func()
+}
+
+func claimNextRunAttempt(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
 	if removed, err := cleanupStaleRunLocksWithState(stateStore, config.WorkspaceRoot, time.Now()); err != nil {
-		return false, err
+		return nil, false, err
 	} else if removed > 0 {
 		log("removed %d stale/dead run lock(s) before candidate selection", removed)
 	}
 	candidate, selectedPR, err := nextRunnableCandidate(client, config, stateStore)
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
 	if candidate == nil {
 		log("no eligible issues")
-		return false, nil
+		return nil, false, nil
 	}
 
 	progressStarted := time.Now().UTC()
 	log("picked %s: %s (%s)", candidate.Identifier, candidate.Title, candidateOrderReason(*candidate, config.ReadyState))
 	workspace, err := safeWorkspacePath(config.WorkspaceRoot, candidate.Identifier)
 	if err != nil {
-		return true, err
+		return nil, true, err
 	}
 	writeRunProgress(config.WorkspaceRoot, runProgressForIssue(candidate, workspace, "selected", progressStarted))
 	runtime := newPiCLIRuntime()
@@ -50,7 +67,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		snapshot.Error = err.Error()
 		snapshot.NextAction = "fix_runtime_configuration_before_retry"
 		writeRunProgress(config.WorkspaceRoot, snapshot)
-		return true, err
+		return nil, true, err
 	}
 	branch, _ := currentGitBranch(workspace)
 	if existing, ok := reusableRunRecord(workspace); ok {
@@ -58,22 +75,32 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 			log("%s has terminal artifact but PR feedback is pending; retrying existing PR %s", candidate.Identifier, existing.PRURL)
 		} else {
 			log("%s already has terminal run artifact status=%s pr=%s; skipping duplicate work", candidate.Identifier, existing.Status, existing.PRURL)
-			return true, nil
+			return nil, true, nil
 		}
 	}
 	lock, releaseLock, err := acquireRunLockWithState(stateStore, workspace, candidate, branch, time.Now())
 	if err != nil {
 		if errors.Is(err, errRunLocked) {
 			log("%v", err)
-			return false, nil
+			return nil, false, nil
 		}
-		return true, err
+		return nil, true, err
 	}
-	defer releaseLock()
-	branch = lock.Branch
-	claimed := runProgressForIssue(candidate, workspace, "claimed", progressStarted)
-	claimed.Branch = branch
-	writeRunProgress(config.WorkspaceRoot, claimed)
+	return &claimedRunAttempt{Candidate: candidate, SelectedPR: selectedPR, Workspace: workspace, Branch: lock.Branch, ProgressStarted: progressStarted, ReleaseLock: releaseLock}, true, nil
+}
+
+func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, claimed claimedRunAttempt) (bool, error) {
+	candidate := claimed.Candidate
+	selectedPR := claimed.SelectedPR
+	workspace := claimed.Workspace
+	branch := claimed.Branch
+	progressStarted := claimed.ProgressStarted
+	if claimed.ReleaseLock != nil {
+		defer claimed.ReleaseLock()
+	}
+	claimedProgress := runProgressForIssue(candidate, workspace, "claimed", progressStarted)
+	claimedProgress.Branch = branch
+	writeRunProgress(config.WorkspaceRoot, claimedProgress)
 	emitRunAttemptEvent(stateStore, state.EventAttemptStarted, candidate, branch, map[string]any{"workspace": workspace, "branch": branch})
 	states, err := client.workflowStates(candidate.Team.ID)
 	if err != nil {
@@ -162,6 +189,7 @@ func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error)
 		return resumeReviewReadyRun(client, stateStore, config, candidate, states, workspace, branch, githubEnv, githubAuth, progressStarted, runStarted, selectedPR)
 	}
 
+	runtime := newPiCLIRuntime()
 	attempt, err := runtime.StartAttempt(context.Background(), agentruntime.StartAttemptInput{IssueID: candidate.ID, IssueIdentifier: candidate.Identifier, Workspace: workspace, Branch: branch, ExpectedBranch: expectedWorkspaceBranch(candidate.Identifier), Attempt: 1, WorkingDir: workspace, Command: config.PiCommand, PromptPath: promptPath, Timeouts: agentruntime.AttemptTimeouts{WallClock: config.Budget.WallClock, Command: config.Budget.CommandTimeout, Review: config.Budget.ReviewTimeout}, Environment: githubEnv})
 	if err != nil {
 		return true, err

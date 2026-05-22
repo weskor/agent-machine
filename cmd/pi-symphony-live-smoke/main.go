@@ -81,10 +81,11 @@ func run(ctx context.Context, args []string, environ []string) error {
 		return err
 	}
 	if opts.workspaceRoot == "" {
-		opts.workspaceRoot, err = os.MkdirTemp("", "pi-symphony-live-smoke-*")
+		tempRoot, err := os.MkdirTemp("", "pi-symphony-live-smoke-*")
 		if err != nil {
 			return err
 		}
+		opts.workspaceRoot = filepath.Join(tempRoot, ".symphony", "workspaces")
 	}
 	if opts.reportPath == "" {
 		opts.reportPath = filepath.Join(".symphony", "live-smoke", fmt.Sprintf("live-smoke-%s.json", time.Now().UTC().Format("20060102T150405Z")))
@@ -221,7 +222,7 @@ func writeSmokeWorkflow(opts options, config cfg.Config) (string, error) {
 	if err := os.MkdirAll(opts.workspaceRoot, 0o755); err != nil {
 		return "", err
 	}
-	path := filepath.Join(opts.workspaceRoot, "WORKFLOW.live-smoke.md")
+	path := filepath.Join(filepath.Dir(opts.workspaceRoot), "WORKFLOW.live-smoke.md")
 	cloneCommand := strings.TrimSpace(config.Pi.AfterCreate)
 	if cloneCommand == "" {
 		cloneCommand = strings.TrimSpace(config.Hooks.AfterCreate)

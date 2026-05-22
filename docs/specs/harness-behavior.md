@@ -124,6 +124,16 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 - `--explain` / `--dry-run`: print structured JSON for the next scheduling decision, merge blockers, and cleanup eligibility without mutating Linear, GitHub, workspaces, artifacts, or orchestration state.
 - `--status` includes SQLite event-log counts and recent event summaries when the durable orchestration event schema is available; these diagnostics do not replace artifact summaries or lifecycle decisions.
 
+## Live smoke harness
+
+- The live smoke harness is an operator tool, not part of normal `make ci` or daemon startup.
+- The harness must require `LIVE_LINEAR=1` and `LINEAR_API_KEY` before reading or mutating Linear.
+- The harness may create disposable Linear issues only when explicitly invoked and must print issue identifiers and URLs for manual cleanup.
+- The harness must generate an isolated workflow/workspace root instead of editing the tracked `WORKFLOW.md`.
+- The generated workflow defaults to a deterministic fake Agent command so operators can exercise Linear, workspace, GitHub PR handoff, review, status, artifacts, and cleanup evidence without spending real Pi budget.
+- The harness must not invoke merge or mutating cleanup behavior unless the operator passes an apply flag and sets `LIVE_SMOKE_APPLY=1`.
+- Normal offline/local validation must remain unaffected; `make ci` must not require Linear, GitHub, Pi, or live smoke credentials.
+
 ## Continuous scheduler
 
 - Continuous mode starts a merge lane and a work lane concurrently.

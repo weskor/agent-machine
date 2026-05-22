@@ -20,10 +20,14 @@ how this affects cleanup safety.
 
 When `PI_SYMPHONY_DEBUG_RAW_OUTPUT=1`:
 
-- The implementation phase writes to
-  `<workspace-root>/.symphony/debug/<issue>/implementation-raw.log`.
-- The review phase writes to
-  `<workspace-root>/.symphony/debug/<issue>/review-raw.log`.
+- For the standard workspace layout `<repo>/.symphony/workspaces/<issue>`,
+  the implementation phase writes to
+  `<repo>/.symphony/debug/<issue>/implementation-raw.log`.
+- For the standard workspace layout `<repo>/.symphony/workspaces/<issue>`,
+  the review phase writes to
+  `<repo>/.symphony/debug/<issue>/review-raw.log`.
+- For nonstandard workspace roots, the fallback remains the issue workspace
+  parent plus `.symphony/debug/<issue>/<phase>-raw.log`.
 - `<issue>` is derived from the issue workspace basename (`CAG-XX`).
 - The directory is created with secure permissions and the write is capped using
   `PI_SYMPHONY_DEBUG_RAW_OUTPUT_LIMIT_BYTES` (defaulting to
@@ -58,8 +62,11 @@ When `PI_SYMPHONY_DEBUG_RAW_OUTPUT=1`:
 
 ## Acceptance criteria
 
-- With `PI_SYMPHONY_DEBUG_RAW_OUTPUT=1`, a successful run creates implementation
-  and review debug artifacts under `.symphony/debug/<issue>/` at workspace-root.
+- With `PI_SYMPHONY_DEBUG_RAW_OUTPUT=1`, a standard
+  `<repo>/.symphony/workspaces/<issue>` run creates implementation and review
+  debug artifacts under `<repo>/.symphony/debug/<issue>/`.
+- Nonstandard workspace roots continue to write under the workspace parent
+  fallback `.symphony/debug/<issue>/` path.
 - The primary logs include the artifact path and truncation note when capped.
 - Completed workspaces containing only expected evidence files plus old
   `implementation-raw.log`/`review-raw.log` in legacy locations can still be cleaned

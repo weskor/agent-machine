@@ -93,7 +93,10 @@ Inline review writes `review_pending` progress plus a bounded review payload
 before semantic review side effects, then re-reads that payload for evidence
 collection and review execution. Review resume after `review_not_ready` uses the
 same payload execution boundary before handing the review result back to the
-caller.
+caller. The selected `review` process first claims existing `review_pending`
+records through the run lease, executes the same review payload boundary, and
+queues `handoff_pending` output for the handoff worker when review is
+non-terminal.
 
 ### Handoff worker
 
@@ -185,14 +188,15 @@ The initial separate-process rollout started with non-destructive `status` and
 `cleanup`, `merge`, `review`, `implementation`, `handoff`, `linear-status`, and
 `work`. Each role runs through a durable worker task and SQLite lease, records a
 process heartbeat, and exits after one completed task. The `review` process only
-resumes existing review-not-ready attempts whose current GitHub checks are
-successful. The `implementation` process claims fresh runnable attempts and
-skips review-ready resumes owned by `review`. The `handoff` process claims
-`handoff_pending` progress through the run lease and completes side effects from
-the persisted handoff payload. The `linear-status` process claims queued Linear
-transition intents and applies workflow moves after refreshing workflow states.
-Mutating roles use existing worker modules and lane behavior after their
-fresh-fact, lease, and fail-closed contracts are covered by focused tests.
+claims existing `review_pending` payloads before falling back to review-not-ready
+attempts whose current GitHub checks are successful. The `implementation`
+process claims fresh runnable attempts and skips review-ready resumes owned by
+`review`. The `handoff` process claims `handoff_pending` progress through the run
+lease and completes side effects from the persisted handoff payload. The
+`linear-status` process claims queued Linear transition intents and applies
+workflow moves after refreshing workflow states. Mutating roles use existing
+worker modules and lane behavior after their fresh-fact, lease, and fail-closed
+contracts are covered by focused tests.
 
 ## Rollout
 

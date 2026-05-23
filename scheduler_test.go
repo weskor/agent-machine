@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 func TestContinuousSchedulerRunsMergeLaneWhileWorkLaneIsBusy(t *testing.T) {
@@ -91,4 +94,100 @@ func TestContinuousSchedulerRecordsLaneHeartbeats(t *testing.T) {
 	if !seen["merge"] || !seen["work"] {
 		t.Fatalf("heartbeats = %+v; want successful merge and work lane heartbeats", heartbeats)
 	}
+}
+
+func TestContinuousWorkerTaskWrapsLaneWithClaimAndCompletion(t *testing.T) {
+	ctx := context.Background()
+	store, err := state.Open(ctx, state.DefaultDBPath(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ran := false
+	didWork, err := runContinuousWorkerTask(ctx, store, continuousWorkerTask{TaskKey: "continuous:merge", Role: "merge", LaneName: "merge", LeaseName: "lane:merge"}, func() (bool, error) {
+		ran = true
+		tasks, err := store.WorkerTasks(ctx, "merge")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 || tasks[0].Status != "claimed" {
+			t.Fatalf("worker task during run = %+v; want claimed", tasks)
+		}
+		return true, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ran || !didWork {
+		t.Fatalf("ran=%v didWork=%v; want true true", ran, didWork)
+	}
+	tasks, err := store.WorkerTasks(ctx, "merge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].Status != "completed" {
+		t.Fatalf("worker task after run = %+v; want completed", tasks)
+	}
+	events, err := store.Events(ctx, state.EventFilter{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := eventTypes(events)
+	want := []string{state.EventWorkerTaskQueued, state.EventWorkerTaskClaimed, state.EventWorkerTaskCompleted}
+	if !equalStrings(got, want) {
+		t.Fatalf("events = %v; want %v", got, want)
+	}
+}
+
+func TestContinuousWorkerTaskRecordsFailures(t *testing.T) {
+	ctx := context.Background()
+	store, err := state.Open(ctx, state.DefaultDBPath(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	runErr := errors.New("lane failed")
+	didWork, err := runContinuousWorkerTask(ctx, store, continuousWorkerTask{TaskKey: "continuous:scheduler", Role: "scheduler", LaneName: "work", LeaseName: "lane:work"}, func() (bool, error) {
+		return false, runErr
+	})
+	if !errors.Is(err, runErr) {
+		t.Fatalf("error = %v; want %v", err, runErr)
+	}
+	if didWork {
+		t.Fatal("didWork = true; want false")
+	}
+	tasks, err := store.WorkerTasks(ctx, "scheduler")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].Status != "failed" {
+		t.Fatalf("worker task after failure = %+v; want failed", tasks)
+	}
+	events, err := store.Events(ctx, state.EventFilter{Type: state.EventWorkerTaskFailed, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("failed events = %+v; want one", events)
+	}
+}
+
+func eventTypes(events []state.Event) []string {
+	out := make([]string, 0, len(events))
+	for _, event := range events {
+		out = append(out, event.Type)
+	}
+	return out
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

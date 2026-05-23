@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -32,21 +34,25 @@ func runContinuous(client linearClient, wf workflow, config runnerConfig, maxCyc
 				idleDelay:  30 * time.Second,
 				continuous: true,
 				run: func() (bool, error) {
-					doneIssues, err := client.issueIdentifiersByState(config.ProjectSlug, config.DoneState)
-					if err != nil {
-						return false, err
-					}
-					if err := cleanupWorkspaces(config.WorkspaceRoot, cleanupOptions{Apply: true, DoneIssues: doneIssues, StateStore: stateStore}); err != nil {
-						return false, err
-					}
-					return true, mergeApprovedPRs(client, config)
+					return runContinuousWorkerTask(ctx, stateStore, continuousWorkerTask{TaskKey: "continuous:merge", Role: "merge", LaneName: "merge", LeaseName: "lane:merge", Payload: map[string]any{"project_slug": config.ProjectSlug, "done_state": config.DoneState}}, func() (bool, error) {
+						doneIssues, err := client.issueIdentifiersByState(config.ProjectSlug, config.DoneState)
+						if err != nil {
+							return false, err
+						}
+						if err := cleanupWorkspaces(config.WorkspaceRoot, cleanupOptions{Apply: true, DoneIssues: doneIssues, StateStore: stateStore}); err != nil {
+							return false, err
+						}
+						return true, mergeApprovedPRs(client, config)
+					})
 				},
 			},
 			{
 				name:      "work",
 				idleDelay: 60 * time.Second,
 				run: func() (bool, error) {
-					return runClaimedAttemptBatch(client, wf, config, stateStore, maxConcurrentAgents)
+					return runContinuousWorkerTask(ctx, stateStore, continuousWorkerTask{TaskKey: "continuous:scheduler", Role: "scheduler", LaneName: "work", LeaseName: "lane:work", Payload: map[string]any{"project_slug": config.ProjectSlug, "max_concurrent_agents": maxConcurrentAgents}}, func() (bool, error) {
+						return runClaimedAttemptBatch(client, wf, config, stateStore, maxConcurrentAgents)
+					})
 				},
 			},
 		},
@@ -108,6 +114,75 @@ func runClaimedAttemptBatch(client linearClient, wf workflow, config runnerConfi
 		return true, err
 	}
 	return true, nil
+}
+
+type continuousWorkerTask struct {
+	TaskKey   string
+	Role      string
+	LaneName  string
+	LeaseName string
+	Payload   map[string]any
+}
+
+func runContinuousWorkerTask(ctx context.Context, store *state.Store, task continuousWorkerTask, run func() (bool, error)) (bool, error) {
+	if store == nil {
+		return run()
+	}
+	now := time.Now().UTC()
+	payload := map[string]any{"lane": task.LaneName}
+	for key, value := range task.Payload {
+		payload[key] = value
+	}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return false, fmt.Errorf("encode continuous worker task payload: %w", err)
+	}
+	queued := state.WorkerTask{TaskKey: task.TaskKey, Role: task.Role, Status: "queued", AvailableAt: now, LeaseName: task.LeaseName, Payload: payloadJSON, UpdatedAt: now}
+	if err := store.UpsertWorkerTask(ctx, queued); err != nil {
+		return false, err
+	}
+	recordContinuousWorkerTaskEvent(store, state.EventWorkerTaskQueued, queued, map[string]any{"lane": task.LaneName})
+	claimed, ok, err := store.ClaimWorkerTask(ctx, task.TaskKey, now)
+	if err != nil || !ok {
+		return false, err
+	}
+	recordContinuousWorkerTaskEvent(store, state.EventWorkerTaskClaimed, claimed, map[string]any{"lane": task.LaneName})
+	didWork, runErr := run()
+	finishedAt := time.Now().UTC()
+	status := "completed"
+	eventType := state.EventWorkerTaskCompleted
+	eventPayload := map[string]any{"lane": task.LaneName, "did_work": didWork}
+	if runErr != nil {
+		status = "failed"
+		eventType = state.EventWorkerTaskFailed
+		eventPayload["error"] = runErr.Error()
+	}
+	completeErr := store.CompleteWorkerTask(ctx, task.TaskKey, status, finishedAt)
+	if completeErr != nil {
+		eventPayload["completion_error"] = completeErr.Error()
+	}
+	claimed.Status = status
+	claimed.UpdatedAt = finishedAt
+	recordContinuousWorkerTaskEvent(store, eventType, claimed, eventPayload)
+	if runErr != nil {
+		return didWork, errors.Join(runErr, completeErr)
+	}
+	return didWork, completeErr
+}
+
+func recordContinuousWorkerTaskEvent(store *state.Store, eventType string, task state.WorkerTask, payload map[string]any) {
+	if store == nil {
+		return
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	payload["task_key"] = task.TaskKey
+	payload["role"] = task.Role
+	payload["status"] = task.Status
+	if _, err := store.AppendEvent(context.Background(), state.EventInput{OccurredAt: time.Now().UTC(), IssueKey: task.IssueKey, IssueID: task.IssueID, Attempt: task.Attempt, RunID: task.TaskKey, Source: "worker." + task.Role, Type: eventType, Payload: payload}); err != nil {
+		log("failed to append worker task event %s for %s: %v", eventType, task.TaskKey, err)
+	}
 }
 
 type continuousLane struct {

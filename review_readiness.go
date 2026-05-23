@@ -74,7 +74,7 @@ func (m reviewReadinessModule) ResumeNotReadyProgress(candidate *issue, workspac
 
 func resumeReviewReadyRun(client linearClient, stateStore *state.Store, config runnerConfig, candidate *issue, states []workflowState, workspace, branch string, githubEnv map[string]string, githubAuth string, progressStarted, runStarted time.Time, selectedPR *pullRequestSummary) (bool, error) {
 	prURL := selectedPR.URL
-	scopeResult, err := checkScopeGuard(candidate.Description, workspace, config.BaseBranch)
+	scopeResult, err := checkScopeGuardForReviewResume(candidate.Description, workspace, config.BaseBranch)
 	if err != nil {
 		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, runStarted, time.Now(), nil, nil, prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), err.Error()))
 		return true, err
@@ -90,12 +90,7 @@ func resumeReviewReadyRun(client linearClient, stateStore *state.Store, config r
 		return true, err
 	}
 	review := result.Review
-	handoffResult, err := handoffWorker{client: client, config: config, stateStore: stateStore, candidate: candidate, states: states, workspace: workspace, startedAt: runStarted, review: review, prURL: prURL, validation: validation, githubAuth: githubAuth}.Execute(context.Background())
-	if err != nil || handoffResult.Terminal {
-		return true, err
-	}
-	if err := writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, runStarted, time.Now(), nil, review, prURL, runAttemptStatusSuccess, "", config.Budget.Active(), "")); err != nil {
-		return true, err
-	}
-	return true, nil
+	return completeAttemptHandoff(context.Background(), handoffCompletion{client: client, config: config, stateStore: stateStore, candidate: candidate, states: states, workspace: workspace, branch: branch, progressStarted: progressStarted, startedAt: runStarted, review: review, prURL: prURL, validation: validation, githubAuth: githubAuth})
 }
+
+var checkScopeGuardForReviewResume = checkScopeGuard

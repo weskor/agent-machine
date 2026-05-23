@@ -39,6 +39,12 @@ pi:
     git clone --branch develop git@github.com:pennywise-investments/compound-web.git .
   before_run: bun run symphony:doctor
   after_run: git diff --check
+review:
+  guidance: |
+    Compound Web domain review policy:
+    - REVIEW_FAIL direct data writes or database/schema/seed changes that bypass documented domain flows or lack migration, seed, and test evidence.
+    - REVIEW_FAIL auth, onboarding, invitation, KYC, payment, document, customer, or dashboard changes without evidence against repository domain docs and production flows.
+    - REVIEW_FAIL changes that use non-authoritative domain sources or weaken tenant, security, or ownership boundaries.
 budgets:
   wall_clock: 2h
   max_tokens: 0

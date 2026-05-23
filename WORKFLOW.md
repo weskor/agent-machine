@@ -40,6 +40,10 @@ pi:
     git clone --branch main git@github.com:weskor/pi-symphony.git .
   before_run: mise exec go -- go test ./...
   after_run: mise exec go -- go test ./... && git diff --check
+review:
+  guidance: |
+    Keep changed files scoped to Pi Symphony runner code, tests, workflow examples, and runner documentation.
+    For runner behavior changes, verify behavior-contract evidence against docs/specs/ and docs/adr/.
 budgets:
   wall_clock: 2h
   max_tokens: 0
@@ -69,7 +73,7 @@ You are running inside a Symphony-managed isolated workspace for one Linear issu
 Follow the runner harness rather than inventing a new workflow:
 
 - Keep changes scoped to Pi Symphony runner code, tests, workflow examples, and runner documentation.
-- Do not touch Compound Web runtime app, customer/dashboard, database/schema/seed, auth/onboarding, payment, KYC, document, secret, or unrelated product code.
+- Do not touch unrelated product or application code, secrets, generated artifacts, or other non-runner files.
 - Do not commit secrets. Use `.env.local` locally and keep only placeholder examples in git.
 - Prefer behavior-driven or characterization tests before refactors, replacements, or state-machine changes.
 - Use `mise exec go -- go test ./...` as the default validation command.

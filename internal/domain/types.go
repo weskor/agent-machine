@@ -124,6 +124,7 @@ type RunnerConfig struct {
 	ActiveStates           []string
 	PiCommand              string
 	ReviewCommand          string
+	ReviewGuidance         string
 	AfterCreate            string
 	BeforeRun              string
 	AfterRun               string

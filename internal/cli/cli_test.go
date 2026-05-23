@@ -208,6 +208,21 @@ func TestLoadWorkflowConfigParsesDefaultsAndWorkflowValues(t *testing.T) {
 	if !reflect.DeepEqual(config.ActiveStates, []string{"Ready for Agent", "In Progress"}) {
 		t.Fatalf("ActiveStates = %#v", config.ActiveStates)
 	}
+	if config.ReviewGuidance != "" {
+		t.Fatalf("ReviewGuidance = %q, want empty", config.ReviewGuidance)
+	}
+}
+
+func TestLoadWorkflowConfigParsesReviewGuidance(t *testing.T) {
+	workflowPath := writeWorkflow(t, "review:\n  guidance: |\n    Check target repository docs.\n    Verify ownership boundaries.\n")
+	_, config, err := LoadWorkflowConfig(workflowPath)
+	if err != nil {
+		t.Fatalf("LoadWorkflowConfig() error = %v", err)
+	}
+	want := "Check target repository docs.\nVerify ownership boundaries."
+	if config.ReviewGuidance != want {
+		t.Fatalf("ReviewGuidance = %q, want %q", config.ReviewGuidance, want)
+	}
 }
 
 func TestLoadWorkflowConfigParsesGitHubOwnership(t *testing.T) {

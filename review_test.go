@@ -82,6 +82,27 @@ func TestRunReviewCharacterizesInvocationAndOutcome(t *testing.T) {
 	}
 }
 
+func TestRunReviewIncludesGuidanceFromEvidence(t *testing.T) {
+	workspace := t.TempDir()
+	script := filepath.Join(workspace, "fake-pi")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf 'REVIEW_PASS\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	guidance := "Review direct data writes against the repository domain docs."
+	_, err := runReview(sh.Quote(script), workspace, &issue{Identifier: "CAG-94", Title: "Runtime", URL: "https://linear.test/CAG-94"}, "https://github.com/weskor/pi-symphony/pull/94", nil, time.Second, &reviewEvidence{ReviewGuidance: guidance})
+	if err != nil {
+		t.Fatalf("runReview returned error: %v", err)
+	}
+	prompt, err := os.ReadFile(filepath.Join(workspace, ".pi-symphony-review-prompt.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(prompt), guidance) {
+		t.Fatalf("review prompt missing configured guidance:\n%s", string(prompt))
+	}
+}
+
 func TestReviewStatusFailsWhenFailMarkerPrecedesPromptEcho(t *testing.T) {
 	output := "review prompt mentions REVIEW_PASS inline\nREVIEW_FAIL\nScope drift found."
 	if got := reviewStatus(output); got != "failed" {
@@ -155,18 +176,28 @@ func TestReviewCommandWithHighReasoningAddsMissingFlag(t *testing.T) {
 	}
 }
 
-func TestReviewPromptIncludesDomainSemanticChecklist(t *testing.T) {
-	prompt := reviewPrompt(&issue{Identifier: "CAG-14"}, "https://github.com/example/repo/pull/407", "/tmp/workspace", nil)
+func TestReviewPromptOmitsTargetRepositoryGuidanceByDefault(t *testing.T) {
+	prompt := reviewPrompt(&issue{Identifier: "CAG-14"}, "https://github.com/example/repo/pull/407", "/tmp/workspace", "", nil)
+
+	for _, unexpected := range []string{
+		"Target-repository review guidance from workflow configuration",
+		"Review direct data writes against the repository domain docs.",
+		"Require tenant isolation evidence for billing mutations.",
+	} {
+		if strings.Contains(prompt, unexpected) {
+			t.Fatalf("review prompt unexpectedly included %q:\n%s", unexpected, prompt)
+		}
+	}
+}
+
+func TestReviewPromptIncludesConfiguredTargetRepositoryGuidance(t *testing.T) {
+	guidance := "Review direct data writes against the repository domain docs.\nRequire tenant isolation evidence for billing mutations."
+	prompt := reviewPrompt(&issue{Identifier: "CAG-14"}, "https://github.com/example/repo/pull/407", "/tmp/workspace", guidance, nil)
 
 	for _, expected := range []string{
-		"tools/compound-client-cli",
-		"direct database writes",
-		"nearest production flow",
-		"enum values, roles, statuses, tenant/org scope, and side effects",
-		"hardcoded domain strings",
-		"REVIEW_PASS requires evidence that relevant domain source files were checked",
-		"packages/auth/src/permissions.ts",
-		"apps/dashboard/src/trpc/routers/organization/organization.clients.ts",
+		"Target-repository review guidance from workflow configuration",
+		"Review direct data writes against the repository domain docs.",
+		"Require tenant isolation evidence for billing mutations.",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("review prompt missing %q:\n%s", expected, prompt)
@@ -175,7 +206,7 @@ func TestReviewPromptIncludesDomainSemanticChecklist(t *testing.T) {
 }
 
 func TestReviewPromptFailsReplacementWithoutBehaviorContractEvidence(t *testing.T) {
-	prompt := reviewPrompt(&issue{Identifier: "CAG-38"}, "https://github.com/example/repo/pull/438", "/tmp/workspace", nil)
+	prompt := reviewPrompt(&issue{Identifier: "CAG-38"}, "https://github.com/example/repo/pull/438", "/tmp/workspace", "", nil)
 
 	for _, expected := range []string{
 		"Behavior-contract review requirements",
@@ -197,7 +228,7 @@ func TestReviewPromptFailsReplacementWithoutBehaviorContractEvidence(t *testing.
 }
 
 func TestReviewPromptIncludesTicketContractHardFailGates(t *testing.T) {
-	prompt := reviewPrompt(&issue{Identifier: "CAG-40"}, "https://github.com/example/repo/pull/440", "/tmp/workspace", nil)
+	prompt := reviewPrompt(&issue{Identifier: "CAG-40"}, "https://github.com/example/repo/pull/440", "/tmp/workspace", "", nil)
 
 	for _, expected := range []string{
 		"Ticket-contract review requirements",
@@ -216,7 +247,7 @@ func TestReviewPromptIncludesTicketContractHardFailGates(t *testing.T) {
 
 func TestReviewPromptIncludesRunnerOwnedEvidencePacket(t *testing.T) {
 	evidence := reviewEvidence{IssueIdentifier: "CAG-120", IssueTitle: "Review evidence", PRURL: "https://github.com/weskor/pi-symphony/pull/120", Workspace: "/tmp/workspace", BaseBranch: "main", HeadBranch: "symphony/CAG-120-workspace", HeadSHA: "abc123", ChangedFiles: 3, Additions: 42, Deletions: 7, ChecksStatus: "success", ChecksSummary: "go-ci=COMPLETED/SUCCESS", ScopeSummary: "changed files matched the Linear ticket path contract", Validation: []string{"mise exec go -- make ci", "git diff --check"}, ProgressPath: "/repo/.symphony/state/run-progress/CAG-120/progress.json"}
-	prompt := reviewPrompt(&issue{Identifier: "CAG-120", Title: "Review evidence"}, evidence.PRURL, evidence.Workspace, &evidence)
+	prompt := reviewPrompt(&issue{Identifier: "CAG-120", Title: "Review evidence"}, evidence.PRURL, evidence.Workspace, "", &evidence)
 
 	for _, expected := range []string{"Runner-owned deterministic review evidence", "Head SHA: abc123", "GitHub checks: success", "go-ci=COMPLETED/SUCCESS", "Scope guard: changed files matched", "mise exec go -- make ci", "Progress snapshot", "source of truth for deterministic PR/check/scope facts", "semantic/spec quality"} {
 		if !strings.Contains(prompt, expected) {

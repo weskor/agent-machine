@@ -81,6 +81,7 @@ func runnerConfigFromCLI(config cli.Config) runnerConfig {
 		ActiveStates:           config.ActiveStates,
 		PiCommand:              config.PiCommand,
 		ReviewCommand:          config.ReviewCommand,
+		ReviewGuidance:         config.ReviewGuidance,
 		AfterCreate:            config.AfterCreate,
 		BeforeRun:              config.BeforeRun,
 		AfterRun:               config.AfterRun,

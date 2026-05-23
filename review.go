@@ -23,6 +23,7 @@ type reviewEvidence struct {
 	ChecksStatus    string
 	ChecksSummary   string
 	ScopeSummary    string
+	ReviewGuidance  string
 	Validation      []string
 	ProgressPath    string
 }
@@ -86,6 +87,7 @@ func collectReviewEvidence(config runnerConfig, candidate *issue, workspace, prU
 			return reviewEvidence{}, fmt.Errorf("refresh PR review evidence: %s", reason)
 		}
 		evidence := reviewEvidenceFromPRDetails(candidate, workspace, details, scopeResult, validation, config.WorkspaceRoot)
+		evidence.ReviewGuidance = config.ReviewGuidance
 		if evidence.ChecksStatus == "success" || evidence.ChecksStatus == "failed" {
 			return evidence, nil
 		}
@@ -155,11 +157,12 @@ const (
 
 var reviewEvidencePollInterval = 5 * time.Second
 
-func reviewPrompt(candidate *issue, prURL, workspace string, evidence *reviewEvidence) string {
+func reviewPrompt(candidate *issue, prURL, workspace, guidance string, evidence *reviewEvidence) string {
 	evidenceBlock := "Runner-owned deterministic review evidence: unavailable; use the local git diff and PR details available in the workspace."
 	if evidence != nil {
 		evidenceBlock = evidence.PromptBlock()
 	}
+	guidanceBlock := reviewGuidancePromptBlock(guidance)
 	return fmt.Sprintf(`Review the final Symphony/Pi runner output for %s.
 
 PR: %s
@@ -186,12 +189,7 @@ Behavior-contract review requirements for refactors, replacements, and rewrites:
 - REVIEW_FAIL if prior side effects, cleanup, or state transitions are dropped without explicit issue-backed justification.
 
 %s
-
-Domain-semantic review requirements:
-- Route changed files that create or mutate app data directly into a domain review, especially tools/compound-client-cli, database seeds, auth/invitations/memberships, onboarding, KYC, documents, and payments.
-- For direct database writes, identify the nearest production flow and compare required fields, enum values, roles, statuses, tenant/org scope, and side effects.
-- Flag hardcoded domain strings such as invitation roles, membership roles, portfolio statuses, KYC statuses, and payment/document states unless they are constants or explicitly verified against schema/domain source.
-- REVIEW_PASS requires evidence that relevant domain source files were checked when domain data is mutated. For customer/client invitation or membership changes, compare against packages/auth/src/permissions.ts and apps/dashboard/src/trpc/routers/organization/organization.clients.ts.
+%s
 
 Use the local git diff and PR details available in the workspace.
 
@@ -210,7 +208,15 @@ Classification rules:
 - unknown: malformed, ambiguous, or mixed findings. Use unknown unless missing_evidence_only is clearly the only issue.
 
 Then add concise findings.
-`, candidate.Identifier, prURL, workspace, evidenceBlock, ticketContractReviewPrompt(), reviewPassMarker, reviewFailMarker, reviewFailMarker)
+`, candidate.Identifier, prURL, workspace, evidenceBlock, ticketContractReviewPrompt(), guidanceBlock, reviewPassMarker, reviewFailMarker, reviewFailMarker)
+}
+
+func reviewGuidancePromptBlock(guidance string) string {
+	trimmed := strings.TrimSpace(guidance)
+	if trimmed == "" {
+		return ""
+	}
+	return "\nTarget-repository review guidance from workflow configuration:\n" + trimmed + "\n"
 }
 
 func reviewCommandWithHighReasoning(command string) string {
@@ -236,7 +242,7 @@ func runReview(reviewCommand, workspace string, candidate *issue, prURL string, 
 	if strings.TrimSpace(reviewCommand) == "" {
 		return nil, nil
 	}
-	prompt := reviewPrompt(candidate, prURL, workspace, evidence)
+	prompt := reviewPrompt(candidate, prURL, workspace, reviewGuidanceFromEvidence(evidence), evidence)
 
 	started := time.Now()
 	runtimeResult, err := newPiCLIRuntime().ReviewAttempt(context.Background(), candidate.Identifier, agentruntime.ReviewAttemptInput{Command: reviewCommandWithHighReasoning(reviewCommand), WorkingDir: workspace, Prompt: prompt, PullRequest: prURL, Timeout: timeout, Environment: env}, agentruntime.NoopSink{})
@@ -250,6 +256,13 @@ func runReview(reviewCommand, workspace string, candidate *issue, prURL string, 
 		return result, err
 	}
 	return result, nil
+}
+
+func reviewGuidanceFromEvidence(evidence *reviewEvidence) string {
+	if evidence == nil {
+		return ""
+	}
+	return evidence.ReviewGuidance
 }
 
 func reviewClassification(status, output string) string {

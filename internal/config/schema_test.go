@@ -28,6 +28,51 @@ pi:
 	if config.Budgets.WallClock != 2*time.Hour || config.Pi.Command != "pi --print" {
 		t.Fatalf("unexpected normalized config: %#v", config)
 	}
+	if config.Review.Guidance != "" {
+		t.Fatalf("default review guidance = %q, want empty", config.Review.Guidance)
+	}
+}
+
+func TestParseConfigReviewGuidance(t *testing.T) {
+	config, err := ParseConfig(`tracker:
+  project_slug: CAG
+workspace:
+  root: /tmp/workspaces
+review:
+  guidance: |
+    Check repository-specific invariants.
+    Require tenant isolation evidence.
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Check repository-specific invariants.\nRequire tenant isolation evidence."
+	if config.Review.Guidance != want {
+		t.Fatalf("review guidance = %q, want %q", config.Review.Guidance, want)
+	}
+}
+
+func TestCompoundWorkflowExampleRelocatesDomainReviewGuidance(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "examples", "compound-web.WORKFLOW.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := ParseConfig(string(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, expected := range []string{
+		"Compound Web domain review policy",
+		"direct data writes",
+		"auth, onboarding, invitation",
+		"KYC, payment",
+		"non-authoritative domain sources",
+	} {
+		if !strings.Contains(config.Review.Guidance, expected) {
+			t.Fatalf("compound workflow review guidance missing %q:\n%s", expected, config.Review.Guidance)
+		}
+	}
 }
 
 func TestParseConfigExpandsEnvironment(t *testing.T) {

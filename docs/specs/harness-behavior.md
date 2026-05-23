@@ -232,7 +232,7 @@ or review classification.
 - Missing-evidence-only review handoff is not automatic merge approval: evaluation artifacts must keep the failed review status/classification, mark the run merge-ineligible before human approval, and record a no-retry human-review next action.
 - Before handoff, the runner validates PR details through the GitHub API.
 - Handoff requires the PR to belong to the expected repository, branch, base branch, and issue identifier context.
-- Before final handoff side effects, the runner writes `handoff_pending` progress and a bounded handoff payload with the PR URL, review result, validation evidence, usage, issue identity, workspace/branch, and GitHub auth evidence. Current inline execution completes handoff immediately after writing that state; future handoff workers may claim the same boundary.
+- Before final handoff side effects, the runner writes `handoff_pending` progress and a bounded handoff payload with the PR URL, review result, validation evidence, usage, issue identity, workspace/branch, and GitHub auth evidence. Inline execution completes handoff by re-reading that persisted payload, and the selected `handoff` worker consumes the same payload boundary when a pending handoff is left for another process.
 - On successful handoff, the runner posts or updates deterministic PR/Linear comments and moves the Linear issue to the configured handoff state, usually `Human Review`.
 
 ## Merge gates

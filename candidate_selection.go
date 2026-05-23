@@ -14,7 +14,15 @@ import (
 	"github.com/weskor/pi-symphony/internal/state"
 )
 
+type candidateSelectionOptions struct {
+	SkipReviewReadyResumes bool
+}
+
 func nextRunnableCandidate(client linearClient, config runnerConfig, store *state.Store) (*issue, *pullRequestSummary, error) {
+	return nextRunnableCandidateWithOptions(client, config, store, candidateSelectionOptions{})
+}
+
+func nextRunnableCandidateWithOptions(client linearClient, config runnerConfig, store *state.Store, options candidateSelectionOptions) (*issue, *pullRequestSummary, error) {
 	candidates, err := client.candidates(config.ProjectSlug, config.ActiveStates)
 	if err != nil || len(candidates) == 0 {
 		return nil, nil, err
@@ -27,6 +35,9 @@ func nextRunnableCandidate(client linearClient, config runnerConfig, store *stat
 	blockedCount := 0
 	for i := range candidates {
 		pr := prsByIssue[candidates[i].Identifier]
+		if skipCandidateForSelectionOptions(config, candidates[i], pr, store, options) {
+			continue
+		}
 		decision := reconcileCandidateForSelection(config, candidates[i], pr, store)
 		retryDecision, retryDecisionFound := retryBackoffDecision(context.Background(), store, candidates[i], config, time.Now().UTC())
 		if store != nil {
@@ -53,6 +64,9 @@ func nextRunnableCandidate(client linearClient, config runnerConfig, store *stat
 	}
 	for i := range candidates {
 		pr := prsByIssue[candidates[i].Identifier]
+		if skipCandidateForSelectionOptions(config, candidates[i], pr, store, options) {
+			continue
+		}
 		decision := reconcileCandidateForSelection(config, candidates[i], pr, store)
 		retryDecision, retryDecisionFound := retryBackoffDecision(context.Background(), store, candidates[i], config, time.Now().UTC())
 		if store != nil {
@@ -74,6 +88,18 @@ func nextRunnableCandidate(client linearClient, config runnerConfig, store *stat
 	}
 	log("all eligible issues are waiting on prior review-failure findings, terminal run artifacts, or active locks")
 	return nil, nil, nil
+}
+
+func skipCandidateForSelectionOptions(config runnerConfig, candidate issue, pr *pullRequestSummary, store *state.Store, options candidateSelectionOptions) bool {
+	if !options.SkipReviewReadyResumes || strings.TrimSpace(config.ReviewCommand) == "" || pr == nil {
+		return false
+	}
+	if !shouldResumeReviewReadiness(config.WorkspaceRoot, candidate.Identifier, *pr) {
+		return false
+	}
+	log("skipping %s: review-ready resume is owned by review worker", candidate.Identifier)
+	emitCandidateEvent(store, state.EventCandidateSkipped, candidate, map[string]any{"reason": "review_ready_resume", "next_action": "run_review_worker"})
+	return true
 }
 
 func reconcileCandidateForSelection(config runnerConfig, candidate issue, pr *pullRequestSummary, store *state.Store) reconciliationDecision {

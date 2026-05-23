@@ -36,12 +36,16 @@ type claimedRunAttempt struct {
 }
 
 func claimNextRunAttempt(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
+	return claimNextRunAttemptWithOptions(client, wf, config, stateStore, candidateSelectionOptions{})
+}
+
+func claimNextRunAttemptWithOptions(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, options candidateSelectionOptions) (*claimedRunAttempt, bool, error) {
 	if removed, err := cleanupStaleRunLocksWithState(stateStore, config.WorkspaceRoot, time.Now()); err != nil {
 		return nil, false, err
 	} else if removed > 0 {
 		log("removed %d stale/dead run lock(s) before candidate selection", removed)
 	}
-	candidate, selectedPR, err := nextRunnableCandidate(client, config, stateStore)
+	candidate, selectedPR, err := nextRunnableCandidateWithOptions(client, config, stateStore, options)
 	if err != nil {
 		return nil, false, err
 	}

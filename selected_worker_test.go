@@ -246,6 +246,60 @@ func TestReviewWorkerProcessClaimsTaskRunsReviewResumeAndRecordsHeartbeat(t *tes
 	}
 }
 
+func TestImplementationWorkerProcessClaimsTaskRunsFreshAttemptAndRecordsHeartbeat(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 5, 23, 12, 14, 0, 0, time.UTC)
+	oldRunImplementationAttempt := runImplementationAttemptForWorker
+	oldStateNow := stateNow
+	t.Cleanup(func() {
+		runImplementationAttemptForWorker = oldRunImplementationAttempt
+		stateNow = oldStateNow
+	})
+	stateNow = func() time.Time { return now }
+	implementationCalled := false
+	runImplementationAttemptForWorker = func(client linearClient, wf workflow, config runnerConfig, store *state.Store) (bool, error) {
+		implementationCalled = true
+		if config.WorkspaceRoot != root || config.ProjectSlug != "CAG" || store == nil {
+			t.Fatalf("implementation worker input = config %+v store=%v; want root/project/store", config, store != nil)
+		}
+		return true, nil
+	}
+
+	if err := runImplementationWorkerProcess(linearClient{}, workflow{}, runnerConfig{WorkflowPath: "WORKFLOW.md", ProjectSlug: "CAG", WorkspaceRoot: root}); err != nil {
+		t.Fatalf("runImplementationWorkerProcess() error = %v", err)
+	}
+	if !implementationCalled {
+		t.Fatal("implementation worker did not run implementation attempt")
+	}
+
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	tasks, err := store.WorkerTasks(context.Background(), implementationWorkerRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].TaskKey != "process:implementation" || tasks[0].Status != "completed" || tasks[0].LeaseName != "worker:implementation" {
+		t.Fatalf("implementation worker task = %+v; want completed process:implementation with lease", tasks)
+	}
+	heartbeats, err := store.SnapshotHeartbeats(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(heartbeats) != 1 || heartbeats[0].LaneName != "worker:implementation" || heartbeats[0].CycleNumber != 1 || heartbeats[0].RecoveryRequired {
+		t.Fatalf("heartbeats = %+v; want successful worker:implementation heartbeat", heartbeats)
+	}
+	lease, ok, err := store.Lease(context.Background(), "worker:implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || lease.ReleasedAt.IsZero() || lease.ReleaseReason != "worker task completed" {
+		t.Fatalf("lease = %+v ok=%t; want released worker task lease", lease, ok)
+	}
+}
+
 func TestWorkWorkerProcessClaimsTaskRunsAttemptBatchAndRecordsHeartbeat(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 5, 23, 12, 15, 0, 0, time.UTC)

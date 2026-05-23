@@ -27,7 +27,7 @@ func nextRunnableCandidate(client linearClient, config runnerConfig, store *stat
 	blockedCount := 0
 	for i := range candidates {
 		pr := prsByIssue[candidates[i].Identifier]
-		decision := newReconciliationModule(store).ReconcileIssue(config, candidates[i], pr)
+		decision := reconcileCandidateForSelection(config, candidates[i], pr, store)
 		retryDecision, retryDecisionFound := retryBackoffDecision(context.Background(), store, candidates[i], config, time.Now().UTC())
 		if store != nil {
 			if retryDecisionFound && !retryDecision.runnable {
@@ -53,7 +53,7 @@ func nextRunnableCandidate(client linearClient, config runnerConfig, store *stat
 	}
 	for i := range candidates {
 		pr := prsByIssue[candidates[i].Identifier]
-		decision := newReconciliationModule(store).ReconcileIssue(config, candidates[i], pr)
+		decision := reconcileCandidateForSelection(config, candidates[i], pr, store)
 		retryDecision, retryDecisionFound := retryBackoffDecision(context.Background(), store, candidates[i], config, time.Now().UTC())
 		if store != nil {
 			if retryDecisionFound && !retryDecision.runnable {
@@ -74,6 +74,11 @@ func nextRunnableCandidate(client linearClient, config runnerConfig, store *stat
 	}
 	log("all eligible issues are waiting on prior review-failure findings, terminal run artifacts, or active locks")
 	return nil, nil, nil
+}
+
+func reconcileCandidateForSelection(config runnerConfig, candidate issue, pr *pullRequestSummary, store *state.Store) reconciliationDecision {
+	decision := newReconciliationModule(store).ReconcileIssue(config, candidate, pr)
+	return decisionWithRepairableReviewFailedPR(config, candidate, pr, decision)
 }
 
 type candidateRetryDecision struct {
@@ -199,7 +204,7 @@ func isRunnableWorkspaceForCandidate(workspaceRoot string, candidate issue, conf
 		return false
 	}
 	if record, ok := reusableRunRecord(workspace); ok {
-		if feedbackRetryAvailable(workspace, &candidate, record, config) {
+		if feedbackRetryAvailable(workspace, &candidate, record, config, nil) {
 			log("%s has terminal artifact but captured PR feedback is available; allowing retry", candidate.Identifier)
 			return true
 		}
@@ -209,8 +214,19 @@ func isRunnableWorkspaceForCandidate(workspaceRoot string, candidate issue, conf
 	return true
 }
 
-func feedbackRetryAvailable(workspace string, candidate *issue, record runRecord, config runnerConfig) bool {
-	if candidate == nil || candidate.State.Name != config.ReadyState || record.Status != "success" || record.PRURL == "" {
+func feedbackRetryAvailable(workspace string, candidate *issue, record runRecord, config runnerConfig, prArg ...*pullRequestSummary) bool {
+	if candidate == nil || candidate.State.Name != config.ReadyState || record.PRURL == "" {
+		return false
+	}
+	var pr *pullRequestSummary
+	if len(prArg) > 0 {
+		pr = prArg[0]
+	}
+	if record.Status == runAttemptStatusReviewFailed {
+		decision := reconciliationDecision{NextAction: repairReviewFindingsNextAction}
+		return repairableReviewFailedPR(config, *candidate, pr, decision)
+	}
+	if record.Status != "success" {
 		return false
 	}
 	feedback, err := readPRFeedback(workspace)
@@ -226,7 +242,7 @@ func reusableRunRecord(workspace string) (runRecord, bool) {
 	if err := json.Unmarshal(data, &record); err != nil {
 		return runRecord{}, false
 	}
-	if record.Status == "success" && record.PRURL != "" {
+	if (record.Status == "success" || record.Status == runAttemptStatusReviewFailed) && record.PRURL != "" {
 		return record, true
 	}
 	return runRecord{}, false

@@ -54,7 +54,7 @@ func printStatus(client linearClient, config runnerConfig) error {
 	if store != nil {
 		defer store.Close()
 	}
-	decisions := newReconciliationModule(store).ReconcileIssues(config, issues, prsByIssue, artifactIndex.byIssue)
+	decisions := repairableReviewFailedReconciliationDecisions(config, issues, prsByIssue, newReconciliationModule(store).ReconcileIssues(config, issues, prsByIssue, artifactIndex.byIssue))
 	for _, line := range summarizeReadyReconciliationDecisions(decisions, config.ReadyState) {
 		log("- %s", line)
 	}
@@ -375,6 +375,25 @@ func summarizePR(pr pullRequestSummary, artifact *artifactSummary) string {
 
 func summarizeReadyReconciliation(issues []issue, artifacts map[string]artifactSummary, readyState string) []string {
 	return summarizeReadyReconciliationDecisions(reconcileIssues(runnerConfig{ReadyState: readyState}, issues, nil, artifacts), readyState)
+}
+
+func repairableReviewFailedReconciliationDecisions(config runnerConfig, issues []issue, prsByIssue map[string]*pullRequestSummary, decisions []reconciliationDecision) []reconciliationDecision {
+	if len(decisions) == 0 || len(prsByIssue) == 0 {
+		return decisions
+	}
+	issuesByIdentifier := map[string]issue{}
+	for _, candidate := range issues {
+		issuesByIdentifier[candidate.Identifier] = candidate
+	}
+	out := append([]reconciliationDecision(nil), decisions...)
+	for i := range out {
+		candidate, ok := issuesByIdentifier[out[i].IssueIdentifier]
+		if !ok {
+			continue
+		}
+		out[i] = decisionWithRepairableReviewFailedPR(config, candidate, prsByIssue[candidate.Identifier], out[i])
+	}
+	return out
 }
 
 func summarizeReadyReconciliationDecisions(decisions []reconciliationDecision, readyState string) []string {

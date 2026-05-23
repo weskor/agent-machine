@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -134,6 +135,92 @@ func TestRetryBackoffDecisionSkipsNeedsInfoAndTerminal(t *testing.T) {
 			t.Fatalf("decision for state %q = %+v, %v; want blocked", stateName, decision, ok)
 		}
 	}
+}
+
+func TestReconcileCandidateForSelectionAllowsRepairableReviewFailedPR(t *testing.T) {
+	root := t.TempDir()
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	candidate := testIssue("CAG-141", "Ready for Agent")
+	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/pi-symphony/pull/93")
+
+	decision := reconcileCandidateForSelection(config, candidate, &pr, nil)
+
+	if !decision.CanRun || !decision.ShouldRetry || decision.NextAction != repairReviewFindingsNextAction || decision.ReconciliationNeeded {
+		t.Fatalf("expected repairable review-failed PR to be runnable, got %#v", decision)
+	}
+	if strings.Contains(strings.Join(decision.Blockers, "; "), "PR exists while Linear state") {
+		t.Fatalf("expected PR-exists reconciliation blocker to be cleared, got %#v", decision)
+	}
+}
+
+func TestReconcileCandidateForSelectionDoesNotLetRepairArtifactOverrideSQLiteConflict(t *testing.T) {
+	root := t.TempDir()
+	store := openCandidateTestStateStore(t)
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	candidate := testIssue("CAG-141", "Ready for Agent")
+	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/pi-symphony/pull/93")
+	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{
+		IssueKey:        candidate.Identifier,
+		Attempt:         2,
+		BranchName:      expectedWorkspaceBranch(candidate.Identifier),
+		BaseBranch:      "develop",
+		Status:          "success",
+		Repository:      "weskor/pi-symphony",
+		PRNumber:        93,
+		PRURL:           pr.URL,
+		TerminalOutcome: "handoff_ready",
+		UpdatedAt:       time.Date(2026, 5, 23, 12, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("UpsertRunArtifact() error = %v", err)
+	}
+
+	decision := reconcileCandidateForSelection(config, candidate, &pr, store)
+
+	if decision.CanRun || !decision.ReconciliationNeeded || decision.NextAction == repairReviewFindingsNextAction {
+		t.Fatalf("expected SQLite/artifact conflict to remain reconciliation-needed, got %#v", decision)
+	}
+}
+
+func TestClaimNextRunAttemptDispatchesRepairableReviewFailedPR(t *testing.T) {
+	root := t.TempDir()
+	store := openCandidateTestStateStore(t)
+	candidate := testIssue("CAG-141", "Ready for Agent")
+	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/pi-symphony/pull/93")
+	original := openPRsByIssueForSelection
+	openPRsByIssueForSelection = func(runnerConfig) (map[string]*pullRequestSummary, error) {
+		return map[string]*pullRequestSummary{candidate.Identifier: &pr}, nil
+	}
+	t.Cleanup(func() { openPRsByIssueForSelection = original })
+	client := linearClientWithCandidates(t, []issue{candidate})
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	config.PiCommand = "sh"
+	wf := workflow{Body: "# Test workflow"}
+
+	claim, didWork, err := claimNextRunAttempt(client, wf, config, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didWork || claim == nil || claim.Candidate.Identifier != candidate.Identifier {
+		t.Fatalf("claim = %#v didWork=%t, want repair claim for %s", claim, didWork, candidate.Identifier)
+	}
+	defer claim.ReleaseLock()
+	if claim.SelectedPR == nil || claim.SelectedPR.URL != pr.URL {
+		t.Fatalf("expected repair claim to reuse PR %s, got %#v", pr.URL, claim.SelectedPR)
+	}
+	if !hasRunLock(claim.Workspace) {
+		t.Fatalf("expected repair claim to hold a run lock")
+	}
+}
+
+func seedRepairableReviewFailedPR(t *testing.T, root, identifier, prURL string) pullRequestSummary {
+	t.Helper()
+	writeRunRecordFixture(t, root, identifier, fmt.Sprintf(`{"status":"review_failed","review_status":"failed","review_classification":"%s","review_findings":"REVIEW_FAIL behavior mismatch","pr_url":%q}`, reviewClassificationBehaviorSpecBlocker, prURL))
+	workspace := filepath.Join(root, identifier)
+	writeJSON(t, filepath.Join(workspace, evaluationArtifactName), evaluationArtifact{IssueIdentifier: identifier, PRURL: prURL, Outcome: runAttemptStatusReviewFailed, ReviewStatus: "failed", ReviewClassification: reviewClassificationBehaviorSpecBlocker, ShouldRetry: true, NextAction: repairReviewFindingsNextAction})
+	return pullRequestSummary{Number: 93, URL: prURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch(identifier), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "COMMENTED"}
 }
 
 func writeRetryWorkflow(t *testing.T, maxRetryBackoffMS int) string {

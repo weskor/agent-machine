@@ -71,7 +71,7 @@ func claimNextRunAttempt(client linearClient, wf workflow, config runnerConfig, 
 	}
 	branch, _ := currentGitBranch(workspace)
 	if existing, ok := reusableRunRecord(workspace); ok {
-		if feedbackRetryAvailable(workspace, candidate, existing, config) {
+		if feedbackRetryAvailable(workspace, candidate, existing, config, selectedPR) {
 			log("%s has terminal artifact but PR feedback is pending; retrying existing PR %s", candidate.Identifier, existing.PRURL)
 		} else {
 			log("%s already has terminal run artifact status=%s pr=%s; skipping duplicate work", candidate.Identifier, existing.Status, existing.PRURL)
@@ -159,6 +159,7 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 	if err != nil {
 		return true, err
 	}
+	feedback = repairReviewFailedPromptFeedback(workspace, feedback)
 	feedbackBlock := ""
 	if strings.TrimSpace(feedback) != "" {
 		feedbackBlock = fmt.Sprintf("\n\nGitHub PR feedback to address before handoff:\n%s\n", feedback)

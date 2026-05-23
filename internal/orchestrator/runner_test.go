@@ -81,6 +81,14 @@ func TestCLIDependenciesAdaptsModeOperationsThroughRunnerFacade(t *testing.T) {
 			calls = append(calls, "continuous")
 			return nil
 		},
+		WorkerFunc: func(client testClient, _ cfg.Workflow, config testConfig, role string) error {
+			assertConfig(client, config)
+			if role != "status" {
+				t.Fatalf("worker role = %q, want status", role)
+			}
+			calls = append(calls, "worker")
+			return nil
+		},
 		RunOneFunc: func(client testClient, _ cfg.Workflow, config testConfig) (bool, error) {
 			assertConfig(client, config)
 			calls = append(calls, "run-one")
@@ -115,11 +123,14 @@ func TestCLIDependenciesAdaptsModeOperationsThroughRunnerFacade(t *testing.T) {
 	if err := deps.RunContinuous(testClient{id: "linear"}, cfg.Workflow{}, cliConfig, 3); err != nil {
 		t.Fatalf("RunContinuous returned error: %v", err)
 	}
+	if err := deps.RunWorker(testClient{id: "linear"}, cfg.Workflow{}, cliConfig, "status"); err != nil {
+		t.Fatalf("RunWorker returned error: %v", err)
+	}
 	if err := deps.RunOne(testClient{id: "linear"}, cfg.Workflow{}, cliConfig); err != nil {
 		t.Fatalf("RunOne returned error: %v", err)
 	}
 
-	wantCalls := []string{"backfill", "repair", "cleanup", "status", "run-status", "explain", "merge", "continuous", "run-one"}
+	wantCalls := []string{"backfill", "repair", "cleanup", "status", "run-status", "explain", "merge", "continuous", "worker", "run-one"}
 	if !reflect.DeepEqual(calls, wantCalls) {
 		t.Fatalf("calls = %#v, want %#v", calls, wantCalls)
 	}

@@ -116,6 +116,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 
 - Default and `--once`: claim and execute one eligible Linear issue.
 - `--continuous` / `--daemon`: run merge and work lanes until canceled, or until `--cycles=N` completes N cycles per lane.
+- `--worker=<role>`: run one selected worker role as a separate CLI process. The first supported role is `status`, which wraps normal status output in a durable worker task, records a process heartbeat, and uses a SQLite lease without mutating Linear, GitHub, or workspaces.
 - `--merge-approved`: merge eligible Symphony-owned PRs whose gates pass.
 - `--cleanup-workspaces`: inspect workspace cleanup eligibility; `--apply` deletes eligible workspaces.
 - `--repair-artifacts`: repair local Symphony artifacts.

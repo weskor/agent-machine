@@ -62,6 +62,7 @@ type Dependencies[Client any] struct {
 	Explain                               func(Client, Config) error
 	MergeApprovedPRs                      func(Client, Config) error
 	RunContinuous                         func(Client, cfg.Workflow, Config, int) error
+	RunWorker                             func(Client, cfg.Workflow, Config, string) error
 	RunOne                                func(Client, cfg.Workflow, Config) error
 }
 
@@ -71,6 +72,7 @@ type parsedArgs struct {
 	cleanupApply bool
 	maxCycles    int
 	runStatusID  string
+	workerRole   string
 }
 
 const (
@@ -83,6 +85,7 @@ const (
 	modeRunStatus  = "run-status"
 	modeExplain    = "explain"
 	modeContinuous = "continuous"
+	modeWorker     = "worker"
 )
 
 // Run parses CLI args, loads local environment, reads the workflow, validates
@@ -143,6 +146,11 @@ func Run[Client any](args []string, deps Dependencies[Client]) error {
 		return deps.MergeApprovedPRs(client, config)
 	case modeContinuous:
 		return deps.RunContinuous(client, wf, config, parsed.maxCycles)
+	case modeWorker:
+		if strings.TrimSpace(parsed.workerRole) == "" {
+			return errors.New("--worker requires a role, for example --worker=status")
+		}
+		return deps.RunWorker(client, wf, config, parsed.workerRole)
 	default:
 		return deps.RunOne(client, wf, config)
 	}
@@ -185,6 +193,9 @@ func parseArgs(args []string) parsedArgs {
 			} else if value, ok := strings.CutPrefix(arg, "--run-status="); ok {
 				setMode(modeRunStatus, 3)
 				parsed.runStatusID = value
+			} else if value, ok := strings.CutPrefix(arg, "--worker="); ok {
+				setMode(modeWorker, 8)
+				parsed.workerRole = value
 			} else {
 				parsed.workflowPath = arg
 			}

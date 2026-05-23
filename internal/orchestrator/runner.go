@@ -26,6 +26,7 @@ type ModeRunner[Client any, Config any] interface {
 	Explain(Client, Config) error
 	Merge(Client, Config) error
 	Continuous(Client, cfg.Workflow, Config, int) error
+	Worker(Client, cfg.Workflow, Config, string) error
 	RunOne(Client, cfg.Workflow, Config) (bool, error)
 }
 
@@ -41,6 +42,7 @@ type ModeOperationFuncs[Client any, Config any] struct {
 	ExplainFunc    func(Client, Config) error
 	MergeFunc      func(Client, Config) error
 	ContinuousFunc func(Client, cfg.Workflow, Config, int) error
+	WorkerFunc     func(Client, cfg.Workflow, Config, string) error
 	RunOneFunc     func(Client, cfg.Workflow, Config) (bool, error)
 }
 
@@ -72,6 +74,10 @@ func (m ModeOperationFuncs[Client, Config]) Merge(client Client, config Config) 
 
 func (m ModeOperationFuncs[Client, Config]) Continuous(client Client, wf cfg.Workflow, config Config, maxCycles int) error {
 	return m.ContinuousFunc(client, wf, config, maxCycles)
+}
+
+func (m ModeOperationFuncs[Client, Config]) Worker(client Client, wf cfg.Workflow, config Config, role string) error {
+	return m.WorkerFunc(client, wf, config, role)
 }
 
 func (m ModeOperationFuncs[Client, Config]) RunOne(client Client, wf cfg.Workflow, config Config) (bool, error) {
@@ -119,6 +125,9 @@ func (r runner[Client, Config]) CLIDependencies() cli.Dependencies[Client] {
 		},
 		RunContinuous: func(client Client, wf cfg.Workflow, config cli.Config, maxCycles int) error {
 			return r.modes.Continuous(client, wf, r.fromCLIConfig(config), maxCycles)
+		},
+		RunWorker: func(client Client, wf cfg.Workflow, config cli.Config, role string) error {
+			return r.modes.Worker(client, wf, r.fromCLIConfig(config), role)
 		},
 		RunOne: func(client Client, wf cfg.Workflow, config cli.Config) error {
 			_, err := r.modes.RunOne(client, wf, r.fromCLIConfig(config))

@@ -36,6 +36,7 @@ func TestRunDispatchesRepresentativeArgCombinations(t *testing.T) {
 		{name: "repair artifacts", args: []string{"--repair-artifacts", workflowPath}, wantMode: modeRepair},
 		{name: "cleanup apply", args: []string{"--cleanup-workspaces", "--apply", workflowPath}, wantMode: modeCleanup, wantApply: true},
 		{name: "backfill", args: []string{"--backfill-state", workflowPath}, wantMode: modeBackfill},
+		{name: "worker", args: []string{"--worker=status", workflowPath}, wantMode: modeWorker},
 		{name: "status wins over later merge approved", args: []string{"--status", "--merge-approved", workflowPath}, wantMode: modeStatus},
 		{name: "repair wins over later status", args: []string{"--status", "--repair-artifacts", workflowPath}, wantMode: modeRepair},
 		{name: "cleanup wins over later daemon", args: []string{"--daemon", "--cleanup-workspaces", workflowPath}, wantMode: modeCleanup},
@@ -150,6 +151,10 @@ func TestRunExplainDispatchesNoMutatingOperations(t *testing.T) {
 	}
 	deps.RunContinuous = func(fakeClient, cfg.Workflow, Config, int) error {
 		t.Fatal("explain dispatched continuous mutation")
+		return nil
+	}
+	deps.RunWorker = func(fakeClient, cfg.Workflow, Config, string) error {
+		t.Fatal("explain dispatched worker process")
 		return nil
 	}
 	deps.RunOne = func(fakeClient, cfg.Workflow, Config) error {
@@ -288,6 +293,10 @@ func testDeps(t *testing.T, gotMode *string, gotApply *bool, gotCycles *int) Dep
 			if gotCycles != nil {
 				*gotCycles = maxCycles
 			}
+			return nil
+		},
+		RunWorker: func(_ fakeClient, _ cfg.Workflow, _ Config, _ string) error {
+			setMode(modeWorker)
 			return nil
 		},
 		RunOne: func(fakeClient, cfg.Workflow, Config) error {

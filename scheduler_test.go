@@ -113,6 +113,13 @@ func TestContinuousWorkerTaskWrapsLaneWithClaimAndCompletion(t *testing.T) {
 		if len(tasks) != 1 || tasks[0].Status != "claimed" {
 			t.Fatalf("worker task during run = %+v; want claimed", tasks)
 		}
+		lease, ok, err := store.Lease(ctx, "lane:merge")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok || !lease.ReleasedAt.IsZero() {
+			t.Fatalf("lease during run = %+v ok=%t; want held lane:merge lease", lease, ok)
+		}
 		return true, nil
 	})
 	if err != nil {
@@ -127,6 +134,13 @@ func TestContinuousWorkerTaskWrapsLaneWithClaimAndCompletion(t *testing.T) {
 	}
 	if len(tasks) != 1 || tasks[0].Status != "completed" {
 		t.Fatalf("worker task after run = %+v; want completed", tasks)
+	}
+	lease, ok, err := store.Lease(ctx, "lane:merge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || lease.ReleasedAt.IsZero() {
+		t.Fatalf("lease after run = %+v ok=%t; want released lane:merge lease", lease, ok)
 	}
 	events, err := store.Events(ctx, state.EventFilter{Limit: 10})
 	if err != nil {

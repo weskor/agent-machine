@@ -11,6 +11,7 @@ import (
 )
 
 const runProgressArtifactName = "progress.json"
+const handoffPendingPayloadArtifactName = "handoff-pending.json"
 
 type runProgressSnapshot struct {
 	IssueIdentifier      string    `json:"issue_identifier"`
@@ -33,6 +34,7 @@ type runProgressSnapshot struct {
 	RunRecordPath        string    `json:"run_record_path,omitempty"`
 	EvaluationPath       string    `json:"evaluation_path,omitempty"`
 	ProgressPath         string    `json:"progress_path,omitempty"`
+	HandoffPayloadPath   string    `json:"handoff_payload_path,omitempty"`
 }
 
 func runProgressRoot(workspaceRoot string) string {
@@ -56,6 +58,14 @@ func runProgressPath(workspaceRoot, issueIdentifier string) (string, error) {
 		return "", fmt.Errorf("issue identifier %q is not a safe run progress name", issueIdentifier)
 	}
 	return filepath.Join(root, issue, runProgressArtifactName), nil
+}
+
+func handoffPendingPayloadPath(workspaceRoot, issueIdentifier string) (string, error) {
+	progressPath, err := runProgressPath(workspaceRoot, issueIdentifier)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(progressPath), handoffPendingPayloadArtifactName), nil
 }
 
 func writeRunProgress(workspaceRoot string, snapshot runProgressSnapshot) {
@@ -113,6 +123,11 @@ func readRunProgress(workspaceRoot, issueIdentifier string) (runProgressSnapshot
 	if snapshot.ProgressPath == "" {
 		snapshot.ProgressPath = path
 	}
+	if snapshot.HandoffPayloadPath == "" && snapshot.Phase == runProgressPhaseHandoffPending {
+		if payloadPath, err := handoffPendingPayloadPath(workspaceRoot, issueIdentifier); err == nil {
+			snapshot.HandoffPayloadPath = payloadPath
+		}
+	}
 	return snapshot, nil
 }
 
@@ -162,6 +177,9 @@ func formatRunProgress(snapshot runProgressSnapshot) string {
 	}
 	if snapshot.EvaluationPath != "" {
 		parts = append(parts, "evaluation="+snapshot.EvaluationPath)
+	}
+	if snapshot.HandoffPayloadPath != "" {
+		parts = append(parts, "handoff_payload="+snapshot.HandoffPayloadPath)
 	}
 	parts = append(parts, "progress="+snapshot.ProgressPath)
 	return strings.Join(parts, " ")

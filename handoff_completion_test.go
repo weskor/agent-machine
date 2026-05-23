@@ -30,8 +30,15 @@ func TestCompleteAttemptHandoffWritesPendingProgressBeforeSideEffects(t *testing
 		if err != nil {
 			t.Fatal(err)
 		}
-		if snapshot.Phase != runProgressPhaseHandoffPending || snapshot.Status != runProgressPhaseHandoffPending || snapshot.NextAction != "complete_runner_handoff" || snapshot.PRURL != prURL || snapshot.ReviewStatus != "passed" {
+		if snapshot.Phase != runProgressPhaseHandoffPending || snapshot.Status != runProgressPhaseHandoffPending || snapshot.NextAction != "complete_runner_handoff" || snapshot.PRURL != prURL || snapshot.ReviewStatus != "passed" || snapshot.HandoffPayloadPath == "" {
 			t.Fatalf("progress before handoff side effects = %+v; want handoff_pending", snapshot)
+		}
+		payload, err := readHandoffPendingPayload(root, candidate.Identifier)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if payload.IssueIdentifier != candidate.Identifier || payload.IssueID != candidate.ID || payload.PRURL != prURL || payload.Review.Status != "passed" || len(payload.Validation) != 1 || payload.GitHubAuth != "github_app_installation" {
+			t.Fatalf("handoff payload = %+v; want complete handoff input", payload)
 		}
 		sawPending = true
 		return nil
@@ -66,6 +73,36 @@ func TestCompleteAttemptHandoffWritesPendingProgressBeforeSideEffects(t *testing
 	}
 	if final.Phase != "completed" || final.Outcome != "handoff_ready" || final.PRURL != prURL {
 		t.Fatalf("final progress = %+v; want completed handoff_ready", final)
+	}
+}
+
+func TestHandoffPendingPayloadRoundTripsCompletionInput(t *testing.T) {
+	root := t.TempDir()
+	candidate := &issue{ID: "issue-171", Identifier: "CAG-171", Title: "Payload round trip", URL: "https://linear.app/acme/issue/CAG-171"}
+	candidate.Team.ID = "team-171"
+	input := handoffCompletion{
+		config:          runnerConfig{WorkspaceRoot: root, PiCommand: "pi run"},
+		candidate:       candidate,
+		workspace:       filepath.Join(root, candidate.Identifier),
+		branch:          expectedWorkspaceBranch(candidate.Identifier),
+		progressStarted: time.Now().Add(-time.Minute),
+		startedAt:       time.Now().Add(-2 * time.Minute),
+		piUsage:         &usage{TotalTokens: 42},
+		review:          &reviewResult{Status: "passed", Findings: "ship it"},
+		prURL:           "https://github.com/acme/repo/pull/171",
+		validation:      []string{"go test ./...", "git diff --check"},
+		githubAuth:      "github_app_installation",
+	}
+	if err := writeHandoffPendingPayload(root, handoffPendingPayloadFromCompletion(input)); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := readHandoffPendingPayload(root, candidate.Identifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completion := payload.Completion(linearClient{}, input.config, nil, []workflowState{{ID: "handoff-id", Name: "Human Review"}})
+	if completion.candidate.Identifier != candidate.Identifier || completion.candidate.Team.ID != "team-171" || completion.workspace != input.workspace || completion.branch != input.branch || completion.prURL != input.prURL || completion.review.Findings != "ship it" || completion.piUsage.TotalTokens != 42 || len(completion.validation) != 2 || completion.githubAuth != input.githubAuth {
+		t.Fatalf("completion = %+v; want payload round trip", completion)
 	}
 }
 

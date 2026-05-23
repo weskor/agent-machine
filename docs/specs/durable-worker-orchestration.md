@@ -160,8 +160,10 @@ Safe process separation requires:
 
 The initial separate-process rollout started with the non-destructive `status`
 worker role. The supported `--worker` roles are now `status`, `cleanup`,
-`merge`, and `work`. Each role runs through a durable worker task and SQLite
-lease, records a process heartbeat, and exits after one completed task.
+`merge`, `review`, and `work`. Each role runs through a durable worker task and
+SQLite lease, records a process heartbeat, and exits after one completed task.
+The `review` process only resumes existing review-not-ready attempts whose
+current GitHub checks are successful; fresh implementation remains in `work`.
 Mutating roles use existing worker modules and lane behavior after their
 fresh-fact, lease, and fail-closed contracts are covered by focused tests.
 

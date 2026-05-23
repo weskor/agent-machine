@@ -192,6 +192,60 @@ func TestMergeWorkerProcessClaimsTaskRunsCleanupThenMergeAndRecordsHeartbeat(t *
 	}
 }
 
+func TestReviewWorkerProcessClaimsTaskRunsReviewResumeAndRecordsHeartbeat(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 5, 23, 12, 12, 0, 0, time.UTC)
+	oldRunReviewReadyAttempt := runReviewReadyAttemptForWorker
+	oldStateNow := stateNow
+	t.Cleanup(func() {
+		runReviewReadyAttemptForWorker = oldRunReviewReadyAttempt
+		stateNow = oldStateNow
+	})
+	stateNow = func() time.Time { return now }
+	resumeCalled := false
+	runReviewReadyAttemptForWorker = func(client linearClient, wf workflow, config runnerConfig, store *state.Store) (bool, error) {
+		resumeCalled = true
+		if config.WorkspaceRoot != root || config.ProjectSlug != "CAG" || config.ReviewCommand != "pi review" || store == nil {
+			t.Fatalf("review worker input = config %+v store=%v; want root/project/review/store", config, store != nil)
+		}
+		return true, nil
+	}
+
+	if err := runReviewWorkerProcess(linearClient{}, workflow{}, runnerConfig{WorkflowPath: "WORKFLOW.md", ProjectSlug: "CAG", WorkspaceRoot: root, ReviewCommand: "pi review"}); err != nil {
+		t.Fatalf("runReviewWorkerProcess() error = %v", err)
+	}
+	if !resumeCalled {
+		t.Fatal("review worker did not run review-ready attempt")
+	}
+
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	tasks, err := store.WorkerTasks(context.Background(), reviewWorkerRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].TaskKey != "process:review" || tasks[0].Status != "completed" || tasks[0].LeaseName != "worker:review" {
+		t.Fatalf("review worker task = %+v; want completed process:review with lease", tasks)
+	}
+	heartbeats, err := store.SnapshotHeartbeats(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(heartbeats) != 1 || heartbeats[0].LaneName != "worker:review" || heartbeats[0].CycleNumber != 1 || heartbeats[0].RecoveryRequired {
+		t.Fatalf("heartbeats = %+v; want successful worker:review heartbeat", heartbeats)
+	}
+	lease, ok, err := store.Lease(context.Background(), "worker:review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || lease.ReleasedAt.IsZero() || lease.ReleaseReason != "worker task completed" {
+		t.Fatalf("lease = %+v ok=%t; want released worker task lease", lease, ok)
+	}
+}
+
 func TestWorkWorkerProcessClaimsTaskRunsAttemptBatchAndRecordsHeartbeat(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 5, 23, 12, 15, 0, 0, time.UTC)

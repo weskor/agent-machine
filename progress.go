@@ -11,6 +11,7 @@ import (
 )
 
 const runProgressArtifactName = "progress.json"
+const prHandoffPendingPayloadArtifactName = "pr-handoff-pending.json"
 const reviewPendingPayloadArtifactName = "review-pending.json"
 const handoffPendingPayloadArtifactName = "handoff-pending.json"
 
@@ -35,6 +36,7 @@ type runProgressSnapshot struct {
 	RunRecordPath        string    `json:"run_record_path,omitempty"`
 	EvaluationPath       string    `json:"evaluation_path,omitempty"`
 	ProgressPath         string    `json:"progress_path,omitempty"`
+	PRHandoffPayloadPath string    `json:"pr_handoff_payload_path,omitempty"`
 	ReviewPayloadPath    string    `json:"review_payload_path,omitempty"`
 	HandoffPayloadPath   string    `json:"handoff_payload_path,omitempty"`
 }
@@ -68,6 +70,14 @@ func handoffPendingPayloadPath(workspaceRoot, issueIdentifier string) (string, e
 		return "", err
 	}
 	return filepath.Join(filepath.Dir(progressPath), handoffPendingPayloadArtifactName), nil
+}
+
+func prHandoffPendingPayloadPath(workspaceRoot, issueIdentifier string) (string, error) {
+	progressPath, err := runProgressPath(workspaceRoot, issueIdentifier)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(progressPath), prHandoffPendingPayloadArtifactName), nil
 }
 
 func reviewPendingPayloadPath(workspaceRoot, issueIdentifier string) (string, error) {
@@ -133,6 +143,11 @@ func readRunProgress(workspaceRoot, issueIdentifier string) (runProgressSnapshot
 	if snapshot.ProgressPath == "" {
 		snapshot.ProgressPath = path
 	}
+	if snapshot.PRHandoffPayloadPath == "" && snapshot.Phase == runProgressPhasePRHandoffPending {
+		if payloadPath, err := prHandoffPendingPayloadPath(workspaceRoot, issueIdentifier); err == nil {
+			snapshot.PRHandoffPayloadPath = payloadPath
+		}
+	}
 	if snapshot.ReviewPayloadPath == "" && snapshot.Phase == runProgressPhaseReviewPending {
 		if payloadPath, err := reviewPendingPayloadPath(workspaceRoot, issueIdentifier); err == nil {
 			snapshot.ReviewPayloadPath = payloadPath
@@ -192,6 +207,9 @@ func formatRunProgress(snapshot runProgressSnapshot) string {
 	}
 	if snapshot.EvaluationPath != "" {
 		parts = append(parts, "evaluation="+snapshot.EvaluationPath)
+	}
+	if snapshot.PRHandoffPayloadPath != "" {
+		parts = append(parts, "pr_handoff_payload="+snapshot.PRHandoffPayloadPath)
 	}
 	if snapshot.ReviewPayloadPath != "" {
 		parts = append(parts, "review_payload="+snapshot.ReviewPayloadPath)

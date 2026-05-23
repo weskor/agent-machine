@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -134,6 +135,31 @@ func TestRetryBackoffDecisionSkipsNeedsInfoAndTerminal(t *testing.T) {
 			t.Fatalf("decision for state %q = %+v, %v; want blocked", stateName, decision, ok)
 		}
 	}
+}
+
+func TestReconcileCandidateForSelectionAllowsRepairableReviewFailedPR(t *testing.T) {
+	root := t.TempDir()
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	candidate := testIssue("CAG-141", "Ready for Agent")
+	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/pi-symphony/pull/93")
+
+	decision := reconcileCandidateForSelection(config, candidate, &pr, nil)
+
+	if !decision.CanRun || !decision.ShouldRetry || decision.NextAction != repairReviewFindingsNextAction || decision.ReconciliationNeeded {
+		t.Fatalf("expected repairable review-failed PR to be runnable, got %#v", decision)
+	}
+	if strings.Contains(strings.Join(decision.Blockers, "; "), "PR exists while Linear state") {
+		t.Fatalf("expected PR-exists reconciliation blocker to be cleared, got %#v", decision)
+	}
+}
+
+func seedRepairableReviewFailedPR(t *testing.T, root, identifier, prURL string) pullRequestSummary {
+	t.Helper()
+	writeRunRecordFixture(t, root, identifier, fmt.Sprintf(`{"status":"review_failed","review_status":"failed","review_classification":"%s","review_findings":"REVIEW_FAIL behavior mismatch","pr_url":%q}`, reviewClassificationBehaviorSpecBlocker, prURL))
+	workspace := filepath.Join(root, identifier)
+	writeJSON(t, filepath.Join(workspace, evaluationArtifactName), evaluationArtifact{IssueIdentifier: identifier, PRURL: prURL, Outcome: runAttemptStatusReviewFailed, ReviewStatus: "failed", ReviewClassification: reviewClassificationBehaviorSpecBlocker, ShouldRetry: true, NextAction: repairReviewFindingsNextAction})
+	return pullRequestSummary{Number: 93, URL: prURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch(identifier), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "COMMENTED"}
 }
 
 func writeRetryWorkflow(t *testing.T, maxRetryBackoffMS int) string {

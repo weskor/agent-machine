@@ -54,6 +54,23 @@ func TestExplainCandidateSelectionReportsSQLiteMissingPRReconciliation(t *testin
 	}
 }
 
+func TestExplainCandidateSelectionReportsRepairableReviewFailedPRRunnable(t *testing.T) {
+	root := t.TempDir()
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	candidate := testIssue("CAG-141", "Ready for Agent")
+	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/pi-symphony/pull/93")
+
+	report := explainCandidateSelection(config, []issue{candidate}, map[string]*pullRequestSummary{candidate.Identifier: &pr}, nil)
+
+	if report.Selected != candidate.Identifier || len(report.Candidates) != 1 || !report.Candidates[0].Runnable || report.Candidates[0].NextAction != repairReviewFindingsNextAction {
+		t.Fatalf("expected repair-runnable explain candidate, got %+v", report)
+	}
+	if strings.Contains(report.Candidates[0].Reason, "reconciliation_needed") || strings.Contains(report.Candidates[0].Reason, "PR exists while Linear state") {
+		t.Fatalf("expected explain to avoid existing-PR reconciliation blocker, got %+v", report.Candidates[0])
+	}
+}
+
 func TestExplainMergeUsesMergeGateBlockers(t *testing.T) {
 	root := t.TempDir()
 	config := testRunnerConfig(root)
@@ -67,6 +84,20 @@ func TestExplainMergeUsesMergeGateBlockers(t *testing.T) {
 	}
 	if !strings.Contains(decisions[0].Reason, "conflicts") {
 		t.Fatalf("merge reason = %q, want conflict blocker", decisions[0].Reason)
+	}
+}
+
+func TestExplainMergeKeepsRepairableReviewFailedPRMergeIneligible(t *testing.T) {
+	root := t.TempDir()
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	candidate := testIssue("CAG-141", "Ready for Agent")
+	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/pi-symphony/pull/93")
+
+	decisions := explainMergeDecisions(config, map[string]*pullRequestSummary{candidate.Identifier: &pr}, []issue{candidate}, nil)
+
+	if len(decisions) != 1 || decisions[0].CanMerge || decisions[0].NextAction != repairReviewFindingsNextAction {
+		t.Fatalf("expected merge-ineligible repair decision, got %+v", decisions)
 	}
 }
 

@@ -27,7 +27,7 @@ func nextRunnableCandidate(client linearClient, config runnerConfig, store *stat
 	blockedCount := 0
 	for i := range candidates {
 		pr := prsByIssue[candidates[i].Identifier]
-		decision := newReconciliationModule(store).ReconcileIssue(config, candidates[i], pr)
+		decision := reconcileCandidateForSelection(config, candidates[i], pr, store)
 		retryDecision, retryDecisionFound := retryBackoffDecision(context.Background(), store, candidates[i], config, time.Now().UTC())
 		if store != nil {
 			if retryDecisionFound && !retryDecision.runnable {
@@ -53,7 +53,7 @@ func nextRunnableCandidate(client linearClient, config runnerConfig, store *stat
 	}
 	for i := range candidates {
 		pr := prsByIssue[candidates[i].Identifier]
-		decision := newReconciliationModule(store).ReconcileIssue(config, candidates[i], pr)
+		decision := reconcileCandidateForSelection(config, candidates[i], pr, store)
 		retryDecision, retryDecisionFound := retryBackoffDecision(context.Background(), store, candidates[i], config, time.Now().UTC())
 		if store != nil {
 			if retryDecisionFound && !retryDecision.runnable {
@@ -74,6 +74,11 @@ func nextRunnableCandidate(client linearClient, config runnerConfig, store *stat
 	}
 	log("all eligible issues are waiting on prior review-failure findings, terminal run artifacts, or active locks")
 	return nil, nil, nil
+}
+
+func reconcileCandidateForSelection(config runnerConfig, candidate issue, pr *pullRequestSummary, store *state.Store) reconciliationDecision {
+	decision := newReconciliationModule(store).ReconcileIssue(config, candidate, pr)
+	return decisionWithRepairableReviewFailedPR(config, candidate, pr, decision)
 }
 
 type candidateRetryDecision struct {

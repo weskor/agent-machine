@@ -159,6 +159,7 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 	if err != nil {
 		return true, err
 	}
+	feedback = repairReviewFailedPromptFeedback(workspace, feedback)
 	feedbackBlock := ""
 	if strings.TrimSpace(feedback) != "" {
 		feedbackBlock = fmt.Sprintf("\n\nGitHub PR feedback to address before handoff:\n%s\n", feedback)

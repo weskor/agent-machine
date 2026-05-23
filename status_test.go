@@ -204,6 +204,24 @@ func TestReconcileIssuesUsesOpenPRMapping(t *testing.T) {
 	}
 }
 
+func TestStatusReconciliationReportsRepairableReviewFailedPRNextAction(t *testing.T) {
+	root := t.TempDir()
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	candidate := testIssue("CAG-141", "Ready for Agent")
+	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/pi-symphony/pull/93")
+	prsByIssue := map[string]*pullRequestSummary{candidate.Identifier: &pr}
+	artifact := artifactSummary{Issue: candidate.Identifier, Status: runAttemptStatusReviewFailed, Outcome: runAttemptStatusReviewFailed, NextAction: repairReviewFindingsNextAction, ShouldRetry: true, Cleanable: true, HasArtifact: true, HasEvaluation: true, PRURL: pr.URL}
+
+	decisions := repairableReviewFailedReconciliationDecisions(config, []issue{candidate}, prsByIssue, newReconciliationModule(nil).ReconcileIssues(config, []issue{candidate}, prsByIssue, map[string]artifactSummary{candidate.Identifier: artifact}))
+	lines := summarizeReadyReconciliationDecisions(decisions, config.ReadyState)
+	joined := strings.Join(lines, "\n")
+
+	if !strings.Contains(joined, "next="+repairReviewFindingsNextAction) || strings.Contains(joined, "reconciliation_needed=true") {
+		t.Fatalf("expected status repair next action without reconciliation-needed, got %#v", lines)
+	}
+}
+
 func TestRunningReconciliationReportsDeletedWorkspace(t *testing.T) {
 	candidate := testIssue("CAG-45", "In Progress")
 	config := runnerConfig{WorkspaceRoot: t.TempDir(), RunningState: "In Progress"}

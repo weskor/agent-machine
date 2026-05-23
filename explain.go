@@ -116,7 +116,8 @@ func explainCandidateSelection(config runnerConfig, candidates []issue, prsByIss
 	for pass := 0; pass < 2 && selected == ""; pass++ {
 		for i := range ordered {
 			candidate := ordered[i]
-			decision := newReconciliationModule(store).ReconcileIssue(config, candidate, prsByIssue[candidate.Identifier])
+			pr := prsByIssue[candidate.Identifier]
+			decision := decisionWithRepairableReviewFailedPR(config, candidate, pr, newReconciliationModule(store).ReconcileIssue(config, candidate, pr))
 			if pass == 0 && candidate.State.Name != config.ReadyState {
 				continue
 			}
@@ -131,7 +132,8 @@ func explainCandidateSelection(config runnerConfig, candidates []issue, prsByIss
 	}
 	for i := range ordered {
 		candidate := ordered[i]
-		decision := newReconciliationModule(store).ReconcileIssue(config, candidate, prsByIssue[candidate.Identifier])
+		pr := prsByIssue[candidate.Identifier]
+		decision := decisionWithRepairableReviewFailedPR(config, candidate, pr, newReconciliationModule(store).ReconcileIssue(config, candidate, pr))
 		reason := "would run"
 		if !decision.CanRun {
 			reason = strings.Join(decision.Blockers, "; ")
@@ -168,7 +170,7 @@ func explainMergeDecisions(config runnerConfig, prsByIssue map[string]*pullReque
 		gate := evaluatePullRequestMergeGate(*pr)
 		decision := reconciliationDecision{}
 		if candidate, ok := issues[identifier]; ok {
-			decision = newReconciliationModule(store).ReconcileIssue(config, candidate, pr)
+			decision = decisionWithRepairableReviewFailedPR(config, candidate, pr, newReconciliationModule(store).ReconcileIssue(config, candidate, pr))
 		}
 		reason := gate.Reason()
 		canMerge := gate.Eligible && decision.CanMerge && pr.ReviewDecision == "APPROVED"

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -40,6 +41,18 @@ func TestRenderPRFeedbackIncludesChangeRequestsAndComments(t *testing.T) {
 		if !strings.Contains(markdown, expected) {
 			t.Fatalf("expected %q in feedback markdown:\n%s", expected, markdown)
 		}
+	}
+}
+
+func TestRepairReviewFailedPromptFeedbackIncludesPriorFindings(t *testing.T) {
+	root := t.TempDir()
+	workspace := root + "/CAG-141"
+	writeRunRecordFixture(t, root, "CAG-141", fmt.Sprintf(`{"status":"review_failed","review_status":"failed","review_classification":"%s","review_findings":"REVIEW_FAIL\n- Fix behavior contract evidence","pr_url":"https://github.com/weskor/pi-symphony/pull/93"}`, reviewClassificationBehaviorSpecBlocker))
+
+	feedback := repairReviewFailedPromptFeedback(workspace, "")
+
+	if !strings.Contains(feedback, "Prior review findings") || !strings.Contains(feedback, reviewClassificationBehaviorSpecBlocker) || !strings.Contains(feedback, "Fix behavior contract evidence") {
+		t.Fatalf("repair feedback did not include prior findings: %q", feedback)
 	}
 }
 

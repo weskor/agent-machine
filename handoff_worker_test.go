@@ -29,12 +29,12 @@ func TestHandoffWorkerPostsCommentsAndMovesToHandoffState(t *testing.T) {
 		postedSummary = summary
 		return nil
 	}
-	updateIssueStateForHandoffWorker = func(client linearClient, issueID, stateID string) error {
+	updateIssueStateForLinearStatusWorker = func(client linearClient, issueID, stateID string) error {
 		updatedIssueID = issueID
 		updatedStateID = stateID
 		return nil
 	}
-	createCommentForHandoffWorker = func(client linearClient, issueID, body string) error {
+	createCommentForLinearStatusWorker = func(client linearClient, issueID, body string) error {
 		commentIssueID = issueID
 		commentBody = body
 		return nil
@@ -89,8 +89,8 @@ func TestHandoffWorkerRecordsFailedRunWhenHandoffTransitionFails(t *testing.T) {
 
 	transitionErr := errors.New("linear transition failed")
 	postOrUpdatePRHandoffCommentForWorker = func(handoffSummary) error { return nil }
-	updateIssueStateForHandoffWorker = func(linearClient, string, string) error { return transitionErr }
-	createCommentForHandoffWorker = func(linearClient, string, string) error {
+	updateIssueStateForLinearStatusWorker = func(linearClient, string, string) error { return transitionErr }
+	createCommentForLinearStatusWorker = func(linearClient, string, string) error {
 		t.Fatal("Linear handoff comment should not be created after transition failure")
 		return nil
 	}

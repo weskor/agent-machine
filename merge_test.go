@@ -129,7 +129,22 @@ func TestRunArtifactMergeBlockReason(t *testing.T) {
 	}
 
 	record.Status = "success"
+	record.ReviewStatus = "failed"
+	record.ReviewClassification = reviewClassificationMissingEvidenceOnly
+	data, err = json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := runArtifactMergeBlockReason(root, "CAG-28", record.PRURL); got != "" {
+		t.Fatalf("expected approved missing-evidence-only artifact to allow merge, got %q", got)
+	}
+
+	record.Status = "success"
 	record.ReviewStatus = "passed"
+	record.ReviewClassification = ""
 	data, err = json.Marshal(record)
 	if err != nil {
 		t.Fatal(err)
@@ -276,6 +291,20 @@ func TestEvaluateMergeGateBlockers(t *testing.T) {
 			r.ReviewStatus = "failed"
 			return r
 		}(), wantCode: "run_artifact", wantReason: "run status is review_failed"},
+		{name: "approved missing evidence only artifact", artifact: func() runRecord {
+			r := testRunRecord("success", basePR.URL)
+			r.IssueIdentifier = "CAG-70"
+			r.ReviewStatus = "failed"
+			r.ReviewClassification = reviewClassificationMissingEvidenceOnly
+			return r
+		}(), wantOK: true},
+		{name: "behavior review failure remains blocked", artifact: func() runRecord {
+			r := testRunRecord("success", basePR.URL)
+			r.IssueIdentifier = "CAG-70"
+			r.ReviewStatus = "failed"
+			r.ReviewClassification = reviewClassificationBehaviorSpecBlocker
+			return r
+		}(), wantCode: "run_artifact", wantReason: "review status is failed"},
 	}
 
 	for _, tt := range tests {

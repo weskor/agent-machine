@@ -44,11 +44,11 @@ func TestOpenInitializesDeterministicSchemaAndIsIdempotent(t *testing.T) {
 		t.Fatalf("SchemaVersion() = %d, %v; want %d, nil", version, err, CurrentSchemaVersion)
 	}
 
-	expectedTables := []string{"cleanup_states", "daemon_heartbeats", "external_fact_snapshots", "feedback_states", "issue_attempts", "leases", "merge_blockers", "orchestration_events", "pr_mappings", "retry_decisions", "review_states", "schema_migrations", "terminal_outcomes"}
+	expectedTables := []string{"cleanup_states", "daemon_heartbeats", "external_fact_snapshots", "feedback_states", "issue_attempts", "leases", "merge_blockers", "orchestration_events", "pr_mappings", "retry_decisions", "review_states", "schema_migrations", "terminal_outcomes", "worker_tasks"}
 	if !reflect.DeepEqual(firstTables, expectedTables) {
 		t.Fatalf("tables = %v; want %v", firstTables, expectedTables)
 	}
-	expectedIndexes := []string{"idx_daemon_heartbeats_lane", "idx_issue_attempts_status", "idx_leases_expires_at", "idx_merge_blockers_active", "idx_orchestration_events_issue", "idx_orchestration_events_type", "idx_pr_mappings_pr_number"}
+	expectedIndexes := []string{"idx_daemon_heartbeats_lane", "idx_issue_attempts_status", "idx_leases_expires_at", "idx_merge_blockers_active", "idx_orchestration_events_issue", "idx_orchestration_events_type", "idx_pr_mappings_pr_number", "idx_worker_tasks_issue", "idx_worker_tasks_role_status"}
 	for _, name := range expectedIndexes {
 		if !contains(firstIndexes, name) {
 			t.Fatalf("missing expected index %q in %v", name, firstIndexes)
@@ -178,6 +178,56 @@ func TestAppendEventRejectsInvalidPayloadWithoutMutatingLog(t *testing.T) {
 	}
 	if counts.Events != 0 {
 		t.Fatalf("events count = %d; want 0", counts.Events)
+	}
+}
+
+func TestWorkerTasksUpsertAndFilterByRole(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	now := time.Date(2026, 5, 23, 10, 0, 0, 0, time.UTC)
+	tasks := []WorkerTask{
+		{TaskKey: "implementation:CAG-200:1", Role: "implementation", IssueKey: "CAG-200", IssueID: "issue-200", Attempt: 1, Priority: 10, AvailableAt: now.Add(time.Minute), LeaseName: "run:CAG-200", Payload: json.RawMessage(`{"workspace":"workspaces/CAG-200"}`), CreatedAt: now, UpdatedAt: now},
+		{TaskKey: "review:CAG-200:1", Role: "review", IssueKey: "CAG-200", IssueID: "issue-200", Attempt: 1, Priority: 5, AvailableAt: now, LeaseName: "review:CAG-200", Payload: json.RawMessage(`{"pr_url":"https://github.com/acme/repo/pull/200"}`), CreatedAt: now, UpdatedAt: now},
+	}
+	for _, task := range tasks {
+		if err := s.UpsertWorkerTask(ctx, task); err != nil {
+			t.Fatalf("UpsertWorkerTask(%s) error = %v", task.TaskKey, err)
+		}
+	}
+	if err := s.UpsertWorkerTask(ctx, WorkerTask{TaskKey: "review:CAG-200:1", Role: "review", IssueKey: "CAG-200", Attempt: 1, Status: "claimed", Priority: 7, AvailableAt: now.Add(2 * time.Minute), LeaseName: "review:CAG-200", Payload: json.RawMessage(`{"pr_url":"https://github.com/acme/repo/pull/200","retry":true}`), CreatedAt: now, UpdatedAt: now.Add(time.Minute)}); err != nil {
+		t.Fatalf("UpsertWorkerTask(update) error = %v", err)
+	}
+
+	reviewTasks, err := s.WorkerTasks(ctx, "review")
+	if err != nil {
+		t.Fatalf("WorkerTasks(review) error = %v", err)
+	}
+	if len(reviewTasks) != 1 {
+		t.Fatalf("review tasks = %+v; want one", reviewTasks)
+	}
+	task := reviewTasks[0]
+	if task.TaskKey != "review:CAG-200:1" || task.Status != "claimed" || task.Priority != 7 || task.LeaseName != "review:CAG-200" {
+		t.Fatalf("updated review task = %+v", task)
+	}
+	var payload struct {
+		Retry bool `json:"retry"`
+	}
+	if err := json.Unmarshal(task.Payload, &payload); err != nil {
+		t.Fatalf("payload unmarshal error = %v", err)
+	}
+	if !payload.Retry {
+		t.Fatalf("payload = %s; want retry=true", string(task.Payload))
+	}
+	counts, err := s.Counts(ctx)
+	if err != nil {
+		t.Fatalf("Counts() error = %v", err)
+	}
+	if counts.WorkerTasks != 2 {
+		t.Fatalf("WorkerTasks count = %d; want 2", counts.WorkerTasks)
 	}
 }
 

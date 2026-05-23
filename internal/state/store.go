@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	CurrentSchemaVersion = 2
+	CurrentSchemaVersion = 3
 	busyTimeoutMS        = 5000
 )
 
@@ -45,6 +45,7 @@ type Counts struct {
 	DaemonHeartbeats int
 	CleanupStates    int
 	Events           int
+	WorkerTasks      int
 }
 
 const (
@@ -117,6 +118,21 @@ type DaemonHeartbeat struct {
 	LastError        string
 	RecoveryRequired bool
 	UpdatedAt        time.Time
+}
+
+type WorkerTask struct {
+	TaskKey     string
+	Role        string
+	IssueKey    string
+	IssueID     string
+	Attempt     int
+	Status      string
+	Priority    int
+	AvailableAt time.Time
+	LeaseName   string
+	Payload     json.RawMessage
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type Lease struct {
@@ -524,6 +540,78 @@ func (s *Store) UpsertDaemonHeartbeat(ctx context.Context, heartbeat DaemonHeart
 		return fmt.Errorf("insert daemon heartbeat: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) UpsertWorkerTask(ctx context.Context, task WorkerTask) error {
+	if task.TaskKey == "" {
+		return errors.New("upsert worker task: task_key is required")
+	}
+	if task.Role == "" {
+		return errors.New("upsert worker task: role is required")
+	}
+	if task.Status == "" {
+		task.Status = "queued"
+	}
+	now := time.Now().UTC()
+	if task.AvailableAt.IsZero() {
+		task.AvailableAt = now
+	}
+	if task.CreatedAt.IsZero() {
+		task.CreatedAt = now
+	}
+	if task.UpdatedAt.IsZero() {
+		task.UpdatedAt = now
+	}
+	if len(task.Payload) == 0 {
+		task.Payload = json.RawMessage(`{}`)
+	}
+	if !json.Valid(task.Payload) {
+		return errors.New("upsert worker task: payload must be valid JSON")
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO worker_tasks(task_key, role, issue_key, issue_id, attempt, status, priority, available_at, lease_name, payload_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(task_key) DO UPDATE SET role = excluded.role, issue_key = excluded.issue_key, issue_id = excluded.issue_id, attempt = excluded.attempt, status = excluded.status, priority = excluded.priority, available_at = excluded.available_at, lease_name = excluded.lease_name, payload_json = excluded.payload_json, updated_at = excluded.updated_at`, task.TaskKey, task.Role, task.IssueKey, task.IssueID, nullZeroInt(task.Attempt), task.Status, task.Priority, formatTime(task.AvailableAt), task.LeaseName, string(task.Payload), formatTime(task.CreatedAt), formatTime(task.UpdatedAt))
+	if err != nil {
+		return fmt.Errorf("upsert worker task: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) WorkerTasks(ctx context.Context, role string) ([]WorkerTask, error) {
+	query := `SELECT task_key, role, issue_key, issue_id, COALESCE(attempt, 0), status, priority, available_at, lease_name, payload_json, created_at, updated_at FROM worker_tasks`
+	var args []any
+	if role != "" {
+		query += ` WHERE role = ?`
+		args = append(args, role)
+	}
+	query += ` ORDER BY available_at, priority DESC, task_key`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("worker tasks: %w", err)
+	}
+	defer rows.Close()
+	var tasks []WorkerTask
+	for rows.Next() {
+		var task WorkerTask
+		var availableRaw, payloadRaw, createdRaw, updatedRaw string
+		if err := rows.Scan(&task.TaskKey, &task.Role, &task.IssueKey, &task.IssueID, &task.Attempt, &task.Status, &task.Priority, &availableRaw, &task.LeaseName, &payloadRaw, &createdRaw, &updatedRaw); err != nil {
+			return nil, fmt.Errorf("scan worker task: %w", err)
+		}
+		task.Payload = json.RawMessage(payloadRaw)
+		var err error
+		if task.AvailableAt, err = parseTime(availableRaw); err != nil {
+			return nil, fmt.Errorf("parse worker task available_at: %w", err)
+		}
+		if task.CreatedAt, err = parseTime(createdRaw); err != nil {
+			return nil, fmt.Errorf("parse worker task created_at: %w", err)
+		}
+		if task.UpdatedAt, err = parseTime(updatedRaw); err != nil {
+			return nil, fmt.Errorf("parse worker task updated_at: %w", err)
+		}
+		tasks = append(tasks, task)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate worker tasks: %w", err)
+	}
+	return tasks, nil
 }
 
 func (s *Store) UpsertCleanupState(ctx context.Context, cleanup CleanupState) error {
@@ -1108,6 +1196,7 @@ func (s *Store) Counts(ctx context.Context) (Counts, error) {
 		"daemon_heartbeats":    &counts.DaemonHeartbeats,
 		"cleanup_states":       &counts.CleanupStates,
 		"orchestration_events": &counts.Events,
+		"worker_tasks":         &counts.WorkerTasks,
 	} {
 		if err := s.db.QueryRowContext(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s`, table)).Scan(dest); err != nil {
 			if table == "orchestration_events" && strings.Contains(err.Error(), "no such table") {
@@ -1151,6 +1240,12 @@ func (s *Store) init(ctx context.Context) error {
 	}
 	if version < 2 {
 		if err := migrateV2(ctx, tx); err != nil {
+			return err
+		}
+		version = 2
+	}
+	if version < 3 {
+		if err := migrateV3(ctx, tx); err != nil {
 			return err
 		}
 	}
@@ -1220,6 +1315,19 @@ func migrateV2(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
+func migrateV3(ctx context.Context, tx *sql.Tx) error {
+	for _, stmt := range v3Schema {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("apply migration v3: %w", err)
+		}
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, checksum, applied_at, success) VALUES (?, ?, ?, ?, 1)`, 3, "durable worker task queue", "v3", time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("record migration v3: %w", err)
+	}
+	return nil
+}
+
 var v1Schema = []string{
 	`CREATE TABLE issue_attempts (id INTEGER PRIMARY KEY, issue_key TEXT NOT NULL, issue_id TEXT NOT NULL DEFAULT '', attempt INTEGER NOT NULL, workspace_path TEXT NOT NULL DEFAULT '', branch_name TEXT NOT NULL, base_branch TEXT NOT NULL, prompt_hash TEXT NOT NULL DEFAULT '', validation_summary TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(issue_key, attempt))`,
 	`CREATE TABLE pr_mappings (id INTEGER PRIMARY KEY, attempt_id INTEGER NOT NULL REFERENCES issue_attempts(id) ON DELETE CASCADE, repository TEXT NOT NULL, branch_name TEXT NOT NULL, base_branch TEXT NOT NULL, pr_number INTEGER, pr_url TEXT NOT NULL DEFAULT '', head_sha TEXT NOT NULL DEFAULT '', base_sha TEXT NOT NULL DEFAULT '', symphony_owned INTEGER NOT NULL CHECK (symphony_owned IN (0, 1)), updated_at TEXT NOT NULL, UNIQUE(repository, branch_name))`,
@@ -1243,4 +1351,10 @@ var v2Schema = []string{
 	`CREATE TABLE orchestration_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, occurred_at TEXT NOT NULL, issue_key TEXT NOT NULL DEFAULT '', issue_id TEXT NOT NULL DEFAULT '', attempt INTEGER, run_id TEXT NOT NULL DEFAULT '', source TEXT NOT NULL, event_type TEXT NOT NULL, payload_json TEXT NOT NULL CHECK (json_valid(payload_json)))`,
 	`CREATE INDEX idx_orchestration_events_issue ON orchestration_events(issue_key, attempt, sequence)`,
 	`CREATE INDEX idx_orchestration_events_type ON orchestration_events(event_type, sequence)`,
+}
+
+var v3Schema = []string{
+	`CREATE TABLE worker_tasks (id INTEGER PRIMARY KEY, task_key TEXT NOT NULL UNIQUE, role TEXT NOT NULL, issue_key TEXT NOT NULL DEFAULT '', issue_id TEXT NOT NULL DEFAULT '', attempt INTEGER, status TEXT NOT NULL, priority INTEGER NOT NULL DEFAULT 0, available_at TEXT NOT NULL, lease_name TEXT NOT NULL DEFAULT '', payload_json TEXT NOT NULL CHECK (json_valid(payload_json)), created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+	`CREATE INDEX idx_worker_tasks_role_status ON worker_tasks(role, status, available_at, priority)`,
+	`CREATE INDEX idx_worker_tasks_issue ON worker_tasks(issue_key, attempt)`,
 }

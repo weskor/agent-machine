@@ -21,6 +21,12 @@ This spec describes the target end-to-end Pi Symphony behavior for V1. It does n
 
 The authority matrix in [SQLite Orchestration State Contract](./sqlite-orchestration-state.md#authority-matrix) defines which system owns each runner decision during the SQLite transition. Later implementation tickets must cite that matrix instead of re-deciding precedence between SQLite, Linear, GitHub, artifacts, and operator input.
 
+The worker/process split target is defined in
+[Durable Worker Orchestration Spec](./durable-worker-orchestration.md). Future
+implementation, review, handoff, merge, reconciliation, Linear status, and
+cleanup workers must share the same SQLite-backed orchestration model instead
+of implementing independent state machines.
+
 ## Deterministic runner boundary
 
 The V1 orchestration target follows the boundary in [Harness Behavior Spec: Runner and Agent responsibility boundary](./harness-behavior.md#runner-and-agent-responsibility-boundary): the Agent handles ambiguity; the runner owns invariants.
@@ -114,6 +120,10 @@ Terminal failure must include the failing phase, evidence pointer, and side effe
 - A stale lease may be reclaimed only after heartbeat evidence and process/owner checks satisfy the configured stale policy.
 - Parallel Agent sessions must share no implicit state through logs alone; status must report durable state.
 - Merge and cleanup lanes must respect active leases and reconciliation-needed blockers.
+- Worker roles may run in one process, goroutines, or future separate OS
+  processes, but each worker must claim durable state, acquire required leases,
+  refresh external facts before mutation, and record current-state/event
+  evidence before reporting completion.
 
 ### Scheduler parameter contract (runtime semantics)
 

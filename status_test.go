@@ -63,7 +63,7 @@ func TestSummarizeStateStoreReportsHealthyDB(t *testing.T) {
 	}
 
 	joined := strings.Join(summarizeStateStore(workspaceRoot), "\n")
-	for _, expected := range []string{"SQLite state path: " + state.DefaultDBPath(workspaceRoot), "SQLite state health: healthy", "schema_version=2", "journal_mode=wal", "busy_timeout_ms=5000", "issue_attempts=1", "pr_mappings=1", "review_states=1", "terminal_outcomes=1", "daemon_heartbeats=1", "cleanup_states=0", "events=3"} {
+	for _, expected := range []string{"SQLite state path: " + state.DefaultDBPath(workspaceRoot), "SQLite state health: healthy", "schema_version=3", "journal_mode=wal", "busy_timeout_ms=5000", "issue_attempts=1", "pr_mappings=1", "review_states=1", "terminal_outcomes=1", "daemon_heartbeats=1", "cleanup_states=0", "events=3"} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("expected %q in %q", expected, joined)
 		}

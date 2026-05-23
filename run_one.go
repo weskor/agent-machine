@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -117,59 +115,8 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 		}
 	}
 	runStarted := time.Now()
-
-	if err := os.MkdirAll(workspace, 0o755); err != nil {
-		return true, err
-	}
-	prepared := runProgressForIssue(candidate, workspace, "workspace_prepared", progressStarted)
-	prepared.Branch = branch
-	writeRunProgress(config.WorkspaceRoot, prepared)
-	if isEmptyIgnoringRunLock(workspace) && strings.TrimSpace(config.AfterCreate) != "" {
-		if err := sh.RunWithTimeout(config.AfterCreate, workspace, config.Budget.CommandTimeout); err != nil {
-			if errors.Is(err, sh.ErrCommandTimeout) {
-				decision := commandFailureLifecycleDecision(attemptLifecyclePhaseWorkspace, err, true)
-				_ = client.createComment(candidate.ID, renderBudgetFailureComment(err.Error()))
-				writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, "", runStarted, time.Now(), nil, nil, "", decision.Status, err.Error(), config.Budget.Active(), err.Error()))
-			}
-			return true, err
-		}
-	}
-	if err := ensureIsolatedWorkspace(config.WorkspaceRoot, workspace, candidate.Identifier); err != nil {
-		return true, err
-	}
-	if config.BeforeRun != "" {
-		if err := sh.RunWithTimeout(config.BeforeRun, workspace, config.Budget.CommandTimeout); err != nil {
-			if errors.Is(err, sh.ErrCommandTimeout) {
-				decision := commandFailureLifecycleDecision(attemptLifecyclePhaseWorkspace, err, true)
-				_ = client.createComment(candidate.ID, renderBudgetFailureComment(err.Error()))
-				writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, "", runStarted, time.Now(), nil, nil, "", decision.Status, err.Error(), config.Budget.Active(), err.Error()))
-			}
-			return true, err
-		}
-	}
-	if selectedPR != nil && selectedPR.ReviewDecision == "CHANGES_REQUESTED" {
-		feedback, err := collectPRFeedback(selectedPR.Number)
-		if err != nil {
-			return true, err
-		}
-		if err := writePRFeedback(workspace, selectedPR.Number, feedback); err != nil {
-			return true, err
-		}
-		log("captured PR feedback for %s before retrying %s", selectedPR.URL, candidate.Identifier)
-	}
-
-	feedback, err := readPRFeedback(workspace)
-	if err != nil {
-		return true, err
-	}
-	feedback = repairReviewFailedPromptFeedback(workspace, feedback)
-	feedbackBlock := ""
-	if strings.TrimSpace(feedback) != "" {
-		feedbackBlock = fmt.Sprintf("\n\nGitHub PR feedback to address before handoff:\n%s\n", feedback)
-	}
-	prompt := renderPrompt(wf.Body, *candidate, 1) + fmt.Sprintf("\n\nLinear issue description:\n%s%s\n\n%s\n\n%s\n\nPi Symphony runner constraints:\n- Follow the Linear issue description exactly; do not infer broader implementation work from the title alone.\n- If GitHub PR feedback is present, address that feedback in the existing PR branch rather than starting unrelated work.\n- If required information is missing or the ticket is ambiguous/unsafe to implement, output NEEDS_INFO followed by numbered questions instead of guessing.\n- Run exactly once; do not ask for continuation.\n- Keep context usage minimal.\n- Leave scoped code/test/doc changes in this workspace and include validation notes.\n- Do not create, update, push, or comment on a GitHub PR; the Pi Symphony runner will commit, push, create or update exactly one PR from branch %s into base branch %s, and post deterministic handoff comments.\n- Before finishing, perform a focused self-review of the final diff for scope, secrets, validation, tenant/security risk, unrelated files, and behavior-contract evidence; fix any clear findings.\n- Stop after the scoped diff and validation notes.\n- The runner will move the Linear issue to %s after runner PR handoff, or to %s when NEEDS_INFO is detected.\n", candidate.Description, feedbackBlock, ticketContractPrompt(), behaviorContractPreflightPrompt(), expectedWorkspaceBranch(candidate.Identifier), config.BaseBranch, config.HandoffState, config.NeedsInfoState)
-	promptPath := filepath.Join(workspace, ".pi-symphony-prompt.md")
-	if err := os.WriteFile(promptPath, []byte(prompt), 0o600); err != nil {
+	implementation := implementationWorker{client: client, workflow: wf, config: config, stateStore: stateStore, candidate: candidate, selectedPR: selectedPR, states: states, workspace: workspace, branch: branch, progressStarted: progressStarted, runStarted: runStarted}
+	if err := implementation.Prepare(); err != nil {
 		return true, err
 	}
 
@@ -194,87 +141,14 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 		return resumeReviewReadyRun(client, stateStore, config, candidate, states, workspace, branch, githubEnv, githubAuth, progressStarted, runStarted, selectedPR)
 	}
 
-	runtime := newPiCLIRuntime()
-	attempt, err := runtime.StartAttempt(context.Background(), agentruntime.StartAttemptInput{IssueID: candidate.ID, IssueIdentifier: candidate.Identifier, Workspace: workspace, Branch: branch, ExpectedBranch: expectedWorkspaceBranch(candidate.Identifier), Attempt: 1, WorkingDir: workspace, Command: config.PiCommand, PromptPath: promptPath, Timeouts: agentruntime.AttemptTimeouts{WallClock: config.Budget.WallClock, Command: config.Budget.CommandTimeout, Review: config.Budget.ReviewTimeout}, Environment: githubEnv})
-	if err != nil {
+	implementationResult, err := implementation.Run(context.Background(), githubEnv, githubAuth)
+	if err != nil || implementationResult.Terminal {
 		return true, err
 	}
-	emitRunAttemptEvent(stateStore, state.EventRuntimeStarted, candidate, branch, map[string]any{"attempt_id": attempt.ID})
-	implementing := runProgressForIssue(candidate, workspace, "implementing", progressStarted)
-	implementing.Branch = branch
-	writeRunProgress(config.WorkspaceRoot, implementing)
-	piResult, err := runtime.RunAttempt(context.Background(), attempt.ID, agentruntime.RunAttemptInput{Command: config.PiCommand, PromptPath: promptPath, WorkingDir: workspace, Timeout: config.Budget.PiTimeout, Environment: githubEnv}, agentruntime.NoopSink{})
-	piEnvelope := normalizedAttemptEnvelope(piResult)
-	piStart := piResult.StartedAt
-	piEnded := piResult.EndedAt
-	piOutput := piEnvelope.RawOutput
-	emitRunAttemptEvent(stateStore, state.EventRuntimeFinished, candidate, branch, map[string]any{"attempt_id": attempt.ID, "outcome": piEnvelope.RuntimeOutcome, "pr_url": piEnvelope.PRURL, "error": errorString(err)})
-	if err != nil {
-		timeout := piEnvelope.RuntimeOutcome == agentruntime.AttemptOutcomeTimeout || errors.Is(err, sh.ErrCommandTimeout)
-		decision := commandFailureLifecycleDecision(attemptLifecyclePhaseImplementation, err, timeout)
-		if timeout {
-			if commentErr := client.createComment(candidate.ID, renderBudgetFailureComment(err.Error())); commentErr != nil {
-				log("failed to comment on %s: %v", candidate.Identifier, commentErr)
-			}
-		}
-		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, piEnded, usageFromRuntime(piEnvelope.Usage), nil, piEnvelope.PRURL, decision.Status, err.Error(), config.Budget.Active(), err.Error()))
-		return true, err
-	}
-	piUsage := usageFromRuntime(piEnvelope.Usage)
-	if piUsage != nil {
-		log("pi usage: input=%.0f output=%.0f cacheRead=%.0f total=%.0f cost=$%.4f", piUsage.Input, piUsage.Output, piUsage.CacheRead, piUsage.TotalTokens, piUsage.TotalCost())
-	} else {
-		log("pi usage: unavailable")
-	}
-	prURL := piEnvelope.PRURL
-	validating := runProgressForIssue(candidate, workspace, "validating", progressStarted)
-	validating.Branch = branch
-	validating.PRURL = prURL
-	writeRunProgress(config.WorkspaceRoot, validating)
-	log("pi run duration: %s", piEnded.Sub(piStart).Round(time.Second))
-	if exceeded := budgetExceeded(config.Budget, piStart, piUsage); exceeded != "" {
-		decision := budgetLifecycleDecision(attemptLifecyclePhaseImplementation, prURL, exceeded)
-		if err := client.createComment(candidate.ID, renderBudgetFailureComment(exceeded)); err != nil {
-			log("failed to comment on %s: %v", candidate.Identifier, err)
-		}
-		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, decision.Status, exceeded, config.Budget.Active(), exceeded))
-		return true, fmt.Errorf("%s", exceeded)
-	}
-	if len(piEnvelope.NeedsInfoQuestions) > 0 {
-		if id := stateID(states, config.NeedsInfoState); id != "" {
-			if err := client.updateIssueState(candidate.ID, id); err != nil {
-				decision := needsInfoLifecycleDecision(piEnvelope.NeedsInfoQuestions, runAttemptStatusNeedsInfoFail, err.Error())
-				writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), ""))
-				return true, err
-			}
-			log("moved %s to %s", candidate.Identifier, config.NeedsInfoState)
-		} else {
-			log("needs-info state %q was not found for %s", config.NeedsInfoState, candidate.Identifier)
-		}
-		comment := renderNeedsInfoComment(piEnvelope.NeedsInfoQuestions)
-		if err := client.createComment(candidate.ID, comment); err != nil {
-			log("failed to comment on %s: %v", candidate.Identifier, err)
-		}
-		decision := needsInfoLifecycleDecision(piEnvelope.NeedsInfoQuestions, "", "")
-		if err := writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, "", decision.Status, strings.Join(piEnvelope.NeedsInfoQuestions, "\n"), config.Budget.Active(), "")); err != nil {
-			return true, err
-		}
-		log("%s needs additional information; stopped without PR handoff", candidate.Identifier)
-		return true, nil
-	}
-	if config.AfterRun != "" {
-		if err := sh.RunWithTimeout(config.AfterRun, workspace, config.Budget.CommandTimeout); err != nil {
-			timeout := errors.Is(err, sh.ErrCommandTimeout)
-			decision := commandFailureLifecycleDecision(attemptLifecyclePhaseValidation, err, timeout)
-			if timeout {
-				if commentErr := client.createComment(candidate.ID, renderBudgetFailureComment(err.Error())); commentErr != nil {
-					log("failed to comment on %s: %v", candidate.Identifier, commentErr)
-				}
-			}
-			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), err.Error()))
-			return true, err
-		}
-	}
+	prURL := implementationResult.PRURL
+	piUsage := implementationResult.Usage
+	piOutput := implementationResult.Output
+	piStart := implementationResult.Started
 	scopeResult, err := checkScopeGuard(candidate.Description, workspace, config.BaseBranch)
 	if err != nil {
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseScopeGuard, PRURL: prURL, ScopeError: err.Error()})

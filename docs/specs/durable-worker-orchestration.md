@@ -89,6 +89,11 @@ eligibility blockers.
 
 It must not silently rerun implementation. If checks are pending, missing, or
 conflicting, it records waiting/reconciliation state for a later review task.
+Inline review writes `review_pending` progress plus a bounded review payload
+before semantic review side effects, then re-reads that payload for evidence
+collection and review execution. Review resume after `review_not_ready` uses the
+same payload execution boundary before handing the review result back to the
+caller.
 
 ### Handoff worker
 

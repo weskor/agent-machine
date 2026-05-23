@@ -11,6 +11,7 @@ import (
 )
 
 const runProgressArtifactName = "progress.json"
+const reviewPendingPayloadArtifactName = "review-pending.json"
 const handoffPendingPayloadArtifactName = "handoff-pending.json"
 
 type runProgressSnapshot struct {
@@ -34,6 +35,7 @@ type runProgressSnapshot struct {
 	RunRecordPath        string    `json:"run_record_path,omitempty"`
 	EvaluationPath       string    `json:"evaluation_path,omitempty"`
 	ProgressPath         string    `json:"progress_path,omitempty"`
+	ReviewPayloadPath    string    `json:"review_payload_path,omitempty"`
 	HandoffPayloadPath   string    `json:"handoff_payload_path,omitempty"`
 }
 
@@ -66,6 +68,14 @@ func handoffPendingPayloadPath(workspaceRoot, issueIdentifier string) (string, e
 		return "", err
 	}
 	return filepath.Join(filepath.Dir(progressPath), handoffPendingPayloadArtifactName), nil
+}
+
+func reviewPendingPayloadPath(workspaceRoot, issueIdentifier string) (string, error) {
+	progressPath, err := runProgressPath(workspaceRoot, issueIdentifier)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(progressPath), reviewPendingPayloadArtifactName), nil
 }
 
 func writeRunProgress(workspaceRoot string, snapshot runProgressSnapshot) {
@@ -123,6 +133,11 @@ func readRunProgress(workspaceRoot, issueIdentifier string) (runProgressSnapshot
 	if snapshot.ProgressPath == "" {
 		snapshot.ProgressPath = path
 	}
+	if snapshot.ReviewPayloadPath == "" && snapshot.Phase == runProgressPhaseReviewPending {
+		if payloadPath, err := reviewPendingPayloadPath(workspaceRoot, issueIdentifier); err == nil {
+			snapshot.ReviewPayloadPath = payloadPath
+		}
+	}
 	if snapshot.HandoffPayloadPath == "" && snapshot.Phase == runProgressPhaseHandoffPending {
 		if payloadPath, err := handoffPendingPayloadPath(workspaceRoot, issueIdentifier); err == nil {
 			snapshot.HandoffPayloadPath = payloadPath
@@ -177,6 +192,9 @@ func formatRunProgress(snapshot runProgressSnapshot) string {
 	}
 	if snapshot.EvaluationPath != "" {
 		parts = append(parts, "evaluation="+snapshot.EvaluationPath)
+	}
+	if snapshot.ReviewPayloadPath != "" {
+		parts = append(parts, "review_payload="+snapshot.ReviewPayloadPath)
 	}
 	if snapshot.HandoffPayloadPath != "" {
 		parts = append(parts, "handoff_payload="+snapshot.HandoffPayloadPath)

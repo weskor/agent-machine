@@ -76,6 +76,7 @@ structured output, raw debug capture, and deterministic handoff support.
 10. Pi Symphony validates that the PR belongs to the configured repository, expected branch, expected base branch, expected author/owner policy, and current issue attempt.
 11. When review is configured, Pi Symphony refreshes PR/check/scope evidence, confirms the run is ready for semantic review, and passes that deterministic evidence packet into the review prompt.
     - If GitHub checks are still pending or unavailable after the bounded pre-review wait, Pi Symphony records retryable `review_not_ready` / `waiting_for_checks` evidence for the existing PR and leaves implementation output intact. When a later cycle observes successful checks, it resumes semantic review for that PR instead of starting a fresh implementation attempt. The terminal run/evaluation/progress exports must keep this as a waiting-for-checks retry state rather than reclassifying it as an operational failure. Failed checks remain a blocker until the PR checks are repaired.
+    - Before semantic review side effects, Pi Symphony writes and re-reads a bounded `review_pending` payload so inline review and resumed review use the same review-domain input contract.
 12. Review runs when configured and classifies the semantic/spec result.
 13. Pi Symphony posts deterministic PR and Linear Handoff comments with behavior-contract evidence.
 14. The Linear issue moves to Human Review, Needs Info, Done, or another configured state according to the outcome.

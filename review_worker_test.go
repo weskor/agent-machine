@@ -29,14 +29,14 @@ func TestReviewWorkerCollectsEvidenceAndRunsSemanticReview(t *testing.T) {
 	prURL := "https://github.com/acme/repo/pull/156"
 	var gotValidation []string
 	collectReviewEvidenceForWorker = func(config runnerConfig, gotCandidate *issue, gotWorkspace, gotPRURL string, scopeResult scopeGuardResult, validation []string) (reviewEvidence, error) {
-		if config.WorkspaceRoot != root || gotCandidate != candidate || gotWorkspace != workspace || gotPRURL != prURL {
+		if config.WorkspaceRoot != root || gotCandidate.Identifier != candidate.Identifier || gotWorkspace != workspace || gotPRURL != prURL {
 			t.Fatalf("unexpected evidence input config=%+v candidate=%+v workspace=%q pr=%q", config, gotCandidate, gotWorkspace, gotPRURL)
 		}
 		gotValidation = append([]string(nil), validation...)
 		return reviewEvidence{ChecksStatus: "success", ChecksSummary: "go-ci=COMPLETED/SUCCESS"}, nil
 	}
 	runReviewForWorker = func(command, gotWorkspace string, gotCandidate *issue, gotPRURL string, env map[string]string, timeout time.Duration, evidence *reviewEvidence) (*reviewResult, error) {
-		if command != "pi review" || gotWorkspace != workspace || gotCandidate != candidate || gotPRURL != prURL || env["GITHUB_TOKEN"] != "token" || timeout != time.Minute {
+		if command != "pi review" || gotWorkspace != workspace || gotCandidate.Identifier != candidate.Identifier || gotPRURL != prURL || env["GITHUB_TOKEN"] != "token" || timeout != time.Minute {
 			t.Fatalf("unexpected review input command=%q workspace=%q candidate=%+v pr=%q env=%+v timeout=%s", command, gotWorkspace, gotCandidate, gotPRURL, env, timeout)
 		}
 		if evidence == nil || evidence.ChecksStatus != "success" {
@@ -61,6 +61,72 @@ func TestReviewWorkerCollectsEvidenceAndRunsSemanticReview(t *testing.T) {
 	}
 	if snapshot.Phase != "reviewing" || snapshot.PRURL != prURL || snapshot.ChecksStatus != "success" {
 		t.Fatalf("progress = %+v; want reviewing success progress", snapshot)
+	}
+}
+
+func TestReviewWorkerExecutesPersistedPayloadBoundary(t *testing.T) {
+	t.Cleanup(resetReviewWorkerHooks)
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-177")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	candidate := &issue{ID: "issue-177", Identifier: "CAG-177", Title: "Review payload boundary"}
+	candidate.Team.ID = "team-177"
+	started := time.Date(2026, 5, 23, 21, 30, 0, 0, time.UTC)
+	prURL := "https://github.com/acme/repo/pull/177"
+	readReviewPendingPayloadForExecution = func(workspaceRoot, issueIdentifier string) (reviewPendingPayload, error) {
+		payload, err := readReviewPendingPayload(workspaceRoot, issueIdentifier)
+		if err != nil {
+			return reviewPendingPayload{}, err
+		}
+		payload.Validation = append(payload.Validation, "payload-boundary-read")
+		return payload, nil
+	}
+	collectReviewEvidenceForWorker = func(config runnerConfig, gotCandidate *issue, gotWorkspace, gotPRURL string, scopeResult scopeGuardResult, validation []string) (reviewEvidence, error) {
+		snapshot, err := readRunProgress(root, candidate.Identifier)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snapshot.Phase != runProgressPhaseReviewPending || snapshot.Status != runProgressPhaseReviewPending || snapshot.NextAction != "run_semantic_review" || snapshot.PRURL != prURL || snapshot.ReviewPayloadPath == "" {
+			t.Fatalf("progress before review side effects = %+v; want review_pending", snapshot)
+		}
+		if gotCandidate.Identifier != candidate.Identifier || gotCandidate.Team.ID != "team-177" || gotWorkspace != workspace || gotPRURL != prURL {
+			t.Fatalf("unexpected review input candidate=%+v workspace=%q pr=%q", gotCandidate, gotWorkspace, gotPRURL)
+		}
+		if len(validation) != 2 || validation[1] != "payload-boundary-read" {
+			t.Fatalf("validation = %#v; want side effects from persisted payload read", validation)
+		}
+		return reviewEvidence{ChecksStatus: "success", ChecksSummary: "go-ci=COMPLETED/SUCCESS"}, nil
+	}
+	runReviewForWorker = func(string, string, *issue, string, map[string]string, time.Duration, *reviewEvidence) (*reviewResult, error) {
+		return &reviewResult{Status: "passed"}, nil
+	}
+
+	result, err := reviewWorker{
+		client:          linearClient{},
+		config:          runnerConfig{WorkspaceRoot: root, PiCommand: "pi run", ReviewCommand: "pi review"},
+		stateStore:      store,
+		candidate:       candidate,
+		workspace:       workspace,
+		branch:          expectedWorkspaceBranch(candidate.Identifier),
+		progressStarted: started,
+		startedAt:       started,
+		prURL:           prURL,
+		githubEnv:       map[string]string{"GITHUB_TOKEN": "token"},
+		githubAuth:      "github_app_installation",
+		validation:      []string{"input-validation"},
+	}.Execute(context.Background())
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if result.Terminal || result.Review == nil || result.Review.Status != "passed" {
+		t.Fatalf("result = %+v; want non-terminal passed review", result)
 	}
 }
 

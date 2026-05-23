@@ -12,6 +12,7 @@ const cleanupWorkerRole = "cleanup"
 const mergeWorkerRole = "merge"
 const reviewWorkerRole = "review"
 const implementationWorkerRole = "implementation"
+const handoffWorkerRole = "handoff"
 const workWorkerRole = "work"
 
 func runSelectedWorker(client linearClient, wf workflow, config runnerConfig, role string) error {
@@ -27,6 +28,8 @@ func runSelectedWorker(client linearClient, wf workflow, config runnerConfig, ro
 		return runReviewWorkerProcess(client, wf, config)
 	case implementationWorkerRole:
 		return runImplementationWorkerProcess(client, wf, config)
+	case handoffWorkerRole:
+		return runHandoffWorkerProcess(client, config)
 	case workWorkerRole:
 		return runWorkWorkerProcess(client, wf, config)
 	default:
@@ -35,7 +38,7 @@ func runSelectedWorker(client linearClient, wf workflow, config runnerConfig, ro
 }
 
 func supportedWorkerRoles() []string {
-	return []string{statusWorkerRole, cleanupWorkerRole, mergeWorkerRole, reviewWorkerRole, implementationWorkerRole, workWorkerRole}
+	return []string{statusWorkerRole, cleanupWorkerRole, mergeWorkerRole, reviewWorkerRole, implementationWorkerRole, handoffWorkerRole, workWorkerRole}
 }
 
 func runStatusWorkerProcess(client linearClient, config runnerConfig) error {
@@ -70,6 +73,7 @@ var issueIdentifiersByStateForMergeWorker = func(client linearClient, projectSlu
 var mergeApprovedPRsForWorker = mergeApprovedPRs
 var runReviewReadyAttemptForWorker = runReviewReadyAttempt
 var runImplementationAttemptForWorker = runImplementationAttempt
+var runHandoffPendingAttemptForWorker = runHandoffPendingAttempt
 var runClaimedAttemptBatchForWorker = runClaimedAttemptBatch
 
 func runCleanupWorkerProcess(client linearClient, config runnerConfig) error {
@@ -170,6 +174,27 @@ func runImplementationWorkerProcess(client linearClient, wf workflow, config run
 		return runImplementationAttemptForWorker(client, wf, config, stateStore)
 	})
 	recordContinuousHeartbeat(recordHeartbeat, continuousHeartbeat{LaneName: "worker:implementation", CycleNumber: 1, Success: err == nil && didWork, Err: err, At: stateNow()})
+	return err
+}
+
+func runHandoffWorkerProcess(client linearClient, config runnerConfig) error {
+	ctx := context.Background()
+	stateStore, stateDBPath := commandScopedStateStore(ctx, config.WorkspaceRoot, "worker-handoff")
+	if stateStore == nil {
+		return fmt.Errorf("SQLite state store unavailable for handoff worker at %s", stateDBPath)
+	}
+	defer stateStore.Close()
+	recordHeartbeat := daemonHeartbeatRecorder(ctx, config, stateStore)
+	didWork, err := runContinuousWorkerTask(ctx, stateStore, continuousWorkerTask{
+		TaskKey:   "process:handoff",
+		Role:      handoffWorkerRole,
+		LaneName:  "worker:handoff",
+		LeaseName: "worker:handoff",
+		Payload:   map[string]any{"project_slug": config.ProjectSlug, "handoff_state": config.HandoffState},
+	}, func() (bool, error) {
+		return runHandoffPendingAttemptForWorker(client, config, stateStore)
+	})
+	recordContinuousHeartbeat(recordHeartbeat, continuousHeartbeat{LaneName: "worker:handoff", CycleNumber: 1, Success: err == nil && didWork, Err: err, At: stateNow()})
 	return err
 }
 

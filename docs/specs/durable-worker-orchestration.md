@@ -87,9 +87,10 @@ Owns commit/push/PR create-update, PR URL validation, deterministic PR and
 Linear handoff comments, and movement to Human Review or Needs Info.
 
 It must not run implementation or semantic review. It consumes durable attempt,
-validation, review, and PR facts. The current inline runner writes
-`handoff_pending` progress plus a bounded handoff payload before final handoff
-side effects so this boundary is claimable by a later handoff process.
+validation, review, and PR facts. The inline runner writes `handoff_pending`
+progress plus a bounded handoff payload before final handoff side effects; the
+dedicated `handoff` worker claims those pending records through the run lease and
+finishes the same handoff side effects from the persisted payload.
 
 ### Merge worker
 

@@ -50,7 +50,6 @@ func decisionWithRepairableReviewFailedPR(config runnerConfig, candidate issue, 
 	decision.CanRun = true
 	decision.CanMerge = false
 	decision.ShouldRetry = true
-	decision.ReconciliationNeeded = false
 	decision.Blockers = nil
 	decision.NextAction = repairReviewFindingsNextAction
 	return decision
@@ -63,8 +62,19 @@ func repairableReviewFailedPR(config runnerConfig, candidate issue, pr *pullRequ
 	if decision.NextAction != "reconcile_linear_state" && decision.NextAction != repairReviewFindingsNextAction {
 		return false
 	}
+	if decision.ReconciliationNeeded {
+		return false
+	}
 	if prInvariantBlockReason(config, candidate, *pr) != "" {
 		return false
+	}
+	if decision.DBFacts != nil {
+		if strings.TrimSpace(decision.DBFacts.Status) != "" && decision.DBFacts.Status != runAttemptStatusReviewFailed {
+			return false
+		}
+		if strings.TrimSpace(decision.DBFacts.PRURL) != "" && decision.DBFacts.PRURL != pr.URL {
+			return false
+		}
 	}
 	workspace := filepath.Join(config.WorkspaceRoot, candidate.Identifier)
 	record, ok := readRunArtifact(workspace)

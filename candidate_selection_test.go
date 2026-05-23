@@ -154,6 +154,35 @@ func TestReconcileCandidateForSelectionAllowsRepairableReviewFailedPR(t *testing
 	}
 }
 
+func TestReconcileCandidateForSelectionDoesNotLetRepairArtifactOverrideSQLiteConflict(t *testing.T) {
+	root := t.TempDir()
+	store := openCandidateTestStateStore(t)
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	candidate := testIssue("CAG-141", "Ready for Agent")
+	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/pi-symphony/pull/93")
+	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{
+		IssueKey:        candidate.Identifier,
+		Attempt:         2,
+		BranchName:      expectedWorkspaceBranch(candidate.Identifier),
+		BaseBranch:      "develop",
+		Status:          "success",
+		Repository:      "weskor/pi-symphony",
+		PRNumber:        93,
+		PRURL:           pr.URL,
+		TerminalOutcome: "handoff_ready",
+		UpdatedAt:       time.Date(2026, 5, 23, 12, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("UpsertRunArtifact() error = %v", err)
+	}
+
+	decision := reconcileCandidateForSelection(config, candidate, &pr, store)
+
+	if decision.CanRun || !decision.ReconciliationNeeded || decision.NextAction == repairReviewFindingsNextAction {
+		t.Fatalf("expected SQLite/artifact conflict to remain reconciliation-needed, got %#v", decision)
+	}
+}
+
 func TestClaimNextRunAttemptDispatchesRepairableReviewFailedPR(t *testing.T) {
 	root := t.TempDir()
 	store := openCandidateTestStateStore(t)

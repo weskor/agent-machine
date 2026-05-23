@@ -86,11 +86,12 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 ### Scheduler parameter behavior (current runnable contract)
 
 - Current runtime behavior is capacity-limited by `agent.max_concurrent_agents`:
-  - `--continuous` starts one merge lane and one work lane;
-  - the work lane deterministically claims up to `agent.max_concurrent_agents` distinct runnable attempts per iteration, then executes the claimed attempts concurrently;
+  - `--continuous` starts merge, review, and implementation lanes;
+  - the implementation lane deterministically claims up to `agent.max_concurrent_agents` distinct fresh runnable attempts per iteration, then executes the claimed attempts concurrently;
+  - the review lane resumes existing review-not-ready attempts after current GitHub checks become successful;
   - the default value of `1` preserves the historical single-agent behavior.
 - Live dogfood smoke test CAG-131 validated that the claim-first split still lets a `Ready for Agent` issue enter the normal isolated workspace flow; no scheduler or state-machine policy changed as part of that smoke test.
-- `agent.max_concurrent_agents` controls only work-lane claim capacity. Duplicate work prevention remains enforced before Agent execution by candidate reconciliation, reusable terminal run artifacts, run locks, and SQLite leases.
+- `agent.max_concurrent_agents` controls only implementation-lane claim capacity. Duplicate work prevention remains enforced before Agent execution by candidate reconciliation, reusable terminal run artifacts, run locks, and SQLite leases.
 - `agent.max_turns` is enforced at the AgentRuntime/config preflight boundary for `pi_cli`: normalized `1` preserves the single implementation attempt, while values greater than `1` fail before claim, lease acquisition, workspace mutation, Linear state movement, or Agent execution.
 - `pi_cli` does not gate or stop an in-flight attempt by turn count; future session-runtime Adapters must declare and enforce a `max_turns` capability rather than relying on scheduler guesses.
 - `max_retry_backoff_ms` gates retry timing for durable retry decisions: retryable failed or blocked attempts write retry metadata to SQLite, candidate selection skips the issue until the exponential backoff delay elapses, and the delay is capped by the configured maximum.
@@ -115,7 +116,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 ## CLI modes
 
 - Default and `--once`: claim and execute one eligible Linear issue.
-- `--continuous` / `--daemon`: run merge and work lanes until canceled, or until `--cycles=N` completes N cycles per lane.
+- `--continuous` / `--daemon`: run merge, review, and implementation lanes until canceled, or until `--cycles=N` completes N cycles per lane.
 - `--worker=<role>`: run one selected worker role as a separate CLI process through a durable worker task, process heartbeat, and SQLite lease. Supported roles are `status`, `cleanup`, `merge`, `review`, `implementation`, and `work`.
   - `status` wraps normal status output and is read-only.
   - `cleanup` refreshes Done issue identifiers and applies existing workspace cleanup behavior.

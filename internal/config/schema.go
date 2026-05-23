@@ -15,6 +15,7 @@ type Config struct {
 	Hooks     HooksConfig
 	Agent     AgentConfig
 	Pi        PiConfig
+	Review    ReviewConfig
 	Budgets   Budget
 	Compound  CompoundConfig
 	GitHub    GitHubConfig
@@ -64,6 +65,10 @@ type PiConfig struct {
 	AfterRun      string
 }
 
+type ReviewConfig struct {
+	Guidance string
+}
+
 type CompoundConfig struct {
 	HandoffState       string
 	RunningState       string
@@ -86,6 +91,7 @@ func ParseConfig(yaml string) (Config, error) {
 	hooksYAML := Section(yaml, "hooks")
 	agentYAML := Section(yaml, "agent")
 	piYAML := Section(yaml, "pi")
+	reviewYAML := Section(yaml, "review")
 	compoundYAML := Section(yaml, "compound")
 	githubYAML := Section(yaml, "github")
 
@@ -124,6 +130,9 @@ func ParseConfig(yaml string) (Config, error) {
 			AfterCreate:   BlockUnder(piYAML, "after_create"),
 			BeforeRun:     Scalar(piYAML, "  before_run", ""),
 			AfterRun:      Scalar(piYAML, "  after_run", ""),
+		},
+		Review: ReviewConfig{
+			Guidance: BlockUnder(reviewYAML, "guidance"),
 		},
 		Budgets: budgets,
 		Compound: CompoundConfig{

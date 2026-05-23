@@ -39,6 +39,13 @@ pi:
     git clone --branch develop git@github.com:OWNER/REPO.git .
   before_run: git status --short --branch
   after_run: git diff --check
+review:
+  # Optional target-repository review guidance appended to the generic Pi Symphony review prompt.
+  # Use this for domain-specific paths, invariants, security checks, or docs that reviewers
+  # must consult in this repository; leave empty to use only the core runner review policy.
+  guidance: |
+    Verify any repository-specific domain changes against local domain docs and production flows.
+    Require evidence for security, ownership, or tenant-boundary assumptions touched by the diff.
 budgets:
   wall_clock: 2h
   max_tokens: 0

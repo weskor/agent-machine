@@ -23,6 +23,7 @@ type Config struct {
 	ActiveStates           []string
 	PiCommand              string
 	ReviewCommand          string
+	ReviewGuidance         string
 	AfterCreate            string
 	BeforeRun              string
 	AfterRun               string
@@ -219,6 +220,7 @@ func LoadWorkflowConfig(workflowPath string) (cfg.Workflow, Config, error) {
 	}
 	config.PiCommand = schema.Pi.Command
 	config.ReviewCommand = schema.Pi.ReviewCommand
+	config.ReviewGuidance = schema.Review.Guidance
 	config.AfterCreate = schema.Pi.AfterCreate
 	config.BeforeRun = schema.Pi.BeforeRun
 	config.AfterRun = schema.Pi.AfterRun

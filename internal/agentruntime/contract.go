@@ -219,6 +219,21 @@ type ReviewResult struct {
 	Usage          *AttemptUsage `json:"usage,omitempty"`
 }
 
+// AttemptOutcomeEnvelope is the structured runner-facing projection of legacy
+// text runtime output. The raw output remains available for compatibility, but
+// deterministic orchestration should prefer these parsed fields when present.
+type AttemptOutcomeEnvelope struct {
+	RuntimeOutcome     AttemptOutcome   `json:"runtime_outcome"`
+	PRURL              string           `json:"pr_url,omitempty"`
+	NeedsInfoQuestions []string         `json:"needs_info_questions,omitempty"`
+	Validation         []string         `json:"validation,omitempty"`
+	Usage              *AttemptUsage    `json:"usage,omitempty"`
+	RawOutput          string           `json:"raw_output,omitempty"`
+	DebugOutputRef     string           `json:"debug_output_ref,omitempty"`
+	ErrorKind          RuntimeErrorKind `json:"error_kind,omitempty"`
+	Error              string           `json:"error,omitempty"`
+}
+
 // AttemptResult is the terminal projection of a runtime execution.
 type AttemptResult struct {
 	AttemptID      string
@@ -226,6 +241,7 @@ type AttemptResult struct {
 	PRURL          string
 	Output         string
 	Usage          *AttemptUsage
+	Envelope       AttemptOutcomeEnvelope
 	StartedAt      time.Time
 	EndedAt        time.Time
 	Error          string

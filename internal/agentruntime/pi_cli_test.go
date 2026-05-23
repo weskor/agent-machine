@@ -104,6 +104,9 @@ func TestPiCLIAdapterRunAttemptPreservesCommandShapeAndParsesOutput(t *testing.T
 	if result.AttemptOutcome != AttemptOutcomeSuccess || result.PRURL == "" || result.Output == "" || result.Usage.TotalTokens != 42 {
 		t.Fatalf("unexpected result: %+v", result)
 	}
+	if result.Envelope.RuntimeOutcome != AttemptOutcomeSuccess || result.Envelope.PRURL != result.PRURL || result.Envelope.RawOutput != result.Output || result.Envelope.Usage.TotalTokens != 42 {
+		t.Fatalf("unexpected outcome envelope: %+v", result.Envelope)
+	}
 }
 
 func TestPiCLIAdapterRunAttemptMapsTimeout(t *testing.T) {
@@ -117,6 +120,78 @@ func TestPiCLIAdapterRunAttemptMapsTimeout(t *testing.T) {
 	}
 	if result.AttemptOutcome != AttemptOutcomeTimeout || result.ErrorKind != RuntimeErrorKindTimeout || result.Output != "partial" {
 		t.Fatalf("unexpected timeout result: %+v", result)
+	}
+	if result.Envelope.RuntimeOutcome != AttemptOutcomeTimeout || result.Envelope.ErrorKind != RuntimeErrorKindTimeout || result.Envelope.RawOutput != "partial" {
+		t.Fatalf("unexpected timeout envelope: %+v", result.Envelope)
+	}
+}
+
+func TestPiCLIAdapterRunAttemptPopulatesLegacyOutcomeEnvelope(t *testing.T) {
+	tests := []struct {
+		name          string
+		output        string
+		err           error
+		firstPRURL    string
+		questions     []string
+		wantOutcome   AttemptOutcome
+		wantErrorKind RuntimeErrorKind
+	}{
+		{
+			name:        "success with PR hint",
+			output:      "opened https://github.com/acme/repo/pull/7",
+			firstPRURL:  "https://github.com/acme/repo/pull/7",
+			wantOutcome: AttemptOutcomeSuccess,
+		},
+		{
+			name:        "needs info questions",
+			output:      "NEEDS_INFO\n1. Which tenant?",
+			questions:   []string{"Which tenant?"},
+			wantOutcome: AttemptOutcomeSuccess,
+		},
+		{
+			name:          "execution failure",
+			output:        "partial failure output",
+			err:           errors.New("exit status 1"),
+			wantOutcome:   AttemptOutcomeFailed,
+			wantErrorKind: RuntimeErrorKindExecution,
+		},
+		{
+			name:        "missing PR output",
+			output:      "done without PR",
+			wantOutcome: AttemptOutcomeSuccess,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runtime := PiCLIAdapter{
+				RunCommand: func(string, string, map[string]string, time.Duration, string) (string, error) {
+					return tt.output, tt.err
+				},
+				FirstPRURL: func(string) string { return tt.firstPRURL },
+				NeedsInfoQuestions: func(string) []string {
+					return tt.questions
+				},
+				ParseUsage: func(string) *AttemptUsage { return &AttemptUsage{TotalTokens: 42} },
+			}
+
+			result, err := runtime.RunAttempt(context.Background(), "CAG-1", RunAttemptInput{Command: "pi", PromptPath: "prompt.md"}, NoopSink{})
+			if tt.err != nil && err == nil {
+				t.Fatal("expected error")
+			}
+			if tt.err == nil && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result.Envelope.RuntimeOutcome != tt.wantOutcome || result.Envelope.ErrorKind != tt.wantErrorKind {
+				t.Fatalf("unexpected envelope outcome/error kind: %+v", result.Envelope)
+			}
+			if result.Envelope.PRURL != tt.firstPRURL || result.Envelope.RawOutput != tt.output || result.Envelope.Usage.TotalTokens != 42 {
+				t.Fatalf("unexpected envelope fields: %+v", result.Envelope)
+			}
+			if strings.Join(result.Envelope.NeedsInfoQuestions, "\n") != strings.Join(tt.questions, "\n") {
+				t.Fatalf("questions = %#v, want %#v", result.Envelope.NeedsInfoQuestions, tt.questions)
+			}
+		})
 	}
 }
 

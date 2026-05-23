@@ -33,6 +33,7 @@ func (w mergeWorker) HandlePullRequest(ctx context.Context, pr pullRequestSummar
 		recordMergeError(w.store, candidate.Identifier, candidate.ID, pr.Number, err)
 		return err
 	}
+	linearStatus := linearStatusWorker{client: w.client, candidate: candidate, states: states}
 	gate := evaluatePullRequestMergeGate(pr)
 	if hasString(gate.Codes(), "merge_conflict") {
 		reason := gate.Reason()
@@ -44,34 +45,34 @@ func (w mergeWorker) HandlePullRequest(ctx context.Context, pr pullRequestSummar
 		if err := writePRFeedback(workspace, pr.Number, renderPRConflictFeedback(pr, reason)); err != nil {
 			return err
 		}
-		if id := stateID(states, w.config.ReadyState); id != "" {
-			if err := w.client.updateIssueState(candidate.ID, id); err != nil {
+		if stateID(states, w.config.ReadyState) != "" {
+			if _, err := linearStatus.MoveTo(w.config.ReadyState); err != nil {
 				return err
 			}
 		}
-		_ = w.client.createComment(candidate.ID, fmt.Sprintf("PR merge blocked by conflicts; captured repair instructions and moved back to %s for pickup: %s", w.config.ReadyState, pr.URL))
+		_ = linearStatus.Comment(fmt.Sprintf("PR merge blocked by conflicts; captured repair instructions and moved back to %s for pickup: %s", w.config.ReadyState, pr.URL))
 		log("blocked merge for %s: %s", candidate.Identifier, reason)
 		return nil
 	}
 	decision := newReconciliationModule(w.store).ReconcileIssue(w.config, *candidate, &pr)
 	if decision.ShouldQuarantine && len(decision.Blockers) > 0 {
 		recordMergeEvent(w.store, orchstate.EventMergeBlocked, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "reason": strings.Join(decision.Blockers, "; "), "next_action": decision.NextAction})
-		_ = w.client.createComment(candidate.ID, fmt.Sprintf("Symphony PR blocked by reconciliation invariant; next=%s; reason: %s", decision.NextAction, strings.Join(decision.Blockers, "; ")))
+		_ = linearStatus.Comment(fmt.Sprintf("Symphony PR blocked by reconciliation invariant; next=%s; reason: %s", decision.NextAction, strings.Join(decision.Blockers, "; ")))
 		log("%s quarantined: %s", pr.URL, strings.Join(decision.Blockers, "; "))
 		return nil
 	}
 	switch pr.ReviewDecision {
 	case "APPROVED":
-		return w.handleApprovedPR(ctx, candidate, states, pr, decision)
+		return w.handleApprovedPR(ctx, candidate, states, linearStatus, pr, decision)
 	case "CHANGES_REQUESTED":
-		return w.handleChangesRequestedPR(candidate, states, pr)
+		return w.handleChangesRequestedPR(candidate, states, linearStatus, pr)
 	default:
 		log("%s waiting for approval; reviewDecision=%s", pr.URL, pr.ReviewDecision)
 		return nil
 	}
 }
 
-func (w mergeWorker) handleApprovedPR(ctx context.Context, candidate *issue, states []workflowState, pr pullRequestSummary, decision reconciliationDecision) error {
+func (w mergeWorker) handleApprovedPR(ctx context.Context, candidate *issue, states []workflowState, linearStatus linearStatusWorker, pr pullRequestSummary, decision reconciliationDecision) error {
 	if !decision.CanMerge {
 		recordMergeEvent(w.store, orchstate.EventMergeBlocked, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "reason": strings.Join(decision.Blockers, "; "), "lifecycle": decision.Lifecycle, "next_action": decision.NextAction})
 		log("%s approved but merge is blocked: lifecycle=%s blockers=%s next=%s", pr.URL, decision.Lifecycle, strings.Join(decision.Blockers, "; "), decision.NextAction)
@@ -92,9 +93,9 @@ func (w mergeWorker) handleApprovedPR(ctx context.Context, candidate *issue, sta
 		return fmt.Errorf("GitHub API branch deletion failed for %s after merged PR #%d: %w", pr.HeadRefName, pr.Number, err)
 	}
 	recordMergeEvent(w.store, orchstate.EventBranchDeletionFinished, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "head_ref": pr.HeadRefName, "result": "success"})
-	if id := stateID(states, w.config.DoneState); id != "" {
+	if stateID(states, w.config.DoneState) != "" {
 		recordMergeEvent(w.store, orchstate.EventLinearDoneTransitionAttempted, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "done_state": w.config.DoneState})
-		if err := w.client.updateIssueState(candidate.ID, id); err != nil {
+		if _, err := linearStatus.MoveTo(w.config.DoneState); err != nil {
 			recordMergeEvent(w.store, orchstate.EventLinearDoneTransitionFinished, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "done_state": w.config.DoneState, "result": "failed", "error": err.Error()})
 			recordMergeEvent(w.store, orchstate.EventMergeFailed, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "phase": "linear_done_transition", "error": err.Error()})
 			recordMergeError(w.store, candidate.Identifier, candidate.ID, pr.Number, err)
@@ -108,12 +109,12 @@ func (w mergeWorker) handleApprovedPR(ctx context.Context, candidate *issue, sta
 		return err
 	}
 	recordMergeEvent(w.store, orchstate.EventMergeCompleted, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "head_ref": pr.HeadRefName, "done_state": w.config.DoneState})
-	_ = w.client.createComment(candidate.ID, fmt.Sprintf("Merged approved PR: %s", pr.URL))
+	_ = linearStatus.Comment(fmt.Sprintf("Merged approved PR: %s", pr.URL))
 	log("merged %s and moved %s to %s", pr.URL, candidate.Identifier, w.config.DoneState)
 	return nil
 }
 
-func (w mergeWorker) handleChangesRequestedPR(candidate *issue, states []workflowState, pr pullRequestSummary) error {
+func (w mergeWorker) handleChangesRequestedPR(candidate *issue, states []workflowState, linearStatus linearStatusWorker, pr pullRequestSummary) error {
 	feedback, err := collectPRFeedback(pr.Number)
 	if err != nil {
 		return err
@@ -129,12 +130,12 @@ func (w mergeWorker) handleChangesRequestedPR(candidate *issue, states []workflo
 	if err := writePRFeedback(workspace, pr.Number, feedback); err != nil {
 		return err
 	}
-	if id := stateID(states, w.config.ReadyState); id != "" {
-		if err := w.client.updateIssueState(candidate.ID, id); err != nil {
+	if stateID(states, w.config.ReadyState) != "" {
+		if _, err := linearStatus.MoveTo(w.config.ReadyState); err != nil {
 			return err
 		}
 	}
-	_ = w.client.createComment(candidate.ID, fmt.Sprintf("PR changes requested; captured GitHub review feedback and moved back to %s for pickup: %s", w.config.ReadyState, pr.URL))
+	_ = linearStatus.Comment(fmt.Sprintf("PR changes requested; captured GitHub review feedback and moved back to %s for pickup: %s", w.config.ReadyState, pr.URL))
 	log("moved %s back to %s after requested changes; feedback captured", candidate.Identifier, w.config.ReadyState)
 	return nil
 }

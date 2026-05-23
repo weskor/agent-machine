@@ -38,17 +38,34 @@ func (m reviewReadinessModule) ShouldResume(issueIdentifier string, pr pullReque
 }
 
 func (m reviewReadinessModule) NotReadyProgress(candidate *issue, workspace, branch, prURL string, startedAt time.Time, evidence reviewEvidence) runProgressSnapshot {
+	decision := m.NotReadyDecision(prURL, evidence)
 	notReady := runProgressForIssue(candidate, workspace, "review_not_ready", startedAt)
 	notReady.Branch = branch
 	notReady.PRURL = prURL
-	notReady.Status = "waiting_for_checks"
+	notReady.Status = decision.TerminalOutcomeIntent
 	notReady.ChecksStatus = evidence.ChecksStatus
-	notReady.NextAction = "wait_for_github_checks_then_retry"
+	notReady.NextAction = decision.NextAction
 	if evidence.ChecksStatus == "failed" {
 		notReady.NextAction = "fix_failing_github_checks_before_review"
 	}
 	notReady.Error = evidence.ChecksSummary
 	return notReady
+}
+
+func (m reviewReadinessModule) NotReadyDecision(prURL string, evidence reviewEvidence) attemptLifecycleDecision {
+	return decideAttemptLifecycle(attemptLifecycleInput{
+		Phase:          attemptLifecyclePhaseReviewReadiness,
+		PRURL:          prURL,
+		ReviewNotReady: true,
+		Error:          reviewNotReadyErrorText(evidence),
+	})
+}
+
+func reviewNotReadyErrorText(evidence reviewEvidence) string {
+	if strings.TrimSpace(evidence.ChecksSummary) != "" {
+		return evidence.ChecksSummary
+	}
+	return "review not ready"
 }
 
 func (m reviewReadinessModule) ResumeNotReadyProgress(candidate *issue, workspace, branch, prURL string, startedAt time.Time, evidence reviewEvidence) runProgressSnapshot {
@@ -77,9 +94,10 @@ func resumeReviewReadyRun(client linearClient, stateStore *state.Store, config r
 		return true, err
 	}
 	if err := reviewEvidenceNotReadyError(evidence); err != nil {
+		decision := reviewReadiness.NotReadyDecision(prURL, evidence)
 		notReady := reviewReadiness.ResumeNotReadyProgress(candidate, workspace, branch, prURL, progressStarted, evidence)
 		writeRunProgress(config.WorkspaceRoot, notReady)
-		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, runStarted, time.Now(), nil, nil, prURL, runAttemptStatusReviewNotReady, err.Error(), config.Budget.Active(), err.Error()))
+		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, runStarted, time.Now(), nil, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), err.Error()))
 		return true, nil
 	}
 	reviewing := runProgressForIssue(candidate, workspace, "reviewing", progressStarted)

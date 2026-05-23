@@ -322,9 +322,10 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 		}
 		reviewEvidence = &evidence
 		if err := reviewEvidenceNotReadyError(*reviewEvidence); err != nil {
+			decision := reviewReadiness.NotReadyDecision(prURL, *reviewEvidence)
 			notReady := reviewReadiness.NotReadyProgress(candidate, workspace, branch, prURL, progressStarted, *reviewEvidence)
 			writeRunProgress(config.WorkspaceRoot, notReady)
-			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, runAttemptStatusReviewNotReady, err.Error(), config.Budget.Active(), err.Error()))
+			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), err.Error()))
 			return true, nil
 		}
 	}

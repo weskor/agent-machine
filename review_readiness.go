@@ -1,12 +1,10 @@
 package main
 
 import (
-	"errors"
-	"fmt"
+	"context"
 	"strings"
 	"time"
 
-	sh "github.com/weskor/pi-symphony/internal/shell"
 	"github.com/weskor/pi-symphony/internal/state"
 )
 
@@ -76,7 +74,6 @@ func (m reviewReadinessModule) ResumeNotReadyProgress(candidate *issue, workspac
 
 func resumeReviewReadyRun(client linearClient, stateStore *state.Store, config runnerConfig, candidate *issue, states []workflowState, workspace, branch string, githubEnv map[string]string, githubAuth string, progressStarted, runStarted time.Time, selectedPR *pullRequestSummary) (bool, error) {
 	prURL := selectedPR.URL
-	reviewReadiness := newReviewReadinessModule(config.WorkspaceRoot)
 	scopeResult, err := checkScopeGuard(candidate.Description, workspace, config.BaseBranch)
 	if err != nil {
 		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, runStarted, time.Now(), nil, nil, prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), err.Error()))
@@ -88,44 +85,11 @@ func resumeReviewReadyRun(client linearClient, stateStore *state.Store, config r
 	} else if scopeResult.Checked {
 		validation = append(validation, "Scope guard: changed files matched the Linear ticket path contract.")
 	}
-	evidence, err := collectReviewEvidence(config, candidate, workspace, prURL, scopeResult, validation)
-	if err != nil {
-		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, runStarted, time.Now(), nil, nil, prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), err.Error()))
+	result, err := reviewWorker{client: client, config: config, stateStore: stateStore, candidate: candidate, states: states, workspace: workspace, branch: branch, progressStarted: progressStarted, startedAt: runStarted, prURL: prURL, githubEnv: githubEnv, githubAuth: githubAuth, scopeResult: scopeResult, validation: validation, resume: true}.Execute(context.Background())
+	if err != nil || result.Terminal {
 		return true, err
 	}
-	if err := reviewEvidenceNotReadyError(evidence); err != nil {
-		decision := reviewReadiness.NotReadyDecision(prURL, evidence)
-		notReady := reviewReadiness.ResumeNotReadyProgress(candidate, workspace, branch, prURL, progressStarted, evidence)
-		writeRunProgress(config.WorkspaceRoot, notReady)
-		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, runStarted, time.Now(), nil, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), err.Error()))
-		return true, nil
-	}
-	reviewing := runProgressForIssue(candidate, workspace, "reviewing", progressStarted)
-	reviewing.Branch = branch
-	reviewing.PRURL = prURL
-	reviewing.ChecksStatus = evidence.ChecksStatus
-	writeRunProgress(config.WorkspaceRoot, reviewing)
-	review, err := runReview(config.ReviewCommand, workspace, candidate, prURL, githubEnv, config.Budget.ReviewTimeout, &evidence)
-	if err != nil {
-		status := runAttemptStatusReviewFailed
-		if errors.Is(err, sh.ErrCommandTimeout) {
-			status = runAttemptStatusTimeout
-			_ = client.createComment(candidate.ID, renderBudgetFailureComment(err.Error()))
-		}
-		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, runStarted, time.Now(), nil, review, prURL, status, err.Error(), config.Budget.Active(), err.Error()))
-		return true, err
-	}
-	if review != nil && review.Status != "passed" && !reviewFailureRoutesToHumanHandoff(review, prURL) {
-		if id := stateID(states, config.ReadyState); id != "" {
-			if err := client.updateIssueState(candidate.ID, id); err != nil {
-				writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, runStarted, time.Now(), nil, review, prURL, runAttemptStatusReviewFailed, err.Error(), config.Budget.Active(), ""))
-				return true, err
-			}
-		}
-		_ = client.createComment(candidate.ID, fmt.Sprintf("Go/Pi review did not pass; moved back to %s.\n\nPR: %s\nReview status: %s\nFindings:\n%s", config.ReadyState, prURL, review.Status, review.Findings))
-		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, runStarted, time.Now(), nil, review, prURL, runAttemptStatusReviewFailed, "review did not pass", config.Budget.Active(), ""))
-		return true, nil
-	}
+	review := result.Review
 	classificationRecord := runRecordFor(candidate, workspace, config.PiCommand, githubAuth, runStarted, time.Now(), nil, review, prURL, runAttemptStatusSuccess, "", config.Budget.Active(), "")
 	classification := classifyRunRecord(workspace, classificationRecord)
 	summary := handoffSummary{IssueIdentifier: candidate.Identifier, IssueTitle: candidate.Title, IssueURL: candidate.URL, PRURL: prURL, Review: review, Duration: time.Since(runStarted), Validation: validation, FollowUps: followUpLines(review), Classification: &classification}

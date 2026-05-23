@@ -10,6 +10,7 @@ import (
 const statusWorkerRole = "status"
 const cleanupWorkerRole = "cleanup"
 const mergeWorkerRole = "merge"
+const reviewWorkerRole = "review"
 const workWorkerRole = "work"
 
 func runSelectedWorker(client linearClient, wf workflow, config runnerConfig, role string) error {
@@ -21,6 +22,8 @@ func runSelectedWorker(client linearClient, wf workflow, config runnerConfig, ro
 		return runCleanupWorkerProcess(client, config)
 	case mergeWorkerRole:
 		return runMergeWorkerProcess(client, config)
+	case reviewWorkerRole:
+		return runReviewWorkerProcess(client, wf, config)
 	case workWorkerRole:
 		return runWorkWorkerProcess(client, wf, config)
 	default:
@@ -29,7 +32,7 @@ func runSelectedWorker(client linearClient, wf workflow, config runnerConfig, ro
 }
 
 func supportedWorkerRoles() []string {
-	return []string{statusWorkerRole, cleanupWorkerRole, mergeWorkerRole, workWorkerRole}
+	return []string{statusWorkerRole, cleanupWorkerRole, mergeWorkerRole, reviewWorkerRole, workWorkerRole}
 }
 
 func runStatusWorkerProcess(client linearClient, config runnerConfig) error {
@@ -62,6 +65,7 @@ var issueIdentifiersByStateForMergeWorker = func(client linearClient, projectSlu
 	return client.issueIdentifiersByState(projectSlug, state)
 }
 var mergeApprovedPRsForWorker = mergeApprovedPRs
+var runReviewReadyAttemptForWorker = runReviewReadyAttempt
 var runClaimedAttemptBatchForWorker = runClaimedAttemptBatch
 
 func runCleanupWorkerProcess(client linearClient, config runnerConfig) error {
@@ -120,6 +124,27 @@ func runMergeWorkerProcess(client linearClient, config runnerConfig) error {
 		return true, nil
 	})
 	recordContinuousHeartbeat(recordHeartbeat, continuousHeartbeat{LaneName: "worker:merge", CycleNumber: 1, Success: err == nil && didWork, Err: err, At: stateNow()})
+	return err
+}
+
+func runReviewWorkerProcess(client linearClient, wf workflow, config runnerConfig) error {
+	ctx := context.Background()
+	stateStore, stateDBPath := commandScopedStateStore(ctx, config.WorkspaceRoot, "worker-review")
+	if stateStore == nil {
+		return fmt.Errorf("SQLite state store unavailable for review worker at %s", stateDBPath)
+	}
+	defer stateStore.Close()
+	recordHeartbeat := daemonHeartbeatRecorder(ctx, config, stateStore)
+	didWork, err := runContinuousWorkerTask(ctx, stateStore, continuousWorkerTask{
+		TaskKey:   "process:review",
+		Role:      reviewWorkerRole,
+		LaneName:  "worker:review",
+		LeaseName: "worker:review",
+		Payload:   map[string]any{"project_slug": config.ProjectSlug, "review_configured": strings.TrimSpace(config.ReviewCommand) != ""},
+	}, func() (bool, error) {
+		return runReviewReadyAttemptForWorker(client, wf, config, stateStore)
+	})
+	recordContinuousHeartbeat(recordHeartbeat, continuousHeartbeat{LaneName: "worker:review", CycleNumber: 1, Success: err == nil && didWork, Err: err, At: stateNow()})
 	return err
 }
 

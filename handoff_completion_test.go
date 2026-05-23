@@ -76,6 +76,59 @@ func TestCompleteAttemptHandoffWritesPendingProgressBeforeSideEffects(t *testing
 	}
 }
 
+func TestCompleteAttemptHandoffExecutesPersistedPayloadBoundary(t *testing.T) {
+	t.Cleanup(resetHandoffWorkerHooks)
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-176")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	candidate := &issue{ID: "issue-176", Identifier: "CAG-176", Title: "Payload boundary", URL: "https://linear.app/acme/issue/CAG-176"}
+	prURL := "https://github.com/acme/repo/pull/176"
+	readHandoffPendingPayloadForCompletion = func(workspaceRoot, issueIdentifier string) (handoffPendingPayload, error) {
+		payload, err := readHandoffPendingPayload(workspaceRoot, issueIdentifier)
+		if err != nil {
+			return handoffPendingPayload{}, err
+		}
+		payload.Validation = append(payload.Validation, "payload-boundary-read")
+		return payload, nil
+	}
+	var postedSummary handoffSummary
+	postOrUpdatePRHandoffCommentForWorker = func(summary handoffSummary) error {
+		postedSummary = summary
+		return nil
+	}
+	updateIssueStateForLinearStatusWorker = func(linearClient, string, string) error { return nil }
+	createCommentForLinearStatusWorker = func(linearClient, string, string) error { return nil }
+
+	didWork, err := completeAttemptHandoff(context.Background(), handoffCompletion{
+		client:          linearClient{},
+		config:          runnerConfig{WorkspaceRoot: root, PiCommand: "pi run", HandoffState: "Human Review"},
+		stateStore:      store,
+		candidate:       candidate,
+		states:          []workflowState{{ID: "handoff-id", Name: "Human Review"}},
+		workspace:       workspace,
+		branch:          expectedWorkspaceBranch(candidate.Identifier),
+		progressStarted: time.Now().Add(-time.Minute),
+		startedAt:       time.Now().Add(-2 * time.Minute),
+		review:          &reviewResult{Status: "passed"},
+		prURL:           prURL,
+		validation:      []string{"input-validation"},
+		githubAuth:      "github_app_installation",
+	})
+	if err != nil || !didWork {
+		t.Fatalf("completeAttemptHandoff() didWork=%t err=%v; want work without error", didWork, err)
+	}
+	if len(postedSummary.Validation) != 2 || postedSummary.Validation[1] != "payload-boundary-read" {
+		t.Fatalf("posted validation = %#v; want side effects from persisted payload read", postedSummary.Validation)
+	}
+}
+
 func TestHandoffPendingPayloadRoundTripsCompletionInput(t *testing.T) {
 	root := t.TempDir()
 	candidate := &issue{ID: "issue-171", Identifier: "CAG-171", Title: "Payload round trip", URL: "https://linear.app/acme/issue/CAG-171"}

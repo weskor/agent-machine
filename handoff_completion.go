@@ -51,6 +51,21 @@ type handoffPendingPayload struct {
 
 func completeAttemptHandoff(ctx context.Context, input handoffCompletion) (bool, error) {
 	writeHandoffPendingState(input)
+	if input.candidate == nil {
+		return false, nil
+	}
+	payload, err := readHandoffPendingPayloadForCompletion(input.config.WorkspaceRoot, input.candidate.Identifier)
+	if err != nil {
+		return true, err
+	}
+	return executeHandoffPendingPayload(ctx, input.client, input.config, input.stateStore, payload, input.states)
+}
+
+func executeHandoffPendingPayload(ctx context.Context, client linearClient, config runnerConfig, stateStore *state.Store, payload handoffPendingPayload, states []workflowState) (bool, error) {
+	return executeAttemptHandoff(ctx, payload.Completion(client, config, stateStore, states))
+}
+
+func executeAttemptHandoff(ctx context.Context, input handoffCompletion) (bool, error) {
 	handoffResult, err := handoffWorker{
 		client:     input.client,
 		config:     input.config,
@@ -73,6 +88,8 @@ func completeAttemptHandoff(ctx context.Context, input handoffCompletion) (bool,
 	}
 	return true, nil
 }
+
+var readHandoffPendingPayloadForCompletion = readHandoffPendingPayload
 
 func handoffPendingPayloadFromCompletion(input handoffCompletion) handoffPendingPayload {
 	payload := handoffPendingPayload{

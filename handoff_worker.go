@@ -69,5 +69,6 @@ var postOrUpdatePRHandoffCommentForWorker = postOrUpdatePRHandoffComment
 
 func resetHandoffWorkerHooks() {
 	postOrUpdatePRHandoffCommentForWorker = postOrUpdatePRHandoffComment
+	readHandoffPendingPayloadForCompletion = readHandoffPendingPayload
 	resetLinearStatusWorkerHooks()
 }

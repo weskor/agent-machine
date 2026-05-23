@@ -133,5 +133,5 @@ func executeHandoffPendingAttempt(ctx context.Context, client linearClient, conf
 			return true, err
 		}
 	}
-	return completeAttemptHandoff(ctx, payload.Completion(client, config, stateStore, states))
+	return executeHandoffPendingPayload(ctx, client, config, stateStore, payload, states)
 }

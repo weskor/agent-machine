@@ -276,15 +276,17 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 	}
 	scopeResult, err := checkScopeGuard(candidate.Description, workspace, config.BaseBranch)
 	if err != nil {
-		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), err.Error()))
+		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseScopeGuard, PRURL: prURL, ScopeError: err.Error()})
+		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), err.Error()))
 		return true, err
 	}
 	if scopeResult.Blocks() {
 		reason := scopeResult.Summary()
-		review := &reviewResult{Status: runAttemptStatusFailed, Classification: reviewClassificationBehaviorSpecBlocker, Findings: reason}
+		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseScopeGuard, PRURL: prURL, ScopeResult: scopeResult})
+		review := &reviewResult{Status: decision.ReviewStatus, Classification: decision.ReviewClassification, Findings: reason}
 		if id := stateID(states, config.ReadyState); id != "" {
 			if err := client.updateIssueState(candidate.ID, id); err != nil {
-				writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, runAttemptStatusReviewFailed, err.Error(), config.Budget.Active(), ""))
+				writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, decision.Status, err.Error(), config.Budget.Active(), ""))
 				return true, err
 			}
 		}
@@ -292,7 +294,7 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 		if err := client.createComment(candidate.ID, comment); err != nil {
 			log("failed to comment on %s: %v", candidate.Identifier, err)
 		}
-		if err := writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, runAttemptStatusReviewFailed, "scope guard failed", config.Budget.Active(), "")); err != nil {
+		if err := writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, decision.Status, "scope guard failed", config.Budget.Active(), "")); err != nil {
 			return true, err
 		}
 		log("scope guard failed for %s; moved back to %s: %s", candidate.Identifier, config.ReadyState, reason)
@@ -304,7 +306,8 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 
 	prURL, err = ensureRunnerPRHandoff(config, candidate, workspace, prURL, githubEnv)
 	if err != nil {
-		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
+		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseHandoff, PRURL: prURL, Error: err.Error()})
+		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), ""))
 		return true, err
 	}
 	handoff := runProgressForIssue(candidate, workspace, "handoff_pr", progressStarted)

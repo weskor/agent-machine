@@ -74,6 +74,8 @@ func decideAttemptLifecycle(input attemptLifecycleInput) attemptLifecycleDecisio
 	}
 	if record.Status == runAttemptStatusReviewFailed && input.ScopeResult.Blocks() {
 		decision.NextAction = "repair_scope_guard_findings_before_handoff"
+		decision.ReviewStatus = "failed"
+		decision.ReviewClassification = reviewClassificationBehaviorSpecBlocker
 	}
 	if input.Phase == attemptLifecyclePhaseHandoff && record.Status == runAttemptStatusFailed {
 		decision.NextAction = "inspect_run_log_and_create_or_repair_pr"

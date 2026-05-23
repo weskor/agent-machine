@@ -47,4 +47,7 @@ func resetLinearStatusWorkerHooks() {
 	createCommentForLinearStatusWorker = func(client linearClient, issueID, body string) error {
 		return client.createComment(issueID, body)
 	}
+	workflowStatesForLinearStatusWorker = func(client linearClient, teamID string) ([]workflowState, error) {
+		return client.workflowStates(teamID)
+	}
 }

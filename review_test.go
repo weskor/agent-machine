@@ -336,6 +336,10 @@ func TestReviewReadinessNotReadyProgressCharacterizesReviewWaitRouting(t *testin
 	if pending.Branch != "symphony/CAG-139-workspace" || pending.PRURL != "https://github.com/acme/repo/pull/139" || pending.ChecksStatus != "pending" || pending.Error != "ci=IN_PROGRESS" {
 		t.Fatalf("pending progress lost observable fields: %+v", pending)
 	}
+	decision := module.NotReadyDecision("https://github.com/acme/repo/pull/139", reviewEvidence{ChecksStatus: "pending", ChecksSummary: "ci=IN_PROGRESS"})
+	if decision.Status != runAttemptStatusReviewNotReady || decision.TerminalOutcomeIntent != "waiting_for_checks" || decision.NextAction != "wait_for_github_checks_then_retry" || !decision.CanResumeReview {
+		t.Fatalf("unexpected review not-ready lifecycle decision: %+v", decision)
+	}
 
 	failed := module.NotReadyProgress(candidate, "/tmp/work", "symphony/CAG-139-workspace", "https://github.com/acme/repo/pull/139", started, reviewEvidence{ChecksStatus: "failed", ChecksSummary: "ci=FAILURE"})
 	if failed.NextAction != "fix_failing_github_checks_before_review" {

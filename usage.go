@@ -23,6 +23,7 @@ func newPiCLIRuntime() agentruntime.AgentRuntime {
 		RunCommand:           captureAgentOutput,
 		ParseUsage:           usageToRuntime,
 		FirstPRURL:           firstPRURL,
+		NeedsInfoQuestions:   needsInfoQuestionsToRuntime,
 		AssistantText:        assistantText,
 		ReviewStatus:         reviewStatus,
 		ReviewClassification: reviewClassification,
@@ -45,6 +46,14 @@ func usageFromRuntime(u *agentruntime.AttemptUsage) *usage {
 		return nil
 	}
 	return &usage{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite, TotalTokens: u.TotalTokens, Cost: &usageCost{Total: u.CostTotal}}
+}
+
+func needsInfoQuestionsToRuntime(output string) []string {
+	needsInfo := parseNeedsInfo(output)
+	if !needsInfo.NeedsInfo {
+		return nil
+	}
+	return needsInfo.Questions
 }
 
 func reviewResultFromRuntime(result agentruntime.ReviewResult) *reviewResult {

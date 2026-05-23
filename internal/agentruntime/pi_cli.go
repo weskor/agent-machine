@@ -23,6 +23,7 @@ type PiCLIAdapter struct {
 	RunCommand           CommandRunner
 	ParseUsage           func(string) *AttemptUsage
 	FirstPRURL           func(string) string
+	NeedsInfoQuestions   func(string) []string
 	AssistantText        func(string) string
 	ReviewStatus         func(string) string
 	ReviewClassification func(string, string) string
@@ -128,7 +129,8 @@ func (a PiCLIAdapter) RunAttempt(_ context.Context, attemptID string, input RunA
 	output, err := a.RunCommand(fmt.Sprintf("%s @%s", input.Command, sh.Quote(input.PromptPath)), input.WorkingDir, input.Environment, input.Timeout, "implementation")
 	ended := a.now()
 	sink.Emit(RuntimeEvent{Type: RuntimeEventAttemptRunFinished, AttemptID: attemptID, Occurred: ended, Phase: "implementation"})
-	result := AttemptResult{AttemptID: attemptID, AttemptOutcome: AttemptOutcomeSuccess, PRURL: a.firstPRURL(output), Output: output, Usage: a.parseUsage(output), StartedAt: started, EndedAt: ended}
+	envelope := a.attemptOutcomeEnvelope(output, AttemptOutcomeSuccess, "", "")
+	result := AttemptResult{AttemptID: attemptID, AttemptOutcome: AttemptOutcomeSuccess, PRURL: envelope.PRURL, Output: output, Usage: envelope.Usage, Envelope: envelope, StartedAt: started, EndedAt: ended}
 	if err != nil {
 		result.AttemptOutcome = AttemptOutcomeFailed
 		result.Error = err.Error()
@@ -137,6 +139,7 @@ func (a PiCLIAdapter) RunAttempt(_ context.Context, attemptID string, input RunA
 			result.AttemptOutcome = AttemptOutcomeTimeout
 			result.ErrorKind = RuntimeErrorKindTimeout
 		}
+		result.Envelope = a.attemptOutcomeEnvelope(output, result.AttemptOutcome, result.ErrorKind, result.Error)
 		sink.Emit(RuntimeEvent{Type: RuntimeEventAttemptTerminalOutcome, AttemptID: attemptID, Occurred: ended, Data: map[string]any{"outcome": result.AttemptOutcome}})
 		return result, err
 	}
@@ -207,6 +210,23 @@ func (a PiCLIAdapter) firstPRURL(output string) string {
 		return ""
 	}
 	return a.FirstPRURL(output)
+}
+func (a PiCLIAdapter) needsInfoQuestions(output string) []string {
+	if a.NeedsInfoQuestions == nil {
+		return nil
+	}
+	return a.NeedsInfoQuestions(output)
+}
+func (a PiCLIAdapter) attemptOutcomeEnvelope(output string, outcome AttemptOutcome, errorKind RuntimeErrorKind, errorMessage string) AttemptOutcomeEnvelope {
+	return AttemptOutcomeEnvelope{
+		RuntimeOutcome:     outcome,
+		PRURL:              a.firstPRURL(output),
+		NeedsInfoQuestions: a.needsInfoQuestions(output),
+		Usage:              a.parseUsage(output),
+		RawOutput:          output,
+		ErrorKind:          errorKind,
+		Error:              errorMessage,
+	}
 }
 func normalizeSink(s EventSink) EventSink {
 	if s == nil {

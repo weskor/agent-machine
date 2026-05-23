@@ -63,9 +63,10 @@ func claimNextRunAttempt(client linearClient, wf workflow, config runnerConfig, 
 	runtime := newPiCLIRuntime()
 	writeRunProgress(config.WorkspaceRoot, runProgressForIssue(candidate, workspace, "preflight", progressStarted))
 	if _, err := runtime.Preflight(context.Background(), agentruntime.PreflightInput{ImplementationCommand: config.PiCommand, ReviewCommand: config.ReviewCommand, MaxTurns: cfg.AgentMaxTurnsFromWorkflow(wf.YAML)}); err != nil {
+		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhasePreflight, RuntimeErrorKind: "configuration", Error: err.Error()})
 		snapshot := runProgressForIssue(candidate, workspace, "failed", progressStarted)
 		snapshot.Error = err.Error()
-		snapshot.NextAction = "fix_runtime_configuration_before_retry"
+		snapshot.NextAction = decision.NextAction
 		writeRunProgress(config.WorkspaceRoot, snapshot)
 		return nil, true, err
 	}
@@ -126,8 +127,9 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 	if isEmptyIgnoringRunLock(workspace) && strings.TrimSpace(config.AfterCreate) != "" {
 		if err := sh.RunWithTimeout(config.AfterCreate, workspace, config.Budget.CommandTimeout); err != nil {
 			if errors.Is(err, sh.ErrCommandTimeout) {
+				decision := commandFailureLifecycleDecision(attemptLifecyclePhaseWorkspace, err, true)
 				_ = client.createComment(candidate.ID, renderBudgetFailureComment(err.Error()))
-				writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, "", runStarted, time.Now(), nil, nil, "", runAttemptStatusTimeout, err.Error(), config.Budget.Active(), err.Error()))
+				writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, "", runStarted, time.Now(), nil, nil, "", decision.Status, err.Error(), config.Budget.Active(), err.Error()))
 			}
 			return true, err
 		}
@@ -138,8 +140,9 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 	if config.BeforeRun != "" {
 		if err := sh.RunWithTimeout(config.BeforeRun, workspace, config.Budget.CommandTimeout); err != nil {
 			if errors.Is(err, sh.ErrCommandTimeout) {
+				decision := commandFailureLifecycleDecision(attemptLifecyclePhaseWorkspace, err, true)
 				_ = client.createComment(candidate.ID, renderBudgetFailureComment(err.Error()))
-				writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, "", runStarted, time.Now(), nil, nil, "", runAttemptStatusTimeout, err.Error(), config.Budget.Active(), err.Error()))
+				writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, "", runStarted, time.Now(), nil, nil, "", decision.Status, err.Error(), config.Budget.Active(), err.Error()))
 			}
 			return true, err
 		}
@@ -206,14 +209,14 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 	piOutput := piResult.Output
 	emitRunAttemptEvent(stateStore, state.EventRuntimeFinished, candidate, branch, map[string]any{"attempt_id": attempt.ID, "outcome": piResult.AttemptOutcome, "pr_url": piResult.PRURL, "error": errorString(err)})
 	if err != nil {
-		status := runAttemptStatusFailed
-		if piResult.AttemptOutcome == agentruntime.AttemptOutcomeTimeout || errors.Is(err, sh.ErrCommandTimeout) {
-			status = runAttemptStatusTimeout
+		timeout := piResult.AttemptOutcome == agentruntime.AttemptOutcomeTimeout || errors.Is(err, sh.ErrCommandTimeout)
+		decision := commandFailureLifecycleDecision(attemptLifecyclePhaseImplementation, err, timeout)
+		if timeout {
 			if commentErr := client.createComment(candidate.ID, renderBudgetFailureComment(err.Error())); commentErr != nil {
 				log("failed to comment on %s: %v", candidate.Identifier, commentErr)
 			}
 		}
-		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, piEnded, usageFromRuntime(piResult.Usage), nil, piResult.PRURL, status, err.Error(), config.Budget.Active(), err.Error()))
+		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, piEnded, usageFromRuntime(piResult.Usage), nil, piResult.PRURL, decision.Status, err.Error(), config.Budget.Active(), err.Error()))
 		return true, err
 	}
 	piUsage := usageFromRuntime(piResult.Usage)
@@ -229,16 +232,18 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 	writeRunProgress(config.WorkspaceRoot, validating)
 	log("pi run duration: %s", piEnded.Sub(piStart).Round(time.Second))
 	if exceeded := budgetExceeded(config.Budget, piStart, piUsage); exceeded != "" {
+		decision := budgetLifecycleDecision(attemptLifecyclePhaseImplementation, prURL, exceeded)
 		if err := client.createComment(candidate.ID, renderBudgetFailureComment(exceeded)); err != nil {
 			log("failed to comment on %s: %v", candidate.Identifier, err)
 		}
-		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, runAttemptStatusBudgetExceeded, exceeded, config.Budget.Active(), exceeded))
+		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, decision.Status, exceeded, config.Budget.Active(), exceeded))
 		return true, fmt.Errorf("%s", exceeded)
 	}
 	if needsInfo := parseNeedsInfo(piOutput); needsInfo.NeedsInfo {
 		if id := stateID(states, config.NeedsInfoState); id != "" {
 			if err := client.updateIssueState(candidate.ID, id); err != nil {
-				writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, runAttemptStatusNeedsInfoFail, err.Error(), config.Budget.Active(), ""))
+				decision := needsInfoLifecycleDecision(needsInfo.Questions, runAttemptStatusNeedsInfoFail, err.Error())
+				writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), ""))
 				return true, err
 			}
 			log("moved %s to %s", candidate.Identifier, config.NeedsInfoState)
@@ -249,7 +254,8 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 		if err := client.createComment(candidate.ID, comment); err != nil {
 			log("failed to comment on %s: %v", candidate.Identifier, err)
 		}
-		if err := writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, "", runAttemptStatusNeedsInfo, strings.Join(needsInfo.Questions, "\n"), config.Budget.Active(), "")); err != nil {
+		decision := needsInfoLifecycleDecision(needsInfo.Questions, "", "")
+		if err := writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, "", decision.Status, strings.Join(needsInfo.Questions, "\n"), config.Budget.Active(), "")); err != nil {
 			return true, err
 		}
 		log("%s needs additional information; stopped without PR handoff", candidate.Identifier)
@@ -257,14 +263,14 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 	}
 	if config.AfterRun != "" {
 		if err := sh.RunWithTimeout(config.AfterRun, workspace, config.Budget.CommandTimeout); err != nil {
-			status := runAttemptStatusFailed
-			if errors.Is(err, sh.ErrCommandTimeout) {
-				status = runAttemptStatusTimeout
+			timeout := errors.Is(err, sh.ErrCommandTimeout)
+			decision := commandFailureLifecycleDecision(attemptLifecyclePhaseValidation, err, timeout)
+			if timeout {
 				if commentErr := client.createComment(candidate.ID, renderBudgetFailureComment(err.Error())); commentErr != nil {
 					log("failed to comment on %s: %v", candidate.Identifier, commentErr)
 				}
 			}
-			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, status, err.Error(), config.Budget.Active(), err.Error()))
+			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), err.Error()))
 			return true, err
 		}
 	}
@@ -353,10 +359,11 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 			return true, err
 		}
 		if exceeded := budgetExceeded(config.Budget, piStart, piUsage, review.Usage); exceeded != "" {
+			decision := budgetLifecycleDecision(attemptLifecyclePhaseReview, prURL, exceeded)
 			if err := client.createComment(candidate.ID, renderBudgetFailureComment(exceeded)); err != nil {
 				log("failed to comment on %s: %v", candidate.Identifier, err)
 			}
-			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, runAttemptStatusBudgetExceeded, exceeded, config.Budget.Active(), exceeded))
+			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, decision.Status, exceeded, config.Budget.Active(), exceeded))
 			return true, fmt.Errorf("%s", exceeded)
 		}
 		if review != nil && review.Status != "passed" && !reviewFailureRoutesToHumanHandoff(review, prURL) {
@@ -426,4 +433,33 @@ func errorString(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+func commandFailureLifecycleDecision(phase attemptLifecyclePhase, err error, timeout bool) attemptLifecycleDecision {
+	input := attemptLifecycleInput{Phase: phase, RuntimeOutcome: runAttemptStatusFailed}
+	if err != nil {
+		input.Error = err.Error()
+	}
+	if timeout {
+		input.RuntimeOutcome = runAttemptStatusTimeout
+		input.RuntimeErrorKind = runAttemptStatusTimeout
+	}
+	return decideAttemptLifecycle(input)
+}
+
+func budgetLifecycleDecision(phase attemptLifecyclePhase, prURL, exceeded string) attemptLifecycleDecision {
+	return decideAttemptLifecycle(attemptLifecycleInput{
+		Phase:          phase,
+		PRURL:          prURL,
+		BudgetExceeded: exceeded,
+	})
+}
+
+func needsInfoLifecycleDecision(questions []string, runtimeOutcome, errorMessage string) attemptLifecycleDecision {
+	return decideAttemptLifecycle(attemptLifecycleInput{
+		Phase:              attemptLifecyclePhaseNeedsInfo,
+		RuntimeOutcome:     runtimeOutcome,
+		Error:              errorMessage,
+		NeedsInfoQuestions: questions,
+	})
 }

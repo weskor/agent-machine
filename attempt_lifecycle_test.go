@@ -51,6 +51,19 @@ func TestDecideAttemptLifecycleCharacterizesCurrentOutcomes(t *testing.T) {
 			wantNext:   "answer_needs_info_questions",
 		},
 		{
+			name: "needs info transition failure",
+			input: attemptLifecycleInput{
+				Phase:              attemptLifecyclePhaseNeedsInfo,
+				RuntimeOutcome:     runAttemptStatusNeedsInfoFail,
+				Error:              "Linear transition failed",
+				NeedsInfoQuestions: []string{"What is in scope?"},
+			},
+			wantStatus:   runAttemptStatusNeedsInfoFail,
+			wantIntent:   "needs_info",
+			wantNext:     "answer_needs_info_questions",
+			wantOperator: true,
+		},
+		{
 			name: "review not ready",
 			input: attemptLifecycleInput{
 				Phase:          attemptLifecyclePhaseReviewReadiness,
@@ -104,6 +117,18 @@ func TestDecideAttemptLifecycleCharacterizesCurrentOutcomes(t *testing.T) {
 			wantStatus:   runAttemptStatusTimeout,
 			wantIntent:   runAttemptStatusTimeout,
 			wantNext:     "split_or_reduce_issue_scope_then_retry",
+			wantOperator: true,
+		},
+		{
+			name: "implementation failure",
+			input: attemptLifecycleInput{
+				Phase:          attemptLifecyclePhaseImplementation,
+				RuntimeOutcome: runAttemptStatusFailed,
+				Error:          "agent command failed",
+			},
+			wantStatus:   runAttemptStatusFailed,
+			wantIntent:   "operational_failure",
+			wantNext:     "inspect_run_log_and_create_or_repair_pr",
 			wantOperator: true,
 		},
 		{

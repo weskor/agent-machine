@@ -91,6 +91,9 @@ func lifecycleStatus(input attemptLifecycleInput) string {
 	if input.ReviewNotReady || input.Phase == attemptLifecyclePhaseReviewReadiness {
 		return runAttemptStatusReviewNotReady
 	}
+	if input.RuntimeOutcome == runAttemptStatusNeedsInfoFail {
+		return runAttemptStatusNeedsInfoFail
+	}
 	if len(input.NeedsInfoQuestions) > 0 || input.Phase == attemptLifecyclePhaseNeedsInfo {
 		return runAttemptStatusNeedsInfo
 	}

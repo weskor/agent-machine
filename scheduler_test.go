@@ -96,6 +96,45 @@ func TestContinuousSchedulerRecordsLaneHeartbeats(t *testing.T) {
 	}
 }
 
+func TestContinuousLanesSplitReviewAndImplementationWork(t *testing.T) {
+	root := t.TempDir()
+	oldRunReviewReadyAttempt := runReviewReadyAttemptForWorker
+	oldRunImplementationBatch := runImplementationAttemptBatchForContinuous
+	t.Cleanup(func() {
+		runReviewReadyAttemptForWorker = oldRunReviewReadyAttempt
+		runImplementationAttemptBatchForContinuous = oldRunImplementationBatch
+	})
+	var calls []string
+	runReviewReadyAttemptForWorker = func(client linearClient, wf workflow, config runnerConfig, store *state.Store) (bool, error) {
+		calls = append(calls, "review")
+		if config.WorkspaceRoot != root || store != nil {
+			t.Fatalf("review lane input = config %+v store=%v; want root and nil store in direct lane test", config, store != nil)
+		}
+		return true, nil
+	}
+	runImplementationAttemptBatchForContinuous = func(client linearClient, wf workflow, config runnerConfig, store *state.Store, capacity int) (bool, error) {
+		calls = append(calls, "implementation")
+		if config.WorkspaceRoot != root || store != nil || capacity != 4 {
+			t.Fatalf("implementation lane input = config %+v store=%v capacity=%d; want root nil store capacity=4", config, store != nil, capacity)
+		}
+		return true, nil
+	}
+
+	lanes := continuousLanes(context.Background(), linearClient{}, workflow{}, runnerConfig{ProjectSlug: "CAG", WorkspaceRoot: root, ReviewCommand: "pi review"}, nil, 4)
+	if len(lanes) != 3 || lanes[0].name != "merge" || lanes[1].name != "review" || lanes[2].name != "implementation" {
+		t.Fatalf("lanes = %+v; want merge, review, implementation", lanes)
+	}
+	if _, err := lanes[1].run(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lanes[2].run(); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || calls[0] != "review" || calls[1] != "implementation" {
+		t.Fatalf("calls = %#v; want review then implementation", calls)
+	}
+}
+
 func TestContinuousWorkerTaskWrapsLaneWithClaimAndCompletion(t *testing.T) {
 	ctx := context.Background()
 	store, err := state.Open(ctx, state.DefaultDBPath(t.TempDir()))

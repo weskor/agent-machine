@@ -16,7 +16,7 @@ import (
 
 func runContinuous(client linearClient, wf workflow, config runnerConfig, maxCycles int) error {
 	maxConcurrentAgents := configuredMaxConcurrentAgents(wf)
-	log("mode=continuous; lanes=merge,work; project=%s; states=%s; max_concurrent_agents=%d", config.ProjectSlug, strings.Join(config.ActiveStates, ", "), maxConcurrentAgents)
+	log("mode=continuous; lanes=merge,review,implementation; project=%s; states=%s; max_concurrent_agents=%d", config.ProjectSlug, strings.Join(config.ActiveStates, ", "), maxConcurrentAgents)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	stateStore, _ := commandScopedStateStore(ctx, config.WorkspaceRoot, "continuous")
@@ -28,42 +28,63 @@ func runContinuous(client linearClient, wf workflow, config runnerConfig, maxCyc
 	scheduler := continuousScheduler{
 		maxCycles:       maxCycles,
 		recordHeartbeat: recordHeartbeat,
-		lanes: []continuousLane{
-			{
-				name:       "merge",
-				idleDelay:  30 * time.Second,
-				continuous: true,
-				run: func() (bool, error) {
-					return runContinuousWorkerTask(ctx, stateStore, continuousWorkerTask{TaskKey: "continuous:merge", Role: "merge", LaneName: "merge", LeaseName: "lane:merge", Payload: map[string]any{"project_slug": config.ProjectSlug, "done_state": config.DoneState}}, func() (bool, error) {
-						doneIssues, err := client.issueIdentifiersByState(config.ProjectSlug, config.DoneState)
-						if err != nil {
-							return false, err
-						}
-						if err := cleanupWorkspaces(config.WorkspaceRoot, cleanupOptions{Apply: true, DoneIssues: doneIssues, StateStore: stateStore}); err != nil {
-							return false, err
-						}
-						return true, mergeApprovedPRs(client, config)
-					})
-				},
-			},
-			{
-				name:      "work",
-				idleDelay: 60 * time.Second,
-				run: func() (bool, error) {
-					return runContinuousWorkerTask(ctx, stateStore, continuousWorkerTask{TaskKey: "continuous:scheduler", Role: "scheduler", LaneName: "work", LeaseName: "lane:work", Payload: map[string]any{"project_slug": config.ProjectSlug, "max_concurrent_agents": maxConcurrentAgents}}, func() (bool, error) {
-						return runClaimedAttemptBatch(client, wf, config, stateStore, maxConcurrentAgents)
-					})
-				},
-			},
-		},
+		lanes:           continuousLanes(ctx, client, wf, config, stateStore, maxConcurrentAgents),
 	}
 	return scheduler.run(ctx)
 }
 
+var runImplementationAttemptBatchForContinuous = runImplementationAttemptBatch
+
+func continuousLanes(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, maxConcurrentAgents int) []continuousLane {
+	return []continuousLane{
+		{
+			name:       "merge",
+			idleDelay:  30 * time.Second,
+			continuous: true,
+			run: func() (bool, error) {
+				return runContinuousWorkerTask(ctx, stateStore, continuousWorkerTask{TaskKey: "continuous:merge", Role: mergeWorkerRole, LaneName: "merge", LeaseName: "lane:merge", Payload: map[string]any{"project_slug": config.ProjectSlug, "done_state": config.DoneState}}, func() (bool, error) {
+					doneIssues, err := client.issueIdentifiersByState(config.ProjectSlug, config.DoneState)
+					if err != nil {
+						return false, err
+					}
+					if err := cleanupWorkspaces(config.WorkspaceRoot, cleanupOptions{Apply: true, DoneIssues: doneIssues, StateStore: stateStore}); err != nil {
+						return false, err
+					}
+					return true, mergeApprovedPRs(client, config)
+				})
+			},
+		},
+		{
+			name:      "review",
+			idleDelay: 60 * time.Second,
+			run: func() (bool, error) {
+				return runContinuousWorkerTask(ctx, stateStore, continuousWorkerTask{TaskKey: "continuous:review", Role: reviewWorkerRole, LaneName: "review", LeaseName: "lane:review", Payload: map[string]any{"project_slug": config.ProjectSlug, "review_configured": strings.TrimSpace(config.ReviewCommand) != ""}}, func() (bool, error) {
+					return runReviewReadyAttemptForWorker(client, wf, config, stateStore)
+				})
+			},
+		},
+		{
+			name:      "implementation",
+			idleDelay: 60 * time.Second,
+			run: func() (bool, error) {
+				return runContinuousWorkerTask(ctx, stateStore, continuousWorkerTask{TaskKey: "continuous:implementation", Role: implementationWorkerRole, LaneName: "implementation", LeaseName: "lane:implementation", Payload: map[string]any{"project_slug": config.ProjectSlug, "max_concurrent_agents": maxConcurrentAgents, "review_ready_resumes_skipped": true}}, func() (bool, error) {
+					return runImplementationAttemptBatchForContinuous(client, wf, config, stateStore, maxConcurrentAgents)
+				})
+			},
+		},
+	}
+}
+
 func runClaimedAttemptBatch(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
 	if stateStore == nil {
-		return false, fmt.Errorf("SQLite state store unavailable for continuous work lane at %s", state.DefaultDBPath(config.WorkspaceRoot))
+		return false, fmt.Errorf("SQLite state store unavailable for continuous attempt batch at %s", state.DefaultDBPath(config.WorkspaceRoot))
 	}
+	return runClaimedAttemptBatchWithClaimer(client, wf, config, stateStore, capacity, claimNextRunAttempt)
+}
+
+type claimedAttemptFunc func(linearClient, workflow, runnerConfig, *state.Store) (*claimedRunAttempt, bool, error)
+
+func runClaimedAttemptBatchWithClaimer(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, capacity int, claim claimedAttemptFunc) (bool, error) {
 	if capacity < 1 {
 		capacity = 1
 	}
@@ -78,7 +99,7 @@ func runClaimedAttemptBatch(client linearClient, wf workflow, config runnerConfi
 		}
 	}
 	for len(claims) < capacity {
-		claim, didWork, err := claimNextRunAttempt(client, wf, config, stateStore)
+		claim, didWork, err := claim(client, wf, config, stateStore)
 		if didWork {
 			didAnyWork = true
 		}

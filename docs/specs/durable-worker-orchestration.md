@@ -118,6 +118,10 @@ intent plus fresh Linear workflow state before updating Linear.
 
 It must not decide lifecycle policy from Linear alone.
 
+The initial `linear-status` process consumes queued transition intents only.
+Comment intents remain inline until a deterministic comment-idempotency contract
+exists for standalone processing.
+
 ### Reconciliation worker
 
 Owns repairable disagreement detection across SQLite, Linear, GitHub, workspace
@@ -172,16 +176,17 @@ Safe process separation requires:
 
 The initial separate-process rollout started with non-destructive `status` and
 `plan` worker roles. The supported `--worker` roles are now `status`, `plan`,
-`cleanup`, `merge`, `review`, `implementation`, `handoff`, and `work`. Each role
-runs through a durable worker task and SQLite lease, records a process
-heartbeat, and exits after one completed task. The `review` process only resumes
-existing review-not-ready attempts whose current GitHub checks are successful.
-The `implementation` process claims fresh runnable attempts and skips
-review-ready resumes owned by `review`. The `handoff` process claims
+`cleanup`, `merge`, `review`, `implementation`, `handoff`, `linear-status`, and
+`work`. Each role runs through a durable worker task and SQLite lease, records a
+process heartbeat, and exits after one completed task. The `review` process only
+resumes existing review-not-ready attempts whose current GitHub checks are
+successful. The `implementation` process claims fresh runnable attempts and
+skips review-ready resumes owned by `review`. The `handoff` process claims
 `handoff_pending` progress through the run lease and completes side effects from
-the persisted handoff payload. Mutating roles use existing worker modules and
-lane behavior after their fresh-fact, lease, and fail-closed contracts are
-covered by focused tests.
+the persisted handoff payload. The `linear-status` process claims queued Linear
+transition intents and applies workflow moves after refreshing workflow states.
+Mutating roles use existing worker modules and lane behavior after their
+fresh-fact, lease, and fail-closed contracts are covered by focused tests.
 
 ## Rollout
 

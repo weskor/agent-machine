@@ -60,6 +60,9 @@ func orchestratorRunner() orchestrator.Runner[linearClient, runnerConfig] {
 		ContinuousFunc: func(client linearClient, wf cfg.Workflow, config runnerConfig, maxCycles int) error {
 			return runContinuous(client, wf, config, maxCycles)
 		},
+		WorkerFunc: func(client linearClient, wf cfg.Workflow, config runnerConfig, role string) error {
+			return runSelectedWorker(client, wf, config, role)
+		},
 		RunOneFunc: func(client linearClient, wf cfg.Workflow, config runnerConfig) (bool, error) {
 			return runOne(client, wf, config)
 		},

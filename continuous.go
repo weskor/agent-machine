@@ -147,6 +147,18 @@ func runContinuousWorkerTask(ctx context.Context, store *state.Store, task conti
 		return false, err
 	}
 	recordContinuousWorkerTaskEvent(store, state.EventWorkerTaskClaimed, claimed, map[string]any{"lane": task.LaneName})
+	releaseLease, leaseErr := acquireWorkerTaskLease(ctx, store, task, claimed, now)
+	if leaseErr != nil {
+		finishedAt := time.Now().UTC()
+		claimed.Status = "failed"
+		claimed.UpdatedAt = finishedAt
+		completeErr := store.CompleteWorkerTask(ctx, task.TaskKey, "failed", finishedAt)
+		recordContinuousWorkerTaskEvent(store, state.EventWorkerTaskFailed, claimed, map[string]any{"lane": task.LaneName, "error": leaseErr.Error()})
+		return false, errors.Join(leaseErr, completeErr)
+	}
+	if releaseLease != nil {
+		defer releaseLease()
+	}
 	didWork, runErr := run()
 	finishedAt := time.Now().UTC()
 	status := "completed"
@@ -168,6 +180,30 @@ func runContinuousWorkerTask(ctx context.Context, store *state.Store, task conti
 		return didWork, errors.Join(runErr, completeErr)
 	}
 	return didWork, completeErr
+}
+
+const workerTaskLeaseTTL = 5 * time.Minute
+
+func acquireWorkerTaskLease(ctx context.Context, store *state.Store, task continuousWorkerTask, claimed state.WorkerTask, now time.Time) (func(), error) {
+	leaseName := strings.TrimSpace(task.LeaseName)
+	if leaseName == "" {
+		leaseName = strings.TrimSpace(claimed.LeaseName)
+	}
+	if leaseName == "" {
+		return nil, nil
+	}
+	acquired, err := store.AcquireLease(ctx, state.Lease{Name: leaseName, Scope: claimed.TaskKey, Owner: daemonProcessID(), AcquiredAt: now, RenewedAt: now, ExpiresAt: now.Add(workerTaskLeaseTTL)}, now)
+	if err != nil {
+		return nil, err
+	}
+	if !acquired {
+		return nil, fmt.Errorf("worker task lease %s: %w", leaseName, state.ErrLeaseHeld)
+	}
+	return func() {
+		if err := store.ReleaseLease(context.Background(), leaseName, time.Now().UTC(), "worker task completed"); err != nil {
+			log("failed to release worker task lease %s: %v", leaseName, err)
+		}
+	}, nil
 }
 
 func recordContinuousWorkerTaskEvent(store *state.Store, eventType string, task state.WorkerTask, payload map[string]any) {

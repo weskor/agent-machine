@@ -158,6 +158,12 @@ Safe process separation requires:
 - idempotent external writes, including deterministic comments and PR updates;
 - no shared in-memory state as required coordination.
 
+The initial separate-process rollout supports the non-destructive `status`
+worker role. `--worker=status` runs normal status output through a durable
+worker task and SQLite lease, records a heartbeat for that process, and exits
+after one completed task. Mutating worker roles must remain in-process until
+their fresh-fact, lease, and fail-closed contracts are proven by focused tests.
+
 ## Rollout
 
 1. Specify worker roles and add durable worker-task schema/API.

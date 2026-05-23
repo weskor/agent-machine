@@ -77,6 +77,33 @@ func TestCleanupWorkspacesMirrorsDeletedState(t *testing.T) {
 	}
 }
 
+func TestCleanupWorkerDeletesDoneWorkspace(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-159")
+	writeCleanRunArtifact(t, workspace, "success")
+	seedCleanupAttempt(t, root, workspace, "CAG-159", "success")
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	safeRoot, err := safeWorkspaceRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := (cleanupWorker{workspaceRoot: root, safeRoot: safeRoot, options: cleanupOptions{Apply: true, DoneIssues: map[string]bool{"CAG-159": true}}, store: store}).Execute(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(workspace); !os.IsNotExist(err) {
+		t.Fatalf("workspace still exists after cleanup worker: %v", err)
+	}
+	row := readCleanupState(t, root, "CAG-159")
+	if row.workspaceExists != 0 || row.eligible != 1 || row.decision != "completed" || row.deletionResult != "deleted" {
+		t.Fatalf("unexpected cleanup worker mirror row: %+v", row)
+	}
+}
+
 func TestCleanupWorkspacesFailsClosedWhenCommandStateStoreUnavailable(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
 	workspace := filepath.Join(root, "CAG-107")

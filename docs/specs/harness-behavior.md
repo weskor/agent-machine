@@ -117,12 +117,13 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 
 - Default and `--once`: claim and execute one eligible Linear issue.
 - `--continuous` / `--daemon`: run merge, review, and implementation lanes until canceled, or until `--cycles=N` completes N cycles per lane.
-- `--worker=<role>`: run one selected worker role as a separate CLI process through a durable worker task, process heartbeat, and SQLite lease. Supported roles are `status`, `cleanup`, `merge`, `review`, `implementation`, and `work`.
+- `--worker=<role>`: run one selected worker role as a separate CLI process through a durable worker task, process heartbeat, and SQLite lease. Supported roles are `status`, `cleanup`, `merge`, `review`, `implementation`, `handoff`, and `work`.
   - `status` wraps normal status output and is read-only.
   - `cleanup` refreshes Done issue identifiers and applies existing workspace cleanup behavior.
   - `merge` refreshes Done issue identifiers, applies cleanup, then runs existing approved-PR merge behavior.
   - `review` resumes existing review-not-ready attempts whose current GitHub checks are successful; it does not claim fresh implementation work.
   - `implementation` claims fresh runnable attempts and skips review-ready resumes owned by `review`.
+  - `handoff` claims existing `handoff_pending` progress records, reads the bounded handoff payload, and completes handoff side effects without implementation or semantic review.
   - `work` runs the existing claim/attempt batch with capacity from `agent.max_concurrent_agents`.
 - `--merge-approved`: merge eligible Symphony-owned PRs whose gates pass.
 - `--cleanup-workspaces`: inspect workspace cleanup eligibility; `--apply` deletes eligible workspaces.

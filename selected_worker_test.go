@@ -300,6 +300,60 @@ func TestImplementationWorkerProcessClaimsTaskRunsFreshAttemptAndRecordsHeartbea
 	}
 }
 
+func TestHandoffWorkerProcessClaimsTaskRunsPendingHandoffAndRecordsHeartbeat(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 5, 23, 12, 16, 0, 0, time.UTC)
+	oldRunHandoffPendingAttempt := runHandoffPendingAttemptForWorker
+	oldStateNow := stateNow
+	t.Cleanup(func() {
+		runHandoffPendingAttemptForWorker = oldRunHandoffPendingAttempt
+		stateNow = oldStateNow
+	})
+	stateNow = func() time.Time { return now }
+	handoffCalled := false
+	runHandoffPendingAttemptForWorker = func(client linearClient, config runnerConfig, store *state.Store) (bool, error) {
+		handoffCalled = true
+		if config.WorkspaceRoot != root || config.ProjectSlug != "CAG" || config.HandoffState != "Human Review" || store == nil {
+			t.Fatalf("handoff worker input = config %+v store=%v; want root/project/handoff/store", config, store != nil)
+		}
+		return true, nil
+	}
+
+	if err := runHandoffWorkerProcess(linearClient{}, runnerConfig{WorkflowPath: "WORKFLOW.md", ProjectSlug: "CAG", WorkspaceRoot: root, HandoffState: "Human Review"}); err != nil {
+		t.Fatalf("runHandoffWorkerProcess() error = %v", err)
+	}
+	if !handoffCalled {
+		t.Fatal("handoff worker did not run pending handoff attempt")
+	}
+
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	tasks, err := store.WorkerTasks(context.Background(), handoffWorkerRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].TaskKey != "process:handoff" || tasks[0].Status != "completed" || tasks[0].LeaseName != "worker:handoff" {
+		t.Fatalf("handoff worker task = %+v; want completed process:handoff with lease", tasks)
+	}
+	heartbeats, err := store.SnapshotHeartbeats(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(heartbeats) != 1 || heartbeats[0].LaneName != "worker:handoff" || heartbeats[0].CycleNumber != 1 || heartbeats[0].RecoveryRequired {
+		t.Fatalf("heartbeats = %+v; want successful worker:handoff heartbeat", heartbeats)
+	}
+	lease, ok, err := store.Lease(context.Background(), "worker:handoff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || lease.ReleasedAt.IsZero() || lease.ReleaseReason != "worker task completed" {
+		t.Fatalf("lease = %+v ok=%t; want released worker task lease", lease, ok)
+	}
+}
+
 func TestWorkWorkerProcessClaimsTaskRunsAttemptBatchAndRecordsHeartbeat(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 5, 23, 12, 15, 0, 0, time.UTC)

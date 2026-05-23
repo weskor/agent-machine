@@ -63,6 +63,15 @@ It must not mutate a workspace, create PRs, run agents, merge PRs, or move
 Linear workflow state except where a future ticket explicitly defines a
 claim-time transition.
 
+### Plan worker
+
+Owns read-only orchestration planning/explain output. It refreshes candidate,
+PR, cleanup, and local state facts and reports the next planned actions without
+claiming implementation, review, handoff, merge, cleanup, or Linear status work.
+
+It must not mutate Linear, GitHub, workspaces, artifacts, or worker tasks beyond
+its own process task, lease, heartbeat, and event records.
+
 ### Implementation worker
 
 Owns workspace preparation, prompt writing, AgentRuntime preflight/execution,
@@ -161,16 +170,18 @@ Safe process separation requires:
 - idempotent external writes, including deterministic comments and PR updates;
 - no shared in-memory state as required coordination.
 
-The initial separate-process rollout started with the non-destructive `status`
-worker role. The supported `--worker` roles are now `status`, `cleanup`,
-`merge`, `review`, `implementation`, and `work`. Each role runs through a
-durable worker task and SQLite lease, records a process heartbeat, and exits
-after one completed task. The `review` process only resumes existing
-review-not-ready attempts whose current GitHub checks are successful. The
-`implementation` process claims fresh runnable attempts and skips review-ready
-resumes owned by `review`. Mutating roles use existing worker modules and lane
-behavior after their fresh-fact, lease, and fail-closed contracts are covered by
-focused tests.
+The initial separate-process rollout started with non-destructive `status` and
+`plan` worker roles. The supported `--worker` roles are now `status`, `plan`,
+`cleanup`, `merge`, `review`, `implementation`, `handoff`, and `work`. Each role
+runs through a durable worker task and SQLite lease, records a process
+heartbeat, and exits after one completed task. The `review` process only resumes
+existing review-not-ready attempts whose current GitHub checks are successful.
+The `implementation` process claims fresh runnable attempts and skips
+review-ready resumes owned by `review`. The `handoff` process claims
+`handoff_pending` progress through the run lease and completes side effects from
+the persisted handoff payload. Mutating roles use existing worker modules and
+lane behavior after their fresh-fact, lease, and fail-closed contracts are
+covered by focused tests.
 
 ## Rollout
 

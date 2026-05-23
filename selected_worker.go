@@ -8,6 +8,7 @@ import (
 )
 
 const statusWorkerRole = "status"
+const planWorkerRole = "plan"
 const cleanupWorkerRole = "cleanup"
 const mergeWorkerRole = "merge"
 const reviewWorkerRole = "review"
@@ -20,6 +21,8 @@ func runSelectedWorker(client linearClient, wf workflow, config runnerConfig, ro
 	switch role {
 	case statusWorkerRole:
 		return runStatusWorkerProcess(client, config)
+	case planWorkerRole:
+		return runPlanWorkerProcess(client, config)
 	case cleanupWorkerRole:
 		return runCleanupWorkerProcess(client, config)
 	case mergeWorkerRole:
@@ -38,7 +41,7 @@ func runSelectedWorker(client linearClient, wf workflow, config runnerConfig, ro
 }
 
 func supportedWorkerRoles() []string {
-	return []string{statusWorkerRole, cleanupWorkerRole, mergeWorkerRole, reviewWorkerRole, implementationWorkerRole, handoffWorkerRole, workWorkerRole}
+	return []string{statusWorkerRole, planWorkerRole, cleanupWorkerRole, mergeWorkerRole, reviewWorkerRole, implementationWorkerRole, handoffWorkerRole, workWorkerRole}
 }
 
 func runStatusWorkerProcess(client linearClient, config runnerConfig) error {
@@ -63,6 +66,7 @@ func runStatusWorkerProcess(client linearClient, config runnerConfig) error {
 }
 
 var printStatusForWorker = printStatus
+var printPlanForWorker = printExplain
 var cleanupWorkspacesForWorker = cleanupWorkspaces
 var issueIdentifiersByStateForCleanupWorker = func(client linearClient, projectSlug, state string) (map[string]bool, error) {
 	return client.issueIdentifiersByState(projectSlug, state)
@@ -75,6 +79,27 @@ var runReviewReadyAttemptForWorker = runReviewReadyAttempt
 var runImplementationAttemptForWorker = runImplementationAttempt
 var runHandoffPendingAttemptForWorker = runHandoffPendingAttempt
 var runClaimedAttemptBatchForWorker = runClaimedAttemptBatch
+
+func runPlanWorkerProcess(client linearClient, config runnerConfig) error {
+	ctx := context.Background()
+	stateStore, stateDBPath := commandScopedStateStore(ctx, config.WorkspaceRoot, "worker-plan")
+	if stateStore == nil {
+		return fmt.Errorf("SQLite state store unavailable for plan worker at %s", stateDBPath)
+	}
+	defer stateStore.Close()
+	recordHeartbeat := daemonHeartbeatRecorder(ctx, config, stateStore)
+	didWork, err := runContinuousWorkerTask(ctx, stateStore, continuousWorkerTask{
+		TaskKey:   "process:plan",
+		Role:      planWorkerRole,
+		LaneName:  "worker:plan",
+		LeaseName: "worker:plan",
+		Payload:   map[string]any{"project_slug": config.ProjectSlug, "active_states": config.ActiveStates},
+	}, func() (bool, error) {
+		return true, printPlanForWorker(client, config)
+	})
+	recordContinuousHeartbeat(recordHeartbeat, continuousHeartbeat{LaneName: "worker:plan", CycleNumber: 1, Success: err == nil && didWork, Err: err, At: stateNow()})
+	return err
+}
 
 func runCleanupWorkerProcess(client linearClient, config runnerConfig) error {
 	ctx := context.Background()

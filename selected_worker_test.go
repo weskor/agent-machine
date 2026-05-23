@@ -59,6 +59,60 @@ func TestStatusWorkerProcessClaimsTaskRecordsHeartbeatAndReleasesLease(t *testin
 	}
 }
 
+func TestPlanWorkerProcessClaimsTaskRunsReadOnlyPlanningAndRecordsHeartbeat(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 5, 23, 12, 2, 0, 0, time.UTC)
+	oldPrintPlan := printPlanForWorker
+	oldStateNow := stateNow
+	t.Cleanup(func() {
+		printPlanForWorker = oldPrintPlan
+		stateNow = oldStateNow
+	})
+	printCalled := false
+	printPlanForWorker = func(client linearClient, config runnerConfig) error {
+		printCalled = true
+		if config.WorkspaceRoot != root || config.ProjectSlug != "CAG" || len(config.ActiveStates) != 2 {
+			t.Fatalf("plan worker config = %+v; want root/project/active states", config)
+		}
+		return nil
+	}
+	stateNow = func() time.Time { return now }
+
+	if err := runPlanWorkerProcess(linearClient{}, runnerConfig{WorkflowPath: "WORKFLOW.md", ProjectSlug: "CAG", WorkspaceRoot: root, ActiveStates: []string{"Ready for Agent", "In Progress"}}); err != nil {
+		t.Fatalf("runPlanWorkerProcess() error = %v", err)
+	}
+	if !printCalled {
+		t.Fatal("plan worker did not run planning output")
+	}
+
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	tasks, err := store.WorkerTasks(context.Background(), planWorkerRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].TaskKey != "process:plan" || tasks[0].Status != "completed" || tasks[0].LeaseName != "worker:plan" {
+		t.Fatalf("plan worker task = %+v; want completed process:plan with lease", tasks)
+	}
+	heartbeats, err := store.SnapshotHeartbeats(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(heartbeats) != 1 || heartbeats[0].LaneName != "worker:plan" || heartbeats[0].CycleNumber != 1 || heartbeats[0].RecoveryRequired {
+		t.Fatalf("heartbeats = %+v; want successful worker:plan heartbeat", heartbeats)
+	}
+	lease, ok, err := store.Lease(context.Background(), "worker:plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || lease.ReleasedAt.IsZero() || lease.ReleaseReason != "worker task completed" {
+		t.Fatalf("lease = %+v ok=%t; want released worker task lease", lease, ok)
+	}
+}
+
 func TestCleanupWorkerProcessClaimsTaskRefreshesDoneIssuesAndRecordsHeartbeat(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 5, 23, 12, 5, 0, 0, time.UTC)

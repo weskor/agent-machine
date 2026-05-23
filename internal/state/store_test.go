@@ -295,6 +295,42 @@ func TestOpenMigratesV1DatabaseToEventLogWithoutRewritingExistingState(t *testin
 	}
 }
 
+func TestInspectHealthToleratesPreWorkerTaskSchema(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx() error = %v", err)
+	}
+	if err := ensureMigrationTable(ctx, tx); err != nil {
+		t.Fatalf("ensureMigrationTable() error = %v", err)
+	}
+	if err := migrateV1(ctx, tx); err != nil {
+		t.Fatalf("migrateV1() error = %v", err)
+	}
+	if err := migrateV2(ctx, tx); err != nil {
+		t.Fatalf("migrateV2() error = %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit v2 db: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("Close seed db: %v", err)
+	}
+
+	health, err := InspectHealth(ctx, path)
+	if err != nil {
+		t.Fatalf("InspectHealth(v2) error = %v", err)
+	}
+	if !health.OK || health.SchemaVersion != 2 || health.Counts.WorkerTasks != 0 {
+		t.Fatalf("health = %+v; want ok v2 with zero worker_tasks", health)
+	}
+}
+
 func TestAcquireLeaseComparesFractionalExpiryAsTime(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))

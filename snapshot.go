@@ -18,6 +18,7 @@ type orchestrationSnapshot struct {
 	ActiveLanes       []snapshotLane
 	Artifacts         []artifactSummary
 	RecentEvents      []eventSummary
+	WorkerTasks       []snapshotWorkerTask
 	SQLiteHealth      state.Health
 	SQLiteHealthError string
 }
@@ -61,6 +62,17 @@ type snapshotLane struct {
 	Source           string
 }
 
+type snapshotWorkerTask struct {
+	TaskKey     string
+	Role        string
+	IssueKey    string
+	Attempt     int
+	Status      string
+	Priority    int
+	AvailableAt time.Time
+	UpdatedAt   time.Time
+}
+
 func buildOrchestrationSnapshot(ctx context.Context, config runnerConfig, observedAt time.Time) (orchestrationSnapshot, error) {
 	snap := orchestrationSnapshot{SourcePrecedence: []string{"active_locks_lanes", "sqlite", "artifacts_fallback"}}
 	artifacts, err := workspaceArtifactSummaries(config.WorkspaceRoot)
@@ -76,10 +88,11 @@ func buildOrchestrationSnapshot(ctx context.Context, config runnerConfig, observ
 		}
 		byIssue[a.Issue] = &snapshotIssue{Issue: a.Issue, Status: a.Status, Review: a.Review, PRURL: a.PRURL, Outcome: a.Outcome, Source: "artifact", Artifact: &a}
 	}
-	rows, lanes, events, health, healthErr := loadSnapshotState(ctx, config.WorkspaceRoot)
+	rows, lanes, events, tasks, health, healthErr := loadSnapshotState(ctx, config.WorkspaceRoot)
 	snap.SQLiteHealth = health
 	snap.ActiveLanes = lanes
 	snap.RecentEvents = events
+	snap.WorkerTasks = tasks
 	if healthErr != nil {
 		snap.SQLiteHealthError = healthErr.Error()
 	}
@@ -120,6 +133,12 @@ func buildOrchestrationSnapshot(ctx context.Context, config runnerConfig, observ
 	}
 	sort.Slice(snap.Issues, func(i, j int) bool { return snap.Issues[i].Issue < snap.Issues[j].Issue })
 	sort.Slice(snap.ActiveLocks, func(i, j int) bool { return snap.ActiveLocks[i].Issue < snap.ActiveLocks[j].Issue })
+	sort.Slice(snap.WorkerTasks, func(i, j int) bool {
+		if !snap.WorkerTasks[i].UpdatedAt.Equal(snap.WorkerTasks[j].UpdatedAt) {
+			return snap.WorkerTasks[i].UpdatedAt.After(snap.WorkerTasks[j].UpdatedAt)
+		}
+		return snap.WorkerTasks[i].TaskKey < snap.WorkerTasks[j].TaskKey
+	})
 	return snap, nil
 }
 
@@ -160,28 +179,32 @@ type snapshotStateRow struct {
 	UpdatedAt                                              time.Time
 }
 
-func loadSnapshotState(ctx context.Context, workspaceRoot string) ([]snapshotStateRow, []snapshotLane, []eventSummary, state.Health, error) {
+func loadSnapshotState(ctx context.Context, workspaceRoot string) ([]snapshotStateRow, []snapshotLane, []eventSummary, []snapshotWorkerTask, state.Health, error) {
 	path := state.DefaultDBPath(workspaceRoot)
 	health, err := state.InspectHealth(ctx, path)
 	if err != nil || !health.OK {
-		return nil, nil, nil, health, err
+		return nil, nil, nil, nil, health, err
 	}
 	store, err := state.Open(ctx, path)
 	if err != nil {
-		return nil, nil, nil, health, err
+		return nil, nil, nil, nil, health, err
 	}
 	defer store.Close()
 	rows, err := store.SnapshotAttempts(ctx)
 	if err != nil {
-		return nil, nil, nil, health, err
+		return nil, nil, nil, nil, health, err
 	}
 	heartbeats, err := store.SnapshotHeartbeats(ctx)
 	if err != nil {
-		return nil, nil, nil, health, err
+		return nil, nil, nil, nil, health, err
 	}
 	recent, err := store.RecentEvents(ctx, 5)
 	if err != nil {
-		return nil, nil, nil, health, err
+		return nil, nil, nil, nil, health, err
+	}
+	workerTasks, err := store.WorkerTasks(ctx, "")
+	if err != nil {
+		return nil, nil, nil, nil, health, err
 	}
 	out := make([]snapshotStateRow, 0, len(rows))
 	for _, row := range rows {
@@ -195,5 +218,9 @@ func loadSnapshotState(ctx context.Context, workspaceRoot string) ([]snapshotSta
 	for _, event := range recent {
 		events = append(events, eventSummary{Sequence: event.Sequence, OccurredAt: event.OccurredAt, IssueKey: event.IssueKey, Source: event.Source, Type: event.Type})
 	}
-	return out, lanes, events, health, nil
+	tasks := make([]snapshotWorkerTask, 0, len(workerTasks))
+	for _, task := range workerTasks {
+		tasks = append(tasks, snapshotWorkerTask{TaskKey: task.TaskKey, Role: task.Role, IssueKey: task.IssueKey, Attempt: task.Attempt, Status: task.Status, Priority: task.Priority, AvailableAt: task.AvailableAt, UpdatedAt: task.UpdatedAt})
+	}
+	return out, lanes, events, tasks, health, nil
 }

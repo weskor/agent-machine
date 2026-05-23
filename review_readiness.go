@@ -90,19 +90,10 @@ func resumeReviewReadyRun(client linearClient, stateStore *state.Store, config r
 		return true, err
 	}
 	review := result.Review
-	classificationRecord := runRecordFor(candidate, workspace, config.PiCommand, githubAuth, runStarted, time.Now(), nil, review, prURL, runAttemptStatusSuccess, "", config.Budget.Active(), "")
-	classification := classifyRunRecord(workspace, classificationRecord)
-	summary := handoffSummary{IssueIdentifier: candidate.Identifier, IssueTitle: candidate.Title, IssueURL: candidate.URL, PRURL: prURL, Review: review, Duration: time.Since(runStarted), Validation: validation, FollowUps: followUpLines(review), Classification: &classification}
-	if err := postOrUpdatePRHandoffComment(summary); err != nil {
-		log("failed to post GitHub handoff comment for %s: %v", prURL, err)
+	handoffResult, err := handoffWorker{client: client, config: config, stateStore: stateStore, candidate: candidate, states: states, workspace: workspace, startedAt: runStarted, review: review, prURL: prURL, validation: validation, githubAuth: githubAuth}.Execute(context.Background())
+	if err != nil || handoffResult.Terminal {
+		return true, err
 	}
-	if id := stateID(states, config.HandoffState); id != "" {
-		if err := client.updateIssueState(candidate.ID, id); err != nil {
-			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, runStarted, time.Now(), nil, review, prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
-			return true, err
-		}
-	}
-	_ = client.createComment(candidate.ID, renderLinearHandoffComment(summary))
 	if err := writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, runStarted, time.Now(), nil, review, prURL, runAttemptStatusSuccess, "", config.Budget.Active(), "")); err != nil {
 		return true, err
 	}

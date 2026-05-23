@@ -546,6 +546,47 @@ func TestMergeApprovedPRsEmitsBlockedEvent(t *testing.T) {
 	}
 }
 
+func TestMergeWorkerRoutesChangesRequestedBackToReady(t *testing.T) {
+	root := t.TempDir()
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	withFakeGitHubAPI(t, fakeGitHubAPI{})
+	var updatedStates []string
+	var comments []string
+	config := testRunnerConfig(root)
+	config.HandoffState = "Human Review"
+	config.ReadyState = "Ready for Agent"
+	client := mergeTestLinearClient(t, "CAG-106", &updatedStates, &comments)
+	pr := pullRequestSummary{
+		Number:         106,
+		URL:            "https://github.com/pennywise-investments/compound-web/pull/106",
+		BaseRefName:    "develop",
+		HeadRefName:    "symphony/CAG-106-workspace",
+		Author:         prAuthor{Login: "app/compound-symphony-bot"},
+		ReviewDecision: "CHANGES_REQUESTED",
+	}
+
+	if err := (mergeWorker{client: client, config: config, store: store, github: fakeGitHubAPI{}}).HandlePullRequest(context.Background(), pr); err != nil {
+		t.Fatal(err)
+	}
+	if len(updatedStates) != 1 || updatedStates[0] != "ready-id" {
+		t.Fatalf("updated states = %#v, want ready-id", updatedStates)
+	}
+	if len(comments) != 1 || !strings.Contains(comments[0], "PR changes requested") {
+		t.Fatalf("unexpected comments: %#v", comments)
+	}
+	feedback, err := os.ReadFile(filepath.Join(root, "CAG-106", ".pi-symphony-feedback.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(feedback), "# PR #106 review feedback") {
+		t.Fatalf("feedback missing review header: %s", string(feedback))
+	}
+}
+
 func TestMergeApprovedPRsStopsIfBranchDeletionFails(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "CAG-41")

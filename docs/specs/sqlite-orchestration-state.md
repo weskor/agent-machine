@@ -11,6 +11,11 @@ This spec defines the intended behavior contract for CAG-49: moving Pi Symphony 
 ## Source of truth model
 
 - SQLite is the source of truth for runner orchestration decisions made by Pi Symphony: which issue attempt is active, which PR belongs to it, whether review passed, whether feedback is new, whether merge is eligible, which cleanup action is pending, which lease is held, and what terminal outcome was reached.
+- SQLite also owns durable worker tasks when runner responsibilities are split
+  across scheduler, implementation, review, handoff, merge, Linear status,
+  reconciliation, and cleanup workers. Worker tasks describe which role should
+  act next, but the worker must still re-read current-state rows and fresh
+  external facts before mutating local or external state.
 - Linear remains the external system of record for issue identity, issue workflow state, comments, assignee/ownership where configured, labels, priority, and Done/Needs Info/Human Review state transitions.
 - GitHub remains the external system of record for PR identity, PR state, review decision, mergeability, checks, branch metadata, authorship, and merge result.
 - Workspace JSON/Markdown files, including `.pi-symphony-run.json`, `.pi-symphony-evaluation.json`, PR bodies, and deterministic comments, are audit and evidence exports. They may be backfill inputs during migration or repair, but after SQLite adoption they must not silently override newer database state.
@@ -33,6 +38,7 @@ This matrix is the implementation-ready precedence contract for later SQLite ado
 | Cleanup | SQLite for cleanup eligibility, active leases, terminal outcome, retained artifact pointers, deletion decision, and deletion result; fresh Linear/GitHub for Done/PR status when those facts gate cleanup | Linear/GitHub must be refreshed for cleanup that depends on issue Done or PR merged/closed state | Workspace artifacts are retained/debug exports and may be deleted only according to the cleanup decision | Do not delete workspaces or branches from stale artifacts, missing DB terminal state, active leases, open/unverified PRs, or reconciliation-needed rows |
 | Repair and backfill | Operator input starts repair; SQLite records the repaired current state and synthetic migration/reconciliation events; fresh Linear/GitHub resolve identity conflicts | External facts must be refreshed before repair changes scheduling, retry, merge, or cleanup eligibility | Artifacts are compatibility inputs and evidence pointers | Do not silently repair by preferring artifacts over SQLite or external facts; unresolved conflicts remain reconciliation-needed |
 | Status and diagnostics | SQLite current-state rows for decision status, event log for explanation, fresh Linear/GitHub only when the status mode explicitly refreshes external facts | Optional unless status claims current external state | Artifacts may be displayed as evidence/debug exports | Degraded read-only output is allowed, but status must not imply a decision was made when SQLite cannot be read or facts conflict |
+| Worker dispatch | SQLite worker tasks for queued/claimed/completed role work, SQLite leases for mutation ownership, and current-state tables for policy decisions | Fresh Linear/GitHub facts are required by the worker before externally visible actions in that domain | Artifacts may be task payload references or evidence exports only | Do not run a worker task when task state, lease state, current-state rows, or required external facts conflict; mark reconciliation-needed or fail closed |
 
 ## Source precedence and disagreement handling
 
@@ -94,6 +100,9 @@ The SQLite model should persist enough data to make each daemon cycle idempotent
 - Merge eligibility and blockers: current gate result, blocker codes, last checked external PR/check state, ownership invariants, and reason text suitable for status output or deterministic comments.
 - Cleanup status: workspace existence, cleanup eligibility, cleanup decision, deletion result, retained artifact pointers, and reasons cleanup is blocked.
 - Locks and leases: issue-level claim lease, workspace mutation lease, merge-lane lease if needed, lease owner, acquisition time, expiry, renewal time, and release reason.
+- Worker tasks: stable task key, role, status, priority, availability time, lease
+  name, issue/attempt identity, compact payload, and timestamps so independently
+  runnable workers can coordinate through SQLite instead of process-local state.
 - Daemon heartbeat: process identity, lane name, workflow path, cycle number, last successful cycle time, last error, and whether recovery is required.
 - Retry decisions: retry count, retry budget state, reason for retry/no-retry, feedback or failure input that triggered the decision, and handoff to Needs Info or Human Review when retries stop.
 - Terminal outcomes: Done/merged, Needs Info, Human Review handoff, abandoned due to missing external record, failed closed due to local state error, and cleaned workspace outcome.

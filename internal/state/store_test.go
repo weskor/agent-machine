@@ -231,6 +231,56 @@ func TestWorkerTasksUpsertAndFilterByRole(t *testing.T) {
 	}
 }
 
+func TestWorkerTaskClaimAndCompletionAreAtomic(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	now := time.Date(2026, 5, 23, 10, 0, 0, 0, time.UTC)
+	if err := s.UpsertWorkerTask(ctx, WorkerTask{TaskKey: "continuous:merge", Role: "merge", Status: "queued", AvailableAt: now, UpdatedAt: now}); err != nil {
+		t.Fatalf("UpsertWorkerTask() error = %v", err)
+	}
+
+	task, claimed, err := s.ClaimWorkerTask(ctx, "continuous:merge", now.Add(time.Second))
+	if err != nil || !claimed {
+		t.Fatalf("ClaimWorkerTask() claimed=%v err=%v", claimed, err)
+	}
+	if task.Status != "claimed" {
+		t.Fatalf("claimed task status = %q, want claimed", task.Status)
+	}
+	if _, claimed, err := s.ClaimWorkerTask(ctx, "continuous:merge", now.Add(2*time.Second)); err != nil || claimed {
+		t.Fatalf("second ClaimWorkerTask() claimed=%v err=%v, want false nil", claimed, err)
+	}
+	if err := s.CompleteWorkerTask(ctx, "continuous:merge", "completed", now.Add(3*time.Second)); err != nil {
+		t.Fatalf("CompleteWorkerTask() error = %v", err)
+	}
+	tasks, err := s.WorkerTasks(ctx, "merge")
+	if err != nil {
+		t.Fatalf("WorkerTasks() error = %v", err)
+	}
+	if len(tasks) != 1 || tasks[0].Status != "completed" {
+		t.Fatalf("tasks = %+v; want completed merge task", tasks)
+	}
+}
+
+func TestWorkerTaskClaimWaitsUntilAvailable(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	now := time.Date(2026, 5, 23, 10, 0, 0, 0, time.UTC)
+	if err := s.UpsertWorkerTask(ctx, WorkerTask{TaskKey: "continuous:work", Role: "scheduler", Status: "queued", AvailableAt: now.Add(time.Hour)}); err != nil {
+		t.Fatalf("UpsertWorkerTask() error = %v", err)
+	}
+	if _, claimed, err := s.ClaimWorkerTask(ctx, "continuous:work", now); err != nil || claimed {
+		t.Fatalf("ClaimWorkerTask() claimed=%v err=%v, want unavailable", claimed, err)
+	}
+}
+
 func TestAppendEventWriteFailureIsIsolatedFromPrimaryError(t *testing.T) {
 	ctx := context.Background()
 	primaryErr := errors.New("primary runner error")

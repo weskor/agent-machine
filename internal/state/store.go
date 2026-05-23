@@ -73,6 +73,10 @@ const (
 	EventCleanupDeletionSucceeded      = "cleanup_deletion_succeeded"
 	EventCleanupDeletionFailed         = "cleanup_deletion_failed"
 	EventCleanupCompleted              = "cleanup_completed"
+	EventWorkerTaskQueued              = "worker_task_queued"
+	EventWorkerTaskClaimed             = "worker_task_claimed"
+	EventWorkerTaskCompleted           = "worker_task_completed"
+	EventWorkerTaskFailed              = "worker_task_failed"
 	EventErrorRecorded                 = "error_recorded"
 )
 
@@ -612,6 +616,78 @@ func (s *Store) WorkerTasks(ctx context.Context, role string) ([]WorkerTask, err
 		return nil, fmt.Errorf("iterate worker tasks: %w", err)
 	}
 	return tasks, nil
+}
+
+func (s *Store) ClaimWorkerTask(ctx context.Context, taskKey string, now time.Time) (WorkerTask, bool, error) {
+	if taskKey == "" {
+		return WorkerTask{}, false, errors.New("claim worker task: task_key is required")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE worker_tasks SET status = 'claimed', updated_at = ? WHERE task_key = ? AND status = 'queued' AND julianday(available_at) <= julianday(?)`, formatTime(now), taskKey, formatTime(now))
+	if err != nil {
+		return WorkerTask{}, false, fmt.Errorf("claim worker task: %w", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return WorkerTask{}, false, fmt.Errorf("claim worker task rows affected: %w", err)
+	} else if rows == 0 {
+		return WorkerTask{}, false, nil
+	}
+	task, ok, err := s.workerTask(ctx, taskKey)
+	if err != nil {
+		return WorkerTask{}, false, err
+	}
+	return task, ok, nil
+}
+
+func (s *Store) CompleteWorkerTask(ctx context.Context, taskKey, status string, now time.Time) error {
+	if taskKey == "" {
+		return errors.New("complete worker task: task_key is required")
+	}
+	if status == "" {
+		return errors.New("complete worker task: status is required")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE worker_tasks SET status = ?, updated_at = ? WHERE task_key = ? AND status = 'claimed'`, status, formatTime(now), taskKey)
+	if err != nil {
+		return fmt.Errorf("complete worker task: %w", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("complete worker task rows affected: %w", err)
+	} else if rows == 0 {
+		return fmt.Errorf("complete worker task: %w", ErrLeaseHeld)
+	}
+	return nil
+}
+
+func (s *Store) workerTask(ctx context.Context, taskKey string) (WorkerTask, bool, error) {
+	var task WorkerTask
+	var attempt sql.NullInt64
+	var availableRaw, payloadRaw, createdRaw, updatedRaw string
+	err := s.db.QueryRowContext(ctx, `SELECT task_key, role, issue_key, issue_id, attempt, status, priority, available_at, lease_name, payload_json, created_at, updated_at FROM worker_tasks WHERE task_key = ?`, taskKey).Scan(&task.TaskKey, &task.Role, &task.IssueKey, &task.IssueID, &attempt, &task.Status, &task.Priority, &availableRaw, &task.LeaseName, &payloadRaw, &createdRaw, &updatedRaw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return WorkerTask{}, false, nil
+	}
+	if err != nil {
+		return WorkerTask{}, false, fmt.Errorf("read worker task: %w", err)
+	}
+	if attempt.Valid {
+		task.Attempt = int(attempt.Int64)
+	}
+	task.Payload = json.RawMessage(payloadRaw)
+	if task.AvailableAt, err = parseTime(availableRaw); err != nil {
+		return WorkerTask{}, false, fmt.Errorf("parse worker task available_at: %w", err)
+	}
+	if task.CreatedAt, err = parseTime(createdRaw); err != nil {
+		return WorkerTask{}, false, fmt.Errorf("parse worker task created_at: %w", err)
+	}
+	if task.UpdatedAt, err = parseTime(updatedRaw); err != nil {
+		return WorkerTask{}, false, fmt.Errorf("parse worker task updated_at: %w", err)
+	}
+	return task, true, nil
 }
 
 func (s *Store) UpsertCleanupState(ctx context.Context, cleanup CleanupState) error {

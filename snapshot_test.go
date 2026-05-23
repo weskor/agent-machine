@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -137,6 +138,40 @@ func TestOrchestrationSnapshotIncludesActiveLaneData(t *testing.T) {
 	}
 	if len(snap.ActiveLanes) != 1 || snap.ActiveLanes[0].Name != "work" || snap.ActiveLanes[0].CycleNumber != 7 || snap.ActiveLanes[0].Source != "sqlite" {
 		t.Fatalf("missing lane data: %+v", snap.ActiveLanes)
+	}
+}
+
+func TestOrchestrationSnapshotIncludesWorkerTasks(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	now := time.Date(2026, 5, 23, 10, 30, 0, 0, time.UTC)
+	store, err := state.Open(ctx, state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertWorkerTask(ctx, state.WorkerTask{TaskKey: "implementation:CAG-152:1", Role: "implementation", IssueKey: "CAG-152", Attempt: 1, Status: "queued", Priority: 8, AvailableAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertWorkerTask(ctx, state.WorkerTask{TaskKey: "review:CAG-151:1", Role: "review", IssueKey: "CAG-151", Attempt: 1, Status: "completed", Priority: 2, AvailableAt: now.Add(-time.Hour), UpdatedAt: now.Add(time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := buildOrchestrationSnapshot(ctx, runnerConfig{WorkspaceRoot: root}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.WorkerTasks) != 2 {
+		t.Fatalf("worker tasks = %+v; want two", snap.WorkerTasks)
+	}
+	if snap.WorkerTasks[0].TaskKey != "review:CAG-151:1" || snap.WorkerTasks[1].TaskKey != "implementation:CAG-152:1" {
+		t.Fatalf("worker tasks not sorted by recency: %+v", snap.WorkerTasks)
+	}
+	lines := strings.Join(summarizeWorkerTasks(snap.WorkerTasks), "\n")
+	for _, expected := range []string{"SQLite worker tasks: total=2 implementation:queued=1 review:completed=1", "task=review:CAG-151:1", "task=implementation:CAG-152:1"} {
+		if !strings.Contains(lines, expected) {
+			t.Fatalf("expected %q in %q", expected, lines)
+		}
 	}
 }
 

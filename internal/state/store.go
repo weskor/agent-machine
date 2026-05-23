@@ -1199,7 +1199,7 @@ func (s *Store) Counts(ctx context.Context) (Counts, error) {
 		"worker_tasks":         &counts.WorkerTasks,
 	} {
 		if err := s.db.QueryRowContext(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s`, table)).Scan(dest); err != nil {
-			if table == "orchestration_events" && strings.Contains(err.Error(), "no such table") {
+			if (table == "orchestration_events" || table == "worker_tasks") && strings.Contains(err.Error(), "no such table") {
 				*dest = 0
 				continue
 			}

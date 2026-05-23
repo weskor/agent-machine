@@ -114,8 +114,9 @@ func summarizeSnapshotStateStore(workspaceRoot string, snapshot orchestrationSna
 	}
 	lines = append(lines,
 		fmt.Sprintf("SQLite state health: %s schema_version=%d journal_mode=%s busy_timeout_ms=%d", status, health.SchemaVersion, emptyAsNA(health.JournalMode), health.BusyTimeoutMS),
-		fmt.Sprintf("SQLite state counts: issue_attempts=%d pr_mappings=%d review_states=%d terminal_outcomes=%d daemon_heartbeats=%d cleanup_states=%d events=%d", health.Counts.IssueAttempts, health.Counts.PRMappings, health.Counts.ReviewStates, health.Counts.TerminalOutcomes, health.Counts.DaemonHeartbeats, health.Counts.CleanupStates, health.Counts.Events),
+		formatStateCounts(health.Counts),
 	)
+	lines = append(lines, summarizeWorkerTasks(snapshot.WorkerTasks)...)
 	if len(snapshot.RecentEvents) > 0 {
 		lines = append(lines, "SQLite recent events:")
 		for _, event := range snapshot.RecentEvents {
@@ -144,13 +145,17 @@ func summarizeStateStore(workspaceRoot string) []string {
 	}
 	lines = append(lines,
 		fmt.Sprintf("SQLite state health: %s schema_version=%d journal_mode=%s busy_timeout_ms=%d", status, health.SchemaVersion, emptyAsNA(health.JournalMode), health.BusyTimeoutMS),
-		fmt.Sprintf("SQLite state counts: issue_attempts=%d pr_mappings=%d review_states=%d terminal_outcomes=%d daemon_heartbeats=%d cleanup_states=%d events=%d", health.Counts.IssueAttempts, health.Counts.PRMappings, health.Counts.ReviewStates, health.Counts.TerminalOutcomes, health.Counts.DaemonHeartbeats, health.Counts.CleanupStates, health.Counts.Events),
+		formatStateCounts(health.Counts),
 	)
 	store, err := state.Open(context.Background(), path)
 	if err != nil {
 		return lines
 	}
 	defer store.Close()
+	tasks, err := store.WorkerTasks(context.Background(), "")
+	if err == nil {
+		lines = append(lines, summarizeWorkerTasks(snapshotWorkerTasks(tasks))...)
+	}
 	events, err := store.RecentEvents(context.Background(), 5)
 	if err != nil || len(events) == 0 {
 		return lines
@@ -160,6 +165,65 @@ func summarizeStateStore(workspaceRoot string) []string {
 		lines = append(lines, formatEventSummary(eventSummary{Sequence: event.Sequence, OccurredAt: event.OccurredAt, IssueKey: event.IssueKey, Source: event.Source, Type: event.Type}))
 	}
 	return lines
+}
+
+func formatStateCounts(counts state.Counts) string {
+	return fmt.Sprintf("SQLite state counts: issue_attempts=%d pr_mappings=%d review_states=%d terminal_outcomes=%d daemon_heartbeats=%d cleanup_states=%d worker_tasks=%d events=%d", counts.IssueAttempts, counts.PRMappings, counts.ReviewStates, counts.TerminalOutcomes, counts.DaemonHeartbeats, counts.CleanupStates, counts.WorkerTasks, counts.Events)
+}
+
+func snapshotWorkerTasks(tasks []state.WorkerTask) []snapshotWorkerTask {
+	out := make([]snapshotWorkerTask, 0, len(tasks))
+	for _, task := range tasks {
+		out = append(out, snapshotWorkerTask{TaskKey: task.TaskKey, Role: task.Role, IssueKey: task.IssueKey, Attempt: task.Attempt, Status: task.Status, Priority: task.Priority, AvailableAt: task.AvailableAt, UpdatedAt: task.UpdatedAt})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
+			return out[i].UpdatedAt.After(out[j].UpdatedAt)
+		}
+		return out[i].TaskKey < out[j].TaskKey
+	})
+	return out
+}
+
+func summarizeWorkerTasks(tasks []snapshotWorkerTask) []string {
+	if len(tasks) == 0 {
+		return nil
+	}
+	counts := map[string]int{}
+	keys := make([]string, 0)
+	for _, task := range tasks {
+		key := fmt.Sprintf("%s:%s", emptyAsUnknown(task.Role), emptyAsUnknown(task.Status))
+		if _, ok := counts[key]; !ok {
+			keys = append(keys, key)
+		}
+		counts[key]++
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", key, counts[key]))
+	}
+	lines := []string{fmt.Sprintf("SQLite worker tasks: total=%d %s", len(tasks), strings.Join(parts, " "))}
+	lines = append(lines, "SQLite recent worker tasks:")
+	limit := len(tasks)
+	if limit > 5 {
+		limit = 5
+	}
+	for i := 0; i < limit; i++ {
+		lines = append(lines, formatWorkerTaskSummary(tasks[i]))
+	}
+	return lines
+}
+
+func formatWorkerTaskSummary(task snapshotWorkerTask) string {
+	return fmt.Sprintf("- task=%s role=%s status=%s issue=%s attempt=%d priority=%d available_at=%s updated_at=%s", emptyAsNA(task.TaskKey), emptyAsUnknown(task.Role), emptyAsUnknown(task.Status), emptyAsNA(task.IssueKey), task.Attempt, task.Priority, formatOptionalTime(task.AvailableAt), formatOptionalTime(task.UpdatedAt))
+}
+
+func formatOptionalTime(value time.Time) string {
+	if value.IsZero() {
+		return "UNKNOWN"
+	}
+	return value.UTC().Format(time.RFC3339)
 }
 
 func formatEventSummary(event eventSummary) string {

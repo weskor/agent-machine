@@ -10,8 +10,9 @@ import (
 const statusWorkerRole = "status"
 const cleanupWorkerRole = "cleanup"
 const mergeWorkerRole = "merge"
+const workWorkerRole = "work"
 
-func runSelectedWorker(client linearClient, _ workflow, config runnerConfig, role string) error {
+func runSelectedWorker(client linearClient, wf workflow, config runnerConfig, role string) error {
 	role = strings.TrimSpace(role)
 	switch role {
 	case statusWorkerRole:
@@ -20,13 +21,15 @@ func runSelectedWorker(client linearClient, _ workflow, config runnerConfig, rol
 		return runCleanupWorkerProcess(client, config)
 	case mergeWorkerRole:
 		return runMergeWorkerProcess(client, config)
+	case workWorkerRole:
+		return runWorkWorkerProcess(client, wf, config)
 	default:
 		return fmt.Errorf("unsupported worker role %q; supported roles: %s", role, strings.Join(supportedWorkerRoles(), ", "))
 	}
 }
 
 func supportedWorkerRoles() []string {
-	return []string{statusWorkerRole, cleanupWorkerRole, mergeWorkerRole}
+	return []string{statusWorkerRole, cleanupWorkerRole, mergeWorkerRole, workWorkerRole}
 }
 
 func runStatusWorkerProcess(client linearClient, config runnerConfig) error {
@@ -59,6 +62,7 @@ var issueIdentifiersByStateForMergeWorker = func(client linearClient, projectSlu
 	return client.issueIdentifiersByState(projectSlug, state)
 }
 var mergeApprovedPRsForWorker = mergeApprovedPRs
+var runClaimedAttemptBatchForWorker = runClaimedAttemptBatch
 
 func runCleanupWorkerProcess(client linearClient, config runnerConfig) error {
 	ctx := context.Background()
@@ -116,6 +120,28 @@ func runMergeWorkerProcess(client linearClient, config runnerConfig) error {
 		return true, nil
 	})
 	recordContinuousHeartbeat(recordHeartbeat, continuousHeartbeat{LaneName: "worker:merge", CycleNumber: 1, Success: err == nil && didWork, Err: err, At: stateNow()})
+	return err
+}
+
+func runWorkWorkerProcess(client linearClient, wf workflow, config runnerConfig) error {
+	ctx := context.Background()
+	stateStore, stateDBPath := commandScopedStateStore(ctx, config.WorkspaceRoot, "worker-work")
+	if stateStore == nil {
+		return fmt.Errorf("SQLite state store unavailable for work worker at %s", stateDBPath)
+	}
+	defer stateStore.Close()
+	maxConcurrentAgents := configuredMaxConcurrentAgents(wf)
+	recordHeartbeat := daemonHeartbeatRecorder(ctx, config, stateStore)
+	didWork, err := runContinuousWorkerTask(ctx, stateStore, continuousWorkerTask{
+		TaskKey:   "process:work",
+		Role:      "scheduler",
+		LaneName:  "worker:work",
+		LeaseName: "worker:work",
+		Payload:   map[string]any{"project_slug": config.ProjectSlug, "max_concurrent_agents": maxConcurrentAgents},
+	}, func() (bool, error) {
+		return runClaimedAttemptBatchForWorker(client, wf, config, stateStore, maxConcurrentAgents)
+	})
+	recordContinuousHeartbeat(recordHeartbeat, continuousHeartbeat{LaneName: "worker:work", CycleNumber: 1, Success: err == nil && didWork, Err: err, At: stateNow()})
 	return err
 }
 

@@ -191,3 +191,58 @@ func TestMergeWorkerProcessClaimsTaskRunsCleanupThenMergeAndRecordsHeartbeat(t *
 		t.Fatalf("lease = %+v ok=%t; want released worker task lease", lease, ok)
 	}
 }
+
+func TestWorkWorkerProcessClaimsTaskRunsAttemptBatchAndRecordsHeartbeat(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 5, 23, 12, 15, 0, 0, time.UTC)
+	oldRunClaimedAttemptBatch := runClaimedAttemptBatchForWorker
+	oldStateNow := stateNow
+	t.Cleanup(func() {
+		runClaimedAttemptBatchForWorker = oldRunClaimedAttemptBatch
+		stateNow = oldStateNow
+	})
+	stateNow = func() time.Time { return now }
+	batchCalled := false
+	runClaimedAttemptBatchForWorker = func(client linearClient, wf workflow, config runnerConfig, store *state.Store, capacity int) (bool, error) {
+		batchCalled = true
+		if config.WorkspaceRoot != root || config.ProjectSlug != "CAG" || store == nil || capacity != 3 {
+			t.Fatalf("work batch input = config %+v store=%v capacity=%d; want root/project/store/capacity=3", config, store != nil, capacity)
+		}
+		return true, nil
+	}
+	wf := workflow{YAML: "tracker:\n  project_slug: CAG\nworkspace:\n  root: " + root + "\nagent:\n  max_concurrent_agents: 3"}
+
+	if err := runWorkWorkerProcess(linearClient{}, wf, runnerConfig{WorkflowPath: "WORKFLOW.md", ProjectSlug: "CAG", WorkspaceRoot: root}); err != nil {
+		t.Fatalf("runWorkWorkerProcess() error = %v", err)
+	}
+	if !batchCalled {
+		t.Fatal("work worker did not run attempt batch")
+	}
+
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	tasks, err := store.WorkerTasks(context.Background(), "scheduler")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].TaskKey != "process:work" || tasks[0].Status != "completed" || tasks[0].LeaseName != "worker:work" {
+		t.Fatalf("work worker task = %+v; want completed process:work with lease", tasks)
+	}
+	heartbeats, err := store.SnapshotHeartbeats(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(heartbeats) != 1 || heartbeats[0].LaneName != "worker:work" || heartbeats[0].CycleNumber != 1 || heartbeats[0].RecoveryRequired {
+		t.Fatalf("heartbeats = %+v; want successful worker:work heartbeat", heartbeats)
+	}
+	lease, ok, err := store.Lease(context.Background(), "worker:work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || lease.ReleasedAt.IsZero() || lease.ReleaseReason != "worker task completed" {
+		t.Fatalf("lease = %+v ok=%t; want released worker task lease", lease, ok)
+	}
+}

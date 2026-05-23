@@ -310,10 +310,19 @@ func runArtifactMergeBlockReason(workspaceRoot, identifier, prURL string) string
 	if record.Status != "success" {
 		return fmt.Sprintf("run status is %s", emptyAsUnknown(record.Status))
 	}
+	if runArtifactHasHumanApprovedMissingEvidence(record) {
+		return ""
+	}
 	if record.ReviewStatus != "passed" {
 		return fmt.Sprintf("review status is %s", emptyAsUnknown(record.ReviewStatus))
 	}
 	return ""
+}
+
+func runArtifactHasHumanApprovedMissingEvidence(record runRecord) bool {
+	return record.Status == "success" &&
+		record.ReviewStatus == "failed" &&
+		record.ReviewClassification == reviewClassificationMissingEvidenceOnly
 }
 
 func readRunArtifact(workspace string) (runRecord, bool) {

@@ -9,7 +9,6 @@ import (
 
 	"github.com/weskor/pi-symphony/internal/agentruntime"
 	cfg "github.com/weskor/pi-symphony/internal/config"
-	sh "github.com/weskor/pi-symphony/internal/shell"
 	"github.com/weskor/pi-symphony/internal/state"
 )
 
@@ -197,74 +196,11 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 		validation = append(validation, "Scope guard: changed files matched the Linear ticket path contract.")
 	}
 
-	var reviewEvidence *reviewEvidence
-	if prURL != "" && config.ReviewCommand != "" {
-		evidence, err := collectReviewEvidence(config, candidate, workspace, prURL, scopeResult, validation)
-		if err != nil {
-			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), err.Error()))
-			return true, err
-		}
-		reviewEvidence = &evidence
-		if err := reviewEvidenceNotReadyError(*reviewEvidence); err != nil {
-			decision := reviewReadiness.NotReadyDecision(prURL, *reviewEvidence)
-			notReady := reviewReadiness.NotReadyProgress(candidate, workspace, branch, prURL, progressStarted, *reviewEvidence)
-			writeRunProgress(config.WorkspaceRoot, notReady)
-			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), err.Error()))
-			return true, nil
-		}
+	reviewResult, err := reviewWorker{client: client, config: config, stateStore: stateStore, candidate: candidate, states: states, workspace: workspace, branch: branch, progressStarted: progressStarted, startedAt: piStart, piUsage: piUsage, prURL: prURL, githubEnv: githubEnv, githubAuth: githubAuth, scopeResult: scopeResult, validation: validation}.Execute(context.Background())
+	if err != nil || reviewResult.Terminal {
+		return true, err
 	}
-
-	var review *reviewResult
-	if prURL != "" && config.ReviewCommand != "" {
-		reviewing := runProgressForIssue(candidate, workspace, "reviewing", progressStarted)
-		reviewing.Branch = branch
-		reviewing.PRURL = prURL
-		if reviewEvidence != nil {
-			reviewing.ChecksStatus = reviewEvidence.ChecksStatus
-		}
-		writeRunProgress(config.WorkspaceRoot, reviewing)
-		reviewResult, err := runReview(config.ReviewCommand, workspace, candidate, prURL, githubEnv, config.Budget.ReviewTimeout, reviewEvidence)
-		review = reviewResult
-		if err != nil {
-			status := runAttemptStatusReviewFailed
-			if errors.Is(err, sh.ErrCommandTimeout) {
-				status = runAttemptStatusTimeout
-				if commentErr := client.createComment(candidate.ID, renderBudgetFailureComment(err.Error())); commentErr != nil {
-					log("failed to comment on %s: %v", candidate.Identifier, commentErr)
-				}
-			}
-			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, status, err.Error(), config.Budget.Active(), err.Error()))
-			return true, err
-		}
-		if exceeded := budgetExceeded(config.Budget, piStart, piUsage, review.Usage); exceeded != "" {
-			decision := budgetLifecycleDecision(attemptLifecyclePhaseReview, prURL, exceeded)
-			if err := client.createComment(candidate.ID, renderBudgetFailureComment(exceeded)); err != nil {
-				log("failed to comment on %s: %v", candidate.Identifier, err)
-			}
-			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, decision.Status, exceeded, config.Budget.Active(), exceeded))
-			return true, fmt.Errorf("%s", exceeded)
-		}
-		if review != nil && review.Status != "passed" && !reviewFailureRoutesToHumanHandoff(review, prURL) {
-			if id := stateID(states, config.ReadyState); id != "" {
-				if err := client.updateIssueState(candidate.ID, id); err != nil {
-					writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, runAttemptStatusReviewFailed, err.Error(), config.Budget.Active(), ""))
-					return true, err
-				}
-			}
-			comment := fmt.Sprintf("Go/Pi review did not pass; moved back to %s.\n\nPR: %s\nReview status: %s\nFindings:\n%s", config.ReadyState, prURL, review.Status, review.Findings)
-			if err := client.createComment(candidate.ID, comment); err != nil {
-				log("failed to comment on %s: %v", candidate.Identifier, err)
-			}
-			if err := writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, runAttemptStatusReviewFailed, "review did not pass", config.Budget.Active(), "")); err != nil {
-				return true, err
-			}
-			log("review did not pass for %s; moved back to %s", candidate.Identifier, config.ReadyState)
-			return true, nil
-		}
-		if reviewFailureRoutesToHumanHandoff(review, prURL) {
-			log("review failed for %s with missing evidence only; routing to %s", candidate.Identifier, config.HandoffState)
-		}
-	}
+	review := reviewResult.Review
 	if prURL != "" {
 		logHandoffRunSummary(candidate.Identifier, prURL, review, validation)
 		classificationRecord := runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, runAttemptStatusSuccess, "", config.Budget.Active(), "")

@@ -200,15 +200,11 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 		return true, err
 	}
 	review := reviewResult.Review
-	handoffResult, err := handoffWorker{client: client, config: config, stateStore: stateStore, candidate: candidate, states: states, workspace: workspace, startedAt: piStart, piUsage: piUsage, review: review, prURL: prURL, validation: validation, githubAuth: githubAuth}.Execute(context.Background())
-	if err != nil || handoffResult.Terminal {
-		return true, err
+	didWork, err := completeAttemptHandoff(context.Background(), handoffCompletion{client: client, config: config, stateStore: stateStore, candidate: candidate, states: states, workspace: workspace, branch: branch, progressStarted: progressStarted, startedAt: piStart, piUsage: piUsage, review: review, prURL: prURL, validation: validation, githubAuth: githubAuth})
+	if err == nil {
+		log("completed one Pi run for %s; inspect %s", candidate.Identifier, workspace)
 	}
-	if err := writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, runAttemptStatusSuccess, "", config.Budget.Active(), "")); err != nil {
-		return true, err
-	}
-	log("completed one Pi run for %s; inspect %s", candidate.Identifier, workspace)
-	return true, nil
+	return didWork, err
 }
 
 var openPRsByIssueForSelection = openPRsByIssue

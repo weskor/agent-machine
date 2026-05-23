@@ -154,6 +154,38 @@ func TestReconcileCandidateForSelectionAllowsRepairableReviewFailedPR(t *testing
 	}
 }
 
+func TestClaimNextRunAttemptDispatchesRepairableReviewFailedPR(t *testing.T) {
+	root := t.TempDir()
+	store := openCandidateTestStateStore(t)
+	candidate := testIssue("CAG-141", "Ready for Agent")
+	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/pi-symphony/pull/93")
+	original := openPRsByIssueForSelection
+	openPRsByIssueForSelection = func(runnerConfig) (map[string]*pullRequestSummary, error) {
+		return map[string]*pullRequestSummary{candidate.Identifier: &pr}, nil
+	}
+	t.Cleanup(func() { openPRsByIssueForSelection = original })
+	client := linearClientWithCandidates(t, []issue{candidate})
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	config.PiCommand = "sh"
+	wf := workflow{Body: "# Test workflow"}
+
+	claim, didWork, err := claimNextRunAttempt(client, wf, config, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didWork || claim == nil || claim.Candidate.Identifier != candidate.Identifier {
+		t.Fatalf("claim = %#v didWork=%t, want repair claim for %s", claim, didWork, candidate.Identifier)
+	}
+	defer claim.ReleaseLock()
+	if claim.SelectedPR == nil || claim.SelectedPR.URL != pr.URL {
+		t.Fatalf("expected repair claim to reuse PR %s, got %#v", pr.URL, claim.SelectedPR)
+	}
+	if !hasRunLock(claim.Workspace) {
+		t.Fatalf("expected repair claim to hold a run lock")
+	}
+}
+
 func seedRepairableReviewFailedPR(t *testing.T, root, identifier, prURL string) pullRequestSummary {
 	t.Helper()
 	writeRunRecordFixture(t, root, identifier, fmt.Sprintf(`{"status":"review_failed","review_status":"failed","review_classification":"%s","review_findings":"REVIEW_FAIL behavior mismatch","pr_url":%q}`, reviewClassificationBehaviorSpecBlocker, prURL))

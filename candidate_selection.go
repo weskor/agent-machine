@@ -204,7 +204,7 @@ func isRunnableWorkspaceForCandidate(workspaceRoot string, candidate issue, conf
 		return false
 	}
 	if record, ok := reusableRunRecord(workspace); ok {
-		if feedbackRetryAvailable(workspace, &candidate, record, config) {
+		if feedbackRetryAvailable(workspace, &candidate, record, config, nil) {
 			log("%s has terminal artifact but captured PR feedback is available; allowing retry", candidate.Identifier)
 			return true
 		}
@@ -214,8 +214,19 @@ func isRunnableWorkspaceForCandidate(workspaceRoot string, candidate issue, conf
 	return true
 }
 
-func feedbackRetryAvailable(workspace string, candidate *issue, record runRecord, config runnerConfig) bool {
-	if candidate == nil || candidate.State.Name != config.ReadyState || record.Status != "success" || record.PRURL == "" {
+func feedbackRetryAvailable(workspace string, candidate *issue, record runRecord, config runnerConfig, prArg ...*pullRequestSummary) bool {
+	if candidate == nil || candidate.State.Name != config.ReadyState || record.PRURL == "" {
+		return false
+	}
+	var pr *pullRequestSummary
+	if len(prArg) > 0 {
+		pr = prArg[0]
+	}
+	if record.Status == runAttemptStatusReviewFailed {
+		decision := reconciliationDecision{NextAction: repairReviewFindingsNextAction}
+		return repairableReviewFailedPR(config, *candidate, pr, decision)
+	}
+	if record.Status != "success" {
 		return false
 	}
 	feedback, err := readPRFeedback(workspace)
@@ -231,7 +242,7 @@ func reusableRunRecord(workspace string) (runRecord, bool) {
 	if err := json.Unmarshal(data, &record); err != nil {
 		return runRecord{}, false
 	}
-	if record.Status == "success" && record.PRURL != "" {
+	if (record.Status == "success" || record.Status == runAttemptStatusReviewFailed) && record.PRURL != "" {
 		return record, true
 	}
 	return runRecord{}, false

@@ -104,13 +104,10 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 	if err != nil {
 		return true, err
 	}
+	linearStatus := linearStatusWorker{client: client, candidate: candidate, states: states}
 	if candidate.State.Name == config.ReadyState {
-		if id := stateID(states, config.RunningState); id != "" {
-			if err := client.updateIssueState(candidate.ID, id); err != nil {
-				return true, err
-			}
-			candidate.State.Name = config.RunningState
-			log("moved %s to %s", candidate.Identifier, config.RunningState)
+		if _, err := linearStatus.MoveTo(config.RunningState); err != nil {
+			return true, err
 		}
 	}
 	runStarted := time.Now()
@@ -158,14 +155,12 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 		reason := scopeResult.Summary()
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseScopeGuard, PRURL: prURL, ScopeResult: scopeResult})
 		review := &reviewResult{Status: decision.ReviewStatus, Classification: decision.ReviewClassification, Findings: reason}
-		if id := stateID(states, config.ReadyState); id != "" {
-			if err := client.updateIssueState(candidate.ID, id); err != nil {
-				writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, decision.Status, err.Error(), config.Budget.Active(), ""))
-				return true, err
-			}
+		if _, err := linearStatus.MoveTo(config.ReadyState); err != nil {
+			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, decision.Status, err.Error(), config.Budget.Active(), ""))
+			return true, err
 		}
 		comment := fmt.Sprintf("Scope guard failed before handoff; moved back to %s.\n\nPR: %s\nReason: %s", config.ReadyState, prURL, reason)
-		if err := client.createComment(candidate.ID, comment); err != nil {
+		if err := linearStatus.Comment(comment); err != nil {
 			log("failed to comment on %s: %v", candidate.Identifier, err)
 		}
 		if err := writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, piStart, time.Now(), piUsage, review, prURL, decision.Status, "scope guard failed", config.Budget.Active(), "")); err != nil {

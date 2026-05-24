@@ -1,4 +1,5 @@
 import { Box, Text, createCliRenderer } from "@opentui/core"
+import { existsSync, readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -96,14 +97,17 @@ const sections: Array<{ id: SectionID; label: string }> = [
   { id: "events", label: "Events" },
 ]
 
-const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
+const moduleRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
+const runnerRoot = resolveRunnerRoot()
 const appNodeID = "pi-symphony-tui"
 const configuredPath = readFlag("--config")
-const configPath = configuredPath ? resolve(process.cwd(), configuredPath) : resolve(sourceRoot, "symphony.yaml")
+const configPath = configuredPath ? resolve(process.cwd(), configuredPath) : resolve(runnerRoot ?? process.cwd(), "symphony.yaml")
 const selectedBySection = new Map<SectionID, number>()
 let currentSection = 0
 let lastSnapshot: SurfaceSnapshot | undefined
 let lastMessage = ""
+let refreshInFlight = false
+let refreshQueued = false
 
 const renderer = await createCliRenderer({
   exitOnCtrlC: true,
@@ -116,7 +120,7 @@ renderer.addInputHandler((sequence: string) => {
       renderer.destroy()
       process.exit(0)
     case "r":
-      void refresh()
+      void requestRefresh()
       return true
     case "\t":
     case "l":
@@ -149,7 +153,24 @@ renderer.addInputHandler((sequence: string) => {
   }
 })
 
-await refresh()
+await requestRefresh()
+
+async function requestRefresh() {
+  if (refreshInFlight) {
+    refreshQueued = true
+    return
+  }
+
+  refreshInFlight = true
+  try {
+    do {
+      refreshQueued = false
+      await refresh()
+    } while (refreshQueued)
+  } finally {
+    refreshInFlight = false
+  }
+}
 
 async function refresh() {
   render(lastSnapshot, "refreshing...")
@@ -430,11 +451,12 @@ function sectionColor(section: SectionID) {
 
 async function loadSurfaceSnapshot(): Promise<SurfaceSnapshot> {
   const command = process.env.PI_SYMPHONY_BIN?.trim()
+  const cwd = command ? runnerRoot ?? process.cwd() : requireRunnerRoot()
   const args = command
     ? [command, "surface", "snapshot", "--config", configPath]
     : ["go", "run", ".", "surface", "snapshot", "--config", configPath]
   const proc = Bun.spawn(args, {
-    cwd: sourceRoot,
+    cwd,
     env: {
       ...process.env,
       GOCACHE: process.env.GOCACHE ?? "/tmp/pi-symphony-go-cache",
@@ -450,7 +472,36 @@ async function loadSurfaceSnapshot(): Promise<SurfaceSnapshot> {
   if (exitCode !== 0) {
     throw new Error((stderr || stdout || `surface snapshot exited ${exitCode}`).trim())
   }
-  return JSON.parse(stdout) as SurfaceSnapshot
+  return parseSurfaceSnapshot(stdout)
+}
+
+function parseSurfaceSnapshot(stdout: string): SurfaceSnapshot {
+  const value = JSON.parse(stdout) as unknown
+  assertSurfaceSnapshot(value)
+  return value
+}
+
+function assertSurfaceSnapshot(value: unknown): asserts value is SurfaceSnapshot {
+  const snapshot = requireRecord(value, "surface snapshot")
+  if (snapshot.schema_version !== 1) {
+    throw new Error(`unsupported surface snapshot schema_version ${String(snapshot.schema_version)}`)
+  }
+  requireString(snapshot.observed_at, "observed_at")
+  requireString(snapshot.config_path, "config_path")
+  requireString(snapshot.project_slug, "project_slug")
+  requireString(snapshot.workspace_root, "workspace_root")
+  requireArray(snapshot.source_precedence, "source_precedence")
+  const sqlite = requireRecord(snapshot.sqlite, "sqlite")
+  if (typeof sqlite.ok !== "boolean" || typeof sqlite.exists !== "boolean") {
+    throw new Error("surface snapshot sqlite health must include boolean ok and exists")
+  }
+  requireNumber(sqlite.schema_version, "sqlite.schema_version")
+  requireString(sqlite.journal_mode, "sqlite.journal_mode")
+  requireNumber(sqlite.busy_timeout_ms, "sqlite.busy_timeout_ms")
+  requireRecord(sqlite.counts, "sqlite.counts")
+  for (const key of ["issues", "active_locks", "active_lanes", "worker_tasks", "worker_results", "recent_events"]) {
+    requireArray(snapshot[key], key)
+  }
 }
 
 function readFlag(name: string) {
@@ -477,4 +528,73 @@ function fit(value: string, max: number) {
     return value
   }
   return `${value.slice(0, Math.max(0, max - 3))}...`
+}
+
+function resolveRunnerRoot() {
+  const explicit = process.env.PI_SYMPHONY_ROOT?.trim()
+  if (explicit) {
+    return resolve(process.cwd(), explicit)
+  }
+  return findRunnerRoot([process.cwd(), moduleRoot])
+}
+
+function requireRunnerRoot() {
+  if (runnerRoot) {
+    return runnerRoot
+  }
+  throw new Error("could not find pi-symphony runner root; run from the repo or set PI_SYMPHONY_BIN")
+}
+
+function findRunnerRoot(candidates: string[]) {
+  for (const candidate of candidates) {
+    let dir = resolve(candidate)
+    for (;;) {
+      if (isRunnerRoot(dir)) {
+        return dir
+      }
+      const parent = dirname(dir)
+      if (parent === dir) {
+        break
+      }
+      dir = parent
+    }
+  }
+  return undefined
+}
+
+function isRunnerRoot(dir: string) {
+  const mod = resolve(dir, "go.mod")
+  if (!existsSync(mod)) {
+    return false
+  }
+  try {
+    return readFileSync(mod, "utf8").includes("module github.com/weskor/pi-symphony")
+  } catch {
+    return false
+  }
+}
+
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`surface snapshot ${label} must be an object`)
+  }
+  return value as Record<string, unknown>
+}
+
+function requireArray(value: unknown, label: string) {
+  if (!Array.isArray(value)) {
+    throw new Error(`surface snapshot ${label} must be an array`)
+  }
+}
+
+function requireString(value: unknown, label: string) {
+  if (typeof value !== "string") {
+    throw new Error(`surface snapshot ${label} must be a string`)
+  }
+}
+
+function requireNumber(value: unknown, label: string) {
+  if (typeof value !== "number") {
+    throw new Error(`surface snapshot ${label} must be a number`)
+  }
 }

@@ -372,6 +372,9 @@ type artifactIndex struct {
 func workspaceArtifactSummaries(workspaceRoot string) ([]artifactSummary, error) {
 	entries, err := os.ReadDir(workspaceRoot)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	summaries := make([]artifactSummary, 0, len(entries))

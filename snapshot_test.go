@@ -26,6 +26,23 @@ func TestOrchestrationSnapshotEmptyState(t *testing.T) {
 	}
 }
 
+func TestOrchestrationSnapshotMissingWorkspaceRootDegradesToEmpty(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	snap, err := buildOrchestrationSnapshot(context.Background(), runnerConfig{WorkspaceRoot: root}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Issues) != 0 || len(snap.ActiveLocks) != 0 || len(snap.Artifacts) != 0 {
+		t.Fatalf("expected empty snapshot for missing workspace root, got %+v", snap)
+	}
+	if snap.SQLiteHealth.Exists {
+		t.Fatalf("sqlite health exists = true for missing workspace root: %+v", snap.SQLiteHealth)
+	}
+	if snap.SQLiteHealthError != "" {
+		t.Fatalf("sqlite health error = %q, want empty", snap.SQLiteHealthError)
+	}
+}
+
 func TestOrchestrationSnapshotIncludesRecentEventSummaries(t *testing.T) {
 	ctx := context.Background()
 	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")

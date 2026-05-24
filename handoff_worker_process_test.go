@@ -8,8 +8,114 @@ import (
 	"testing"
 	"time"
 
+	sh "github.com/weskor/pi-symphony/internal/shell"
 	"github.com/weskor/pi-symphony/internal/state"
 )
+
+func TestRunHandoffPendingAttemptConsumesPRHandoffPayloadAndQueuesReview(t *testing.T) {
+	t.Cleanup(resetHandoffWorkerHooks)
+	t.Cleanup(resetReviewWorkerHooks)
+	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	root := t.TempDir()
+	workspace := runnerHandoffGitWorkspace(t, "main")
+	candidate := &issue{ID: "issue-180", Identifier: "CAG-180", Title: "Pending PR handoff", URL: "https://linear.app/acme/issue/CAG-180"}
+	candidate.Team.ID = "team-180"
+	branch := expectedWorkspaceBranch(candidate.Identifier)
+	if err := sh.Run("git switch -q -C "+sh.Quote(branch)+" && echo change > handoff.go", workspace); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	payload := prHandoffPendingPayloadFromInput(prHandoffInput{
+		Candidate:        candidate,
+		Workspace:        workspace,
+		AgentPRURL:       "",
+		ProgressStarted:  time.Now().Add(-2 * time.Minute),
+		AttemptStartedAt: time.Now().Add(-time.Minute),
+		RuntimeUsage:     &usage{TotalTokens: 180},
+		ScopeResult:      scopeGuardResult{Checked: true},
+		Validation:       []string{"go test ./..."},
+		GitHubAuth:       "github_app_installation",
+	})
+	if err := writePRHandoffPendingPayloadState(runnerConfig{WorkspaceRoot: root, PiCommand: "pi run"}, payload); err != nil {
+		t.Fatal(err)
+	}
+	githubAppEnvFromEnvironmentForHandoffWorker = func() (map[string]string, string, error) {
+		return map[string]string{"GITHUB_TOKEN": "token"}, "github_app_installation", nil
+	}
+	t.Cleanup(func() { githubAppEnvFromEnvironmentForHandoffWorker = githubAppEnvFromEnvironment })
+	withFakeGitHubAPI(t, fakeGitHubAPI{})
+
+	didWork, err := runHandoffPendingAttempt(linearClient{}, runnerConfig{WorkspaceRoot: root, PiCommand: "pi run", ReviewCommand: "pi review", BaseBranch: "main"}, store)
+	if err != nil {
+		t.Fatalf("runHandoffPendingAttempt() error = %v", err)
+	}
+	if !didWork {
+		t.Fatal("runHandoffPendingAttempt() didWork=false; want PR handoff consumed")
+	}
+	progress, err := readRunProgress(root, candidate.Identifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if progress.Phase != runProgressPhaseReviewPending || progress.PRURL != "https://github.com/weskor/pi-symphony/pull/900" || progress.ReviewPayloadPath == "" {
+		t.Fatalf("progress = %+v; want review_pending after PR handoff", progress)
+	}
+	reviewPayload, err := readReviewPendingPayload(root, candidate.Identifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reviewPayload.PRURL != progress.PRURL || reviewPayload.RuntimeUsage.TotalTokens != 180 || len(reviewPayload.Validation) != 1 || reviewPayload.GitHubAuth != "github_app_installation" {
+		t.Fatalf("review payload = %+v; want PR handoff continuation facts", reviewPayload)
+	}
+	lease, ok, err := store.Lease(context.Background(), "run:"+candidate.Identifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || lease.ReleasedAt.IsZero() {
+		t.Fatalf("run lease = %+v ok=%t; want released PR handoff claim lease", lease, ok)
+	}
+}
+
+func TestRunHandoffPendingAttemptSkipsPRHandoffWithActiveRunLock(t *testing.T) {
+	t.Cleanup(resetHandoffWorkerHooks)
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-181")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	candidate := &issue{ID: "issue-181", Identifier: "CAG-181", Title: "Active PR handoff"}
+	branch := expectedWorkspaceBranch(candidate.Identifier)
+	payload := prHandoffPendingPayloadFromInput(prHandoffInput{Candidate: candidate, Workspace: workspace, ProgressStarted: time.Now().Add(-time.Minute), AttemptStartedAt: time.Now().Add(-time.Minute)})
+	if err := writePRHandoffPendingPayloadState(runnerConfig{WorkspaceRoot: root, PiCommand: "pi run"}, payload); err != nil {
+		t.Fatal(err)
+	}
+	_, releaseLock, err := acquireRunLockWithState(store, workspace, candidate, branch, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseLock()
+	githubAppEnvFromEnvironmentForHandoffWorker = func() (map[string]string, string, error) {
+		t.Fatal("handoff worker should not consume a pending PR handoff with an active run lock")
+		return nil, "", nil
+	}
+	t.Cleanup(func() { githubAppEnvFromEnvironmentForHandoffWorker = githubAppEnvFromEnvironment })
+
+	didWork, err := runHandoffPendingAttempt(linearClient{}, runnerConfig{WorkspaceRoot: root, PiCommand: "pi run"}, store)
+	if err != nil {
+		t.Fatalf("runHandoffPendingAttempt() error = %v", err)
+	}
+	if didWork {
+		t.Fatal("runHandoffPendingAttempt() didWork=true; want idle while inline run lock is active")
+	}
+}
 
 func TestRunHandoffPendingAttemptConsumesPayloadAndCompletesHandoff(t *testing.T) {
 	t.Cleanup(resetHandoffWorkerHooks)

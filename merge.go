@@ -35,6 +35,13 @@ func mergeApprovedPRs(client linearClient, config runnerConfig) error {
 	if store != nil {
 		defer store.Close()
 	}
+	return mergeApprovedPRsWithStore(client, config, store)
+}
+
+func mergeApprovedPRsWithStore(client linearClient, config runnerConfig, store *orchstate.Store) error {
+	if store == nil {
+		return fmt.Errorf("SQLite state store unavailable for merge at %s", orchstate.DefaultDBPath(config.WorkspaceRoot))
+	}
 	github, ctx, cancel, err := githubClientWithTimeout(config.Budget.MergeTimeout)
 	if err != nil {
 		recordMergeError(store, "", "", 0, err)

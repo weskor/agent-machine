@@ -175,38 +175,27 @@ func TestCleanupWorkerProcessClaimsTaskRefreshesDoneIssuesAndRecordsHeartbeat(t 
 	}
 }
 
-func TestMergeWorkerProcessClaimsTaskRunsCleanupThenMergeAndRecordsHeartbeat(t *testing.T) {
+func TestMergeWorkerProcessClaimsTaskRunsMergeWithoutCleanupAndRecordsHeartbeat(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 5, 23, 12, 10, 0, 0, time.UTC)
 	oldCleanupWorkspaces := cleanupWorkspacesForWorker
-	oldIssueIdentifiers := issueIdentifiersByStateForMergeWorker
 	oldMergeApprovedPRs := mergeApprovedPRsForWorker
 	oldStateNow := stateNow
 	t.Cleanup(func() {
 		cleanupWorkspacesForWorker = oldCleanupWorkspaces
-		issueIdentifiersByStateForMergeWorker = oldIssueIdentifiers
 		mergeApprovedPRsForWorker = oldMergeApprovedPRs
 		stateNow = oldStateNow
 	})
 	stateNow = func() time.Time { return now }
-	issueIdentifiersByStateForMergeWorker = func(client linearClient, projectSlug, stateName string) (map[string]bool, error) {
-		if projectSlug != "CAG" || stateName != "Done" {
-			t.Fatalf("Done issue refresh = project %q state %q; want CAG/Done", projectSlug, stateName)
-		}
-		return map[string]bool{"CAG-161": true}, nil
-	}
 	var calls []string
 	cleanupWorkspacesForWorker = func(workspaceRoot string, options cleanupOptions) error {
-		calls = append(calls, "cleanup")
-		if workspaceRoot != root || !options.Apply || !options.DoneIssues["CAG-161"] || options.StateStore == nil {
-			t.Fatalf("cleanup options = root %q options %+v; want apply with Done issues and state store", workspaceRoot, options)
-		}
+		t.Fatal("merge worker should not invoke cleanup prepass")
 		return nil
 	}
-	mergeApprovedPRsForWorker = func(client linearClient, config runnerConfig) error {
+	mergeApprovedPRsForWorker = func(client linearClient, config runnerConfig, store *state.Store) error {
 		calls = append(calls, "merge")
-		if config.WorkspaceRoot != root || config.ProjectSlug != "CAG" {
-			t.Fatalf("merge config = %+v; want root/project", config)
+		if config.WorkspaceRoot != root || config.ProjectSlug != "CAG" || store == nil {
+			t.Fatalf("merge config/store = %+v/%v; want root/project with worker state store", config, store)
 		}
 		return nil
 	}
@@ -214,8 +203,8 @@ func TestMergeWorkerProcessClaimsTaskRunsCleanupThenMergeAndRecordsHeartbeat(t *
 	if err := runMergeWorkerProcess(linearClient{}, runnerConfig{WorkflowPath: "WORKFLOW.md", ProjectSlug: "CAG", WorkspaceRoot: root, DoneState: "Done"}); err != nil {
 		t.Fatalf("runMergeWorkerProcess() error = %v", err)
 	}
-	if len(calls) != 2 || calls[0] != "cleanup" || calls[1] != "merge" {
-		t.Fatalf("calls = %#v; want cleanup then merge", calls)
+	if len(calls) != 1 || calls[0] != "merge" {
+		t.Fatalf("calls = %#v; want merge only", calls)
 	}
 
 	store, err := state.Open(context.Background(), state.DefaultDBPath(root))

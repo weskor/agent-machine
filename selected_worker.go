@@ -74,10 +74,7 @@ var cleanupWorkspacesForWorker = cleanupWorkspaces
 var issueIdentifiersByStateForCleanupWorker = func(client linearClient, projectSlug, state string) (map[string]bool, error) {
 	return client.issueIdentifiersByState(projectSlug, state)
 }
-var issueIdentifiersByStateForMergeWorker = func(client linearClient, projectSlug, state string) (map[string]bool, error) {
-	return client.issueIdentifiersByState(projectSlug, state)
-}
-var mergeApprovedPRsForWorker = mergeApprovedPRs
+var mergeApprovedPRsForWorker = mergeApprovedPRsWithStore
 var runReviewReadyAttemptForWorker = runReviewReadyAttempt
 var runImplementationAttemptForWorker = runImplementationAttempt
 var runHandoffPendingAttemptForWorker = runHandoffPendingAttempt
@@ -146,16 +143,9 @@ func runMergeWorkerProcess(client linearClient, config runnerConfig) error {
 		Role:      mergeWorkerRole,
 		LaneName:  "worker:merge",
 		LeaseName: "worker:merge",
-		Payload:   map[string]any{"project_slug": config.ProjectSlug, "done_state": config.DoneState, "apply": true},
+		Payload:   map[string]any{"project_slug": config.ProjectSlug, "handoff_state": config.HandoffState},
 	}, func() (bool, error) {
-		doneIssues, err := issueIdentifiersByStateForMergeWorker(client, config.ProjectSlug, config.DoneState)
-		if err != nil {
-			return false, err
-		}
-		if err := cleanupWorkspacesForWorker(config.WorkspaceRoot, cleanupOptions{Apply: true, DoneIssues: doneIssues, StateStore: stateStore}); err != nil {
-			return false, err
-		}
-		if err := mergeApprovedPRsForWorker(client, config); err != nil {
+		if err := mergeApprovedPRsForWorker(client, config, stateStore); err != nil {
 			return false, err
 		}
 		return true, nil

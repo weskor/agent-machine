@@ -124,6 +124,10 @@ It must refresh GitHub and Linear facts immediately before externally visible
 actions and must respect active blockers, leases, and reconciliation-needed
 state.
 
+The selected `merge` process must run merge-domain work through its
+process-owned SQLite store. It must not run the cleanup worker's Done-issue
+refresh or workspace cleanup prepass.
+
 ### Linear status worker
 
 Owns Linear workflow transitions and comments that are not already performed

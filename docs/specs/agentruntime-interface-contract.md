@@ -36,6 +36,10 @@ must not be used as architecture names for the runner itself.
   `codex` installed and configured on `PATH` for the default production runtime.
   That dependency should fail during runner preflight before claiming or mutating
   work, not after a workspace or Linear issue has been changed.
+- `codex_app_server`: the target session Adapter for a persistent Codex
+  app-server thread. It is specified in
+  [Session Runtime Contract](./session-runtime-contract.md) and is the first
+  provider shape that may support `agent.max_turns > 1`.
 - `pi_cli`: the legacy local Adapter. It shells to the local `pi` executable and
   remains available as an explicit runtime provider for operators that opt into
   it.
@@ -95,6 +99,8 @@ Runtime providers declare capabilities instead of relying on caller guesses:
 | `usage_cost_reporting` | Can report token, cost, or other usage telemetry. |
 | `timeout_cancellation` | Can enforce timeout and/or cancellation signals. |
 | `max_turns` | Can enforce turn/iteration limits inside one attempt. |
+| `sessions` | Can keep one runtime thread alive across runner turns. |
+| `turn_continuation` | Can accept a typed continuation turn in the same runtime thread. |
 | `structured_output` | Can emit typed outcomes/events without text scraping. |
 | `raw_debug_capture` | Can expose raw streams for capped debug artifacts. |
 | `deterministic_handoff_support` | Can provide machine-readable PR/handoff hints, while the runner still validates and owns handoff. |
@@ -111,9 +117,9 @@ workspace mutation, or Linear state movement. The actionable failure must tell
 the operator to use `agent.max_turns: 1` or a future session runtime that
 supports continuation.
 A future app-server/session-runtime Adapter may support `max_turns` by declaring
-the capability and enforcing continuation inside the session lifecycle; the
-runner must not emulate continuation by repeatedly shelling out to a one-shot
-CLI runtime.
+session, turn-continuation, and max-turns capabilities and enforcing
+continuation inside the session lifecycle; the runner must not emulate
+continuation by repeatedly shelling out to a one-shot CLI runtime.
 
 ### Deterministic handoff boundary
 

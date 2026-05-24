@@ -48,6 +48,8 @@ provider is the runner architecture itself.
 Supported vocabulary:
 
 - `codex_cli`: default local shell Adapter for clean `codex exec` sessions.
+- `codex_app_server`: target session Adapter for one persistent Codex app-server
+  thread per attempt; see [Session Runtime Contract](./session-runtime-contract.md).
 - `pi_cli`: legacy local shell Adapter for the Pi CLI, selected explicitly with
   `runtime.provider: pi_cli` or by legacy `pi.command`-only workflows.
 - `fake`: deterministic fake/test Adapter for parity tests and contract coverage.
@@ -62,7 +64,8 @@ pre-claim failures.
 
 Provider capabilities should be explicit for implementation runs, review runs,
 usage/cost reporting, timeout/cancellation, `max_turns`/iteration limits,
-structured output, raw debug capture, and deterministic handoff support.
+session continuation, structured output, raw debug capture, and deterministic
+handoff support.
 
 ## Happy path
 
@@ -140,7 +143,7 @@ Terminal failure must include the failing phase, evidence pointer, and side effe
   - Current one-shot shell CLI runtime behavior: no continuation/session loop exists today, so missing, invalid, zero, or `1` resolves to exactly one implementation attempt for the selected issue.
   - A normalized value greater than `1` is unsupported for `codex_cli` and `pi_cli` and fails runtime preflight before claim, lease acquisition, workspace mutation, Linear state movement, or Agent execution.
   - The failure is an operator-facing configuration error that names the selected provider, the configured value, and the remediation: set `agent.max_turns: 1` or use a future session runtime with continuation support.
-  - Future session-runtime Adapters may support this by declaring a `max_turns` capability and enforcing turns inside one durable session; the runner must not approximate multi-turn behavior by issuing multiple independent one-shot CLI attempts.
+  - Future session-runtime Adapters may support this by declaring session, turn-continuation, and `max_turns` capabilities and enforcing turns inside one durable session; the runner must not approximate multi-turn behavior by issuing multiple independent one-shot CLI attempts.
 - `max_retry_backoff_ms`:
   - Current CLI runtime behavior: parsed for configuration storage only; no scheduler delay/backoff is applied before retry.
   - Default is `300000` ms.

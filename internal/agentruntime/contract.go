@@ -19,6 +19,7 @@ const (
 	AttemptOutcomeReviewFailed   AttemptOutcome = "review_failed"
 	AttemptOutcomeNeedsInfo      AttemptOutcome = "needs_info"
 	AttemptOutcomeNeedsInfoFail  AttemptOutcome = "needs_info_failed"
+	AttemptOutcomeContinuation   AttemptOutcome = "needs_continuation"
 	AttemptOutcomeTimeout        AttemptOutcome = "timeout"
 	AttemptOutcomeBudgetExceeded AttemptOutcome = "budget_exceeded"
 )
@@ -108,10 +109,16 @@ func IsUnsupportedOperation(err error) bool {
 
 // RuntimeCapabilities declares which optional operations are implemented.
 type RuntimeCapabilities struct {
-	SupportsReview   bool
-	SupportsCancel   bool
-	SupportsStop     bool
-	SupportsMaxTurns bool
+	SupportsReview           bool
+	SupportsCancel           bool
+	SupportsStop             bool
+	SupportsSessions         bool
+	SupportsTurnContinuation bool
+	SupportsMaxTurns         bool
+}
+
+func (c RuntimeCapabilities) CanRunMultipleTurns() bool {
+	return c.SupportsSessions && c.SupportsTurnContinuation && c.SupportsMaxTurns
 }
 
 // PreflightInput describes runtime commands that must be available before the
@@ -165,6 +172,8 @@ type AttemptContext struct {
 	ExpectedBranch  string          `json:"expected_branch,omitempty"`
 	Branch          string          `json:"branch,omitempty"`
 	Attempt         int             `json:"attempt"`
+	MaxTurns        int             `json:"max_turns,omitempty"`
+	RuntimeThreadID string          `json:"runtime_thread_id,omitempty"`
 	RunTimeouts     AttemptTimeouts `json:"run_timeouts"`
 }
 
@@ -187,6 +196,7 @@ type StartAttemptInput struct {
 	Branch          string
 	ExpectedBranch  string
 	Attempt         int
+	MaxTurns        int
 	WorkingDir      string
 	Command         string
 	PromptPath      string
@@ -199,7 +209,51 @@ type RunAttemptInput struct {
 	PromptPath  string
 	WorkingDir  string
 	Timeout     time.Duration
+	MaxTurns    int
 	Environment map[string]string
+}
+
+type SessionStartInput struct {
+	AttemptContext AttemptContext
+	WorkingDir     string
+	ApprovalPolicy string
+	Sandbox        string
+	Model          string
+}
+
+type SessionContext struct {
+	AttemptID string `json:"attempt_id"`
+	ThreadID  string `json:"thread_id"`
+	Workspace string `json:"workspace"`
+	MaxTurns  int    `json:"max_turns"`
+}
+
+type SessionTurnInput struct {
+	ThreadID   string
+	TurnNumber int
+	Prompt     string
+	WorkingDir string
+	Timeout    time.Duration
+}
+
+type SessionTurnResult struct {
+	ThreadID          string
+	TurnID            string
+	TurnNumber        int
+	Output            string
+	Usage             *AttemptUsage
+	NeedsContinuation bool
+	TerminalOutcome   AttemptOutcome
+	ErrorKind         RuntimeErrorKind
+	Error             string
+}
+
+// SessionRuntime extends AgentRuntime for providers that keep one durable
+// runtime thread across multiple runner turns.
+type SessionRuntime interface {
+	AgentRuntime
+	StartSession(ctx context.Context, input SessionStartInput) (SessionContext, error)
+	RunSessionTurn(ctx context.Context, session SessionContext, input SessionTurnInput, events EventSink) (SessionTurnResult, error)
 }
 
 type ReviewAttemptInput struct {
@@ -226,6 +280,9 @@ type AttemptOutcomeEnvelope struct {
 	RuntimeOutcome     AttemptOutcome   `json:"runtime_outcome"`
 	PRURL              string           `json:"pr_url,omitempty"`
 	NeedsInfoQuestions []string         `json:"needs_info_questions,omitempty"`
+	ContinuationPrompt string           `json:"continuation_prompt,omitempty"`
+	ContinuationReason string           `json:"reason,omitempty"`
+	ChangedFiles       []string         `json:"changed_files,omitempty"`
 	Validation         []string         `json:"validation,omitempty"`
 	Usage              *AttemptUsage    `json:"usage,omitempty"`
 	RawOutput          string           `json:"raw_output,omitempty"`

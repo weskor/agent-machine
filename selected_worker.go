@@ -11,6 +11,7 @@ const statusWorkerRole = "status"
 const planWorkerRole = "plan"
 const cleanupWorkerRole = "cleanup"
 const mergeWorkerRole = "merge"
+const reconciliationWorkerRole = "reconciliation"
 const reviewWorkerRole = "review"
 const implementationWorkerRole = "implementation"
 const handoffWorkerRole = "handoff"
@@ -28,6 +29,8 @@ func runSelectedWorker(client linearClient, wf workflow, config runnerConfig, ro
 		return runCleanupWorkerProcess(client, config)
 	case mergeWorkerRole:
 		return runMergeWorkerProcess(client, config)
+	case reconciliationWorkerRole:
+		return runReconciliationWorkerProcess(client, config)
 	case reviewWorkerRole:
 		return runReviewWorkerProcess(client, wf, config)
 	case implementationWorkerRole:
@@ -44,7 +47,7 @@ func runSelectedWorker(client linearClient, wf workflow, config runnerConfig, ro
 }
 
 func supportedWorkerRoles() []string {
-	return []string{statusWorkerRole, planWorkerRole, cleanupWorkerRole, mergeWorkerRole, reviewWorkerRole, implementationWorkerRole, handoffWorkerRole, linearStatusWorkerRole, workWorkerRole}
+	return []string{statusWorkerRole, planWorkerRole, cleanupWorkerRole, mergeWorkerRole, reconciliationWorkerRole, reviewWorkerRole, implementationWorkerRole, handoffWorkerRole, linearStatusWorkerRole, workWorkerRole}
 }
 
 func runStatusWorkerProcess(client linearClient, config runnerConfig) error {
@@ -75,6 +78,7 @@ var issueIdentifiersByStateForCleanupWorker = func(client linearClient, projectS
 	return client.issueIdentifiersByState(projectSlug, state)
 }
 var mergeApprovedPRsForWorker = mergeApprovedPRsWithStore
+var runReconciliationScanForWorker = runReconciliationScan
 var runReviewReadyAttemptForWorker = runReviewReadyAttempt
 var runImplementationAttemptForWorker = runImplementationAttempt
 var runHandoffPendingAttemptForWorker = runHandoffPendingAttempt
@@ -151,6 +155,27 @@ func runMergeWorkerProcess(client linearClient, config runnerConfig) error {
 		return true, nil
 	})
 	recordContinuousHeartbeat(recordHeartbeat, continuousHeartbeat{LaneName: "worker:merge", CycleNumber: 1, Success: err == nil && didWork, Err: err, At: stateNow()})
+	return err
+}
+
+func runReconciliationWorkerProcess(client linearClient, config runnerConfig) error {
+	ctx := context.Background()
+	stateStore, stateDBPath := commandScopedStateStore(ctx, config.WorkspaceRoot, "worker-reconciliation")
+	if stateStore == nil {
+		return fmt.Errorf("SQLite state store unavailable for reconciliation worker at %s", stateDBPath)
+	}
+	defer stateStore.Close()
+	recordHeartbeat := daemonHeartbeatRecorder(ctx, config, stateStore)
+	didWork, err := runContinuousWorkerTask(ctx, stateStore, continuousWorkerTask{
+		TaskKey:   "process:reconciliation",
+		Role:      reconciliationWorkerRole,
+		LaneName:  "worker:reconciliation",
+		LeaseName: "worker:reconciliation",
+		Payload:   map[string]any{"project_slug": config.ProjectSlug},
+	}, func() (bool, error) {
+		return runReconciliationScanForWorker(client, config, stateStore)
+	})
+	recordContinuousHeartbeat(recordHeartbeat, continuousHeartbeat{LaneName: "worker:reconciliation", CycleNumber: 1, Success: err == nil && didWork, Err: err, At: stateNow()})
 	return err
 }
 

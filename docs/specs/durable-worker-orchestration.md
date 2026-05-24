@@ -194,9 +194,13 @@ Safe process separation requires:
 
 The initial separate-process rollout started with non-destructive `status` and
 `plan` worker roles. The supported `--worker` roles are now `status`, `plan`,
-`cleanup`, `merge`, `review`, `implementation`, `handoff`, `linear-status`, and
-`work`. Each role runs through a durable worker task and SQLite lease, records a
-process heartbeat, and exits after one completed task. The `review` process only
+`cleanup`, `merge`, `reconciliation`, `review`, `implementation`, `handoff`,
+`linear-status`, and `work`. Each role runs through a durable worker task and
+SQLite lease, records a process heartbeat, and exits after one completed task.
+The `reconciliation` process refreshes Linear candidates, open Symphony PRs,
+workspace artifacts, and SQLite facts, then records reconciliation-needed or
+quarantine evidence as SQLite events without repairing or mutating external
+systems. The `review` process only
 claims existing `review_pending` payloads before falling back to review-not-ready
 attempts whose current GitHub checks are successful. The `implementation`
 process claims fresh runnable attempts and skips review-ready resumes owned by

@@ -61,12 +61,15 @@ func TestSummarizeStateStoreReportsHealthyDB(t *testing.T) {
 	if err := store.UpsertWorkerTask(ctx, state.WorkerTask{TaskKey: "review:CAG-62:1", Role: "review", IssueKey: "CAG-62", Attempt: 1, Status: "queued", Priority: 7}); err != nil {
 		t.Fatalf("UpsertWorkerTask() error = %v", err)
 	}
+	if err := store.UpsertWorkerResult(ctx, state.WorkerResult{TaskKey: "review:CAG-62:1", Role: "review", LaneName: "review", IssueKey: "CAG-62", Attempt: 1, Status: "failed", Reason: "worker_error", Error: "checks unavailable"}); err != nil {
+		t.Fatalf("UpsertWorkerResult() error = %v", err)
+	}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
 
 	joined := strings.Join(summarizeStateStore(workspaceRoot), "\n")
-	for _, expected := range []string{"SQLite state path: " + state.DefaultDBPath(workspaceRoot), "SQLite state health: healthy", "schema_version=3", "journal_mode=wal", "busy_timeout_ms=5000", "issue_attempts=1", "pr_mappings=1", "review_states=1", "terminal_outcomes=1", "daemon_heartbeats=1", "cleanup_states=0", "worker_tasks=1", "events=3", "SQLite worker tasks: total=1 review:queued=1", "task=review:CAG-62:1", "role=review", "status=queued"} {
+	for _, expected := range []string{"SQLite state path: " + state.DefaultDBPath(workspaceRoot), "SQLite state health: healthy", "schema_version=7", "journal_mode=wal", "busy_timeout_ms=5000", "issue_attempts=1", "pr_mappings=1", "review_states=1", "terminal_outcomes=1", "daemon_heartbeats=1", "cleanup_states=0", "worker_tasks=1", "worker_results=1", "worker_payload_refs=0", "pr_handoff_intents=0", "events=3", "SQLite active lanes: total=1", "lane=merge", "SQLite worker tasks: total=1 review:queued=1", "SQLite worker results: total=1 review:failed=1", "task=review:CAG-62:1", "role=review", "status=queued", "reason=worker_error"} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("expected %q in %q", expected, joined)
 		}
@@ -98,7 +101,7 @@ func TestSummarizeStateStoreReportsRecentEvents(t *testing.T) {
 func TestSummarizeStateStoreReportsMissingDB(t *testing.T) {
 	workspaceRoot := filepath.Join(t.TempDir(), ".symphony", "workspaces")
 	joined := strings.Join(summarizeStateStore(workspaceRoot), "\n")
-	for _, expected := range []string{"SQLite state path: " + state.DefaultDBPath(workspaceRoot), "SQLite state health: missing", "action=run pi-symphony once"} {
+	for _, expected := range []string{"SQLite state path: " + state.DefaultDBPath(workspaceRoot), "SQLite state health: missing", "action=run pi-symphony --continuous"} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("expected %q in %q", expected, joined)
 		}

@@ -58,6 +58,7 @@ type Dependencies[Client any] struct {
 	IssueIdentifiersByState               func(Client, string, string) (map[string]bool, error)
 	BackfillStateFromArtifacts            func(string) (BackfillSummary, error)
 	RepairArtifacts                       func(string) error
+	RepairWorkerTask                      func(string, string) error
 	CleanupWorkspaces                     func(string, CleanupOptions) error
 	PrintStatus                           func(Client, Config) error
 	PrintRunProgress                      func(string, string) error
@@ -65,22 +66,22 @@ type Dependencies[Client any] struct {
 	MergeApprovedPRs                      func(Client, Config) error
 	RunContinuous                         func(Client, cfg.Workflow, Config, int) error
 	RunWorker                             func(Client, cfg.Workflow, Config, string) error
-	RunOne                                func(Client, cfg.Workflow, Config) error
 }
 
 type parsedArgs struct {
-	workflowPath string
-	mode         string
-	cleanupApply bool
-	maxCycles    int
-	runStatusID  string
-	workerRole   string
+	workflowPath  string
+	mode          string
+	cleanupApply  bool
+	maxCycles     int
+	runStatusID   string
+	workerRole    string
+	repairTaskKey string
 }
 
 const (
-	modeOnce       = "once"
 	modeMerge      = "merge-approved"
 	modeRepair     = "repair-artifacts"
+	modeRepairTask = "repair-worker-task"
 	modeBackfill   = "backfill-state"
 	modeCleanup    = "cleanup-workspaces"
 	modeStatus     = "status"
@@ -88,6 +89,7 @@ const (
 	modeExplain    = "explain"
 	modeContinuous = "continuous"
 	modeWorker     = "worker"
+	modeRemoved    = "removed"
 )
 
 // Run parses CLI args, loads local environment, reads the workflow, validates
@@ -125,6 +127,18 @@ func Run[Client any](args []string, deps Dependencies[Client]) error {
 		}
 		return deps.PrintRunProgress(config.WorkspaceRoot, parsed.runStatusID)
 	}
+	if parsed.mode == modeRepairTask {
+		if strings.TrimSpace(parsed.repairTaskKey) == "" {
+			return errors.New("--repair-worker-task requires a task key")
+		}
+		return deps.RepairWorkerTask(config.WorkspaceRoot, parsed.repairTaskKey)
+	}
+	if parsed.mode == "" {
+		return errors.New("no CLI mode selected; use --continuous for the production loop, --status, --explain, or --worker=<role>")
+	}
+	if parsed.mode == modeRemoved {
+		return errors.New("--once has been removed; use --continuous for production or --worker=implementation for one implementation worker process")
+	}
 
 	if config.APIKey == "" {
 		return errors.New("LINEAR_API_KEY is required")
@@ -154,13 +168,13 @@ func Run[Client any](args []string, deps Dependencies[Client]) error {
 		}
 		return deps.RunWorker(client, wf, config, parsed.workerRole)
 	default:
-		return deps.RunOne(client, wf, config)
+		return fmt.Errorf("unsupported CLI mode %q", parsed.mode)
 	}
 }
 
 func parseArgs(args []string) parsedArgs {
-	parsed := parsedArgs{workflowPath: "WORKFLOW.md", mode: modeOnce}
-	modeRank := 0
+	parsed := parsedArgs{workflowPath: "WORKFLOW.md"}
+	modeRank := -1
 	setMode := func(mode string, rank int) {
 		if rank > modeRank {
 			parsed.mode = mode
@@ -188,7 +202,7 @@ func parseArgs(args []string) parsedArgs {
 		case "--continuous", "--daemon":
 			setMode(modeContinuous, 1)
 		case "--once":
-			// explicit default
+			setMode(modeRemoved, 0)
 		default:
 			if value, ok := strings.CutPrefix(arg, "--cycles="); ok {
 				fmt.Sscanf(value, "%d", &parsed.maxCycles)
@@ -198,6 +212,9 @@ func parseArgs(args []string) parsedArgs {
 			} else if value, ok := strings.CutPrefix(arg, "--worker="); ok {
 				setMode(modeWorker, 8)
 				parsed.workerRole = value
+			} else if value, ok := strings.CutPrefix(arg, "--repair-worker-task="); ok {
+				setMode(modeRepairTask, 7)
+				parsed.repairTaskKey = value
 			} else {
 				parsed.workflowPath = arg
 			}

@@ -92,26 +92,6 @@ func TestRunProgressForRecordSummarizesTerminalOutcome(t *testing.T) {
 	}
 }
 
-func TestReviewReadinessResumeWaitsForSuccessfulChecks(t *testing.T) {
-	workspaceRoot := filepath.Join(t.TempDir(), ".symphony", "workspaces")
-	snapshot := runProgressSnapshot{IssueIdentifier: "CAG-122", Phase: "review_not_ready", PRURL: "https://github.com/weskor/pi-symphony/pull/122", ChecksStatus: "unavailable", NextAction: "resolve_merge_gate_blocker"}
-	if err := writeRunProgressResult(workspaceRoot, snapshot); err != nil {
-		t.Fatalf("writeRunProgressResult() error = %v", err)
-	}
-	pr := pullRequestSummary{URL: snapshot.PRURL, StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Name: "go-ci", Status: "COMPLETED", Conclusion: "SUCCESS"}}}
-	if !shouldResumeReviewReadiness(workspaceRoot, "CAG-122", pr) {
-		t.Fatalf("expected successful checks after review_not_ready progress to resume semantic review")
-	}
-	pr.StatusCheckRollup = []statusCheck{{Typename: "CheckRun", Name: "go-ci", Status: "COMPLETED", Conclusion: "FAILURE"}}
-	if shouldResumeReviewReadiness(workspaceRoot, "CAG-122", pr) {
-		t.Fatalf("failed checks should remain a blocker instead of resuming review")
-	}
-	pr.StatusCheckRollup = []statusCheck{{Typename: "CheckRun", Name: "go-ci", Status: "IN_PROGRESS"}}
-	if shouldResumeReviewReadiness(workspaceRoot, "CAG-122", pr) {
-		t.Fatalf("pending checks should continue waiting")
-	}
-}
-
 func TestRunProgressForRecordPreservesReviewNotReadyRetryAction(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "CAG-122")
 	record := runRecord{IssueIdentifier: "CAG-122", Workspace: workspace, Status: runAttemptStatusReviewNotReady, PRURL: "https://github.com/weskor/pi-symphony/pull/122", Error: "review not ready", StartedAt: time.Date(2026, 5, 20, 21, 0, 0, 0, time.UTC), EndedAt: time.Date(2026, 5, 20, 21, 5, 0, 0, time.UTC), DurationMS: 300000}

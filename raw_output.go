@@ -53,7 +53,7 @@ func maybeWriteRawAgentOutput(workspace, phase, output string) {
 
 func debugRawArtifactPath(workspace, phase string) string {
 	workspace = strings.TrimSpace(workspace)
-	phase = strings.TrimSpace(phase)
+	phase = sanitizeRawArtifactPhase(phase)
 	if workspace == "" || phase == "" {
 		return ""
 	}
@@ -64,6 +64,28 @@ func debugRawArtifactPath(workspace, phase string) string {
 		return ""
 	}
 	return filepath.Join(rawArtifactEvidenceRoot(cleanWorkspace), "debug", issue, phase+"-raw.log")
+}
+
+func sanitizeRawArtifactPhase(phase string) string {
+	phase = strings.TrimSpace(phase)
+	if phase == "" {
+		return ""
+	}
+	var builder strings.Builder
+	lastUnderscore := false
+	for _, r := range phase {
+		allowed := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_'
+		if allowed {
+			builder.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			builder.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	return strings.Trim(builder.String(), "_")
 }
 
 func rawArtifactEvidenceRoot(workspace string) string {

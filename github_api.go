@@ -28,6 +28,10 @@ func configureGitHubRepositoryFromWorkflow(workflowPath string) {
 func parseGitHubRepository(value string) (string, string, bool) { return ghapi.ParseRepository(value) }
 
 func githubClientWithTimeout(timeout time.Duration) (githubAPI, context.Context, context.CancelFunc, error) {
+	return githubClientWithContextTimeout(context.Background(), timeout)
+}
+
+func githubClientWithContextTimeout(parent context.Context, timeout time.Duration) (githubAPI, context.Context, context.CancelFunc, error) {
 	client, err := newGitHubAPI()
 	if err != nil {
 		return nil, nil, nil, err
@@ -35,6 +39,6 @@ func githubClientWithTimeout(timeout time.Duration) (githubAPI, context.Context,
 	if timeout <= 0 {
 		timeout = defaultGitHubCommandTimeout
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	return client, ctx, cancel, nil
 }

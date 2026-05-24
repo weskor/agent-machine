@@ -132,6 +132,10 @@ func inferArtifactSchema(data []byte, artifactName string) (int, string, error) 
 	return *envelope.SchemaVersion, source, nil
 }
 
+func ValidateArtifactSchema(data []byte, artifactName string) (int, string, error) {
+	return inferArtifactSchema(data, artifactName)
+}
+
 func writeJSON(path string, value any) error {
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {

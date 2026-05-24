@@ -38,6 +38,9 @@ func orchestratorRunner() orchestrator.Runner[linearClient, runnerConfig] {
 			}, err
 		},
 		RepairFunc: repairArtifacts,
+		RepairTaskFunc: func(root, taskKey string) error {
+			return repairWorkerTaskReconciliation(root, taskKey)
+		},
 		CleanupFunc: func(root string, options cli.CleanupOptions) error {
 			store, _ := commandScopedStateStore(context.Background(), root, "cleanup")
 			if store != nil {
@@ -62,9 +65,6 @@ func orchestratorRunner() orchestrator.Runner[linearClient, runnerConfig] {
 		},
 		WorkerFunc: func(client linearClient, wf cfg.Workflow, config runnerConfig, role string) error {
 			return runSelectedWorker(client, wf, config, role)
-		},
-		RunOneFunc: func(client linearClient, wf cfg.Workflow, config runnerConfig) (bool, error) {
-			return runOne(client, wf, config)
 		},
 	}
 	return orchestrator.NewRunner(setup, modes, runnerConfigFromCLI)

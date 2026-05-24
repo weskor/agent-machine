@@ -22,10 +22,10 @@ func (w cleanupWorker) Execute(ctx context.Context) error {
 		hasChanges = workspaceHasChanges
 	}
 	log("mode=cleanup-workspaces; workspace_root=%s; policy=linear_done; apply=%t", w.workspaceRoot, w.options.Apply)
-	recordCleanupEvent(w.store, orchstate.EventCleanupStarted, cleanupResult{}, map[string]any{"workspace_root": w.safeRoot, "apply": w.options.Apply})
+	recordCleanupEventContext(ctx, w.store, orchstate.EventCleanupStarted, cleanupResult{}, map[string]any{"workspace_root": w.safeRoot, "apply": w.options.Apply})
 	entries, err := os.ReadDir(w.safeRoot)
 	if err != nil {
-		recordCleanupError(w.store, cleanupResult{}, err)
+		recordCleanupErrorContext(ctx, w.store, cleanupResult{}, err)
 		return err
 	}
 	removed := 0
@@ -44,15 +44,15 @@ func (w cleanupWorker) Execute(ctx context.Context) error {
 		}
 		workspace, err := safeWorkspacePath(w.safeRoot, entry.Name())
 		if err != nil {
-			recordCleanupError(w.store, cleanupResult{IssueIdentifier: entry.Name()}, err)
+			recordCleanupErrorContext(ctx, w.store, cleanupResult{IssueIdentifier: entry.Name()}, err)
 			return err
 		}
 		decision, err := cleanupDecisionForWorkspace(ctx, w.safeRoot, workspace, w.options.DoneIssues, w.store, hasChanges)
 		if err != nil {
-			recordCleanupError(w.store, decision, err)
+			recordCleanupErrorContext(ctx, w.store, decision, err)
 			return err
 		}
-		recordCleanupEvent(w.store, orchstate.EventCleanupCandidateFound, decision, map[string]any{"reason": decision.Reason, "category": decision.Category, "delete": decision.Delete})
+		recordCleanupEventContext(ctx, w.store, orchstate.EventCleanupCandidateFound, decision, map[string]any{"reason": decision.Reason, "category": decision.Category, "delete": decision.Delete})
 		categories[decision.Category]++
 		if !decision.Delete {
 			kept++
@@ -66,20 +66,20 @@ func (w cleanupWorker) Execute(ctx context.Context) error {
 			log("would delete %s [%s]: %s", workspace, decision.Category, decision.Reason)
 			continue
 		}
-		recordCleanupEvent(w.store, orchstate.EventCleanupDeletionAttempted, decision, map[string]any{"reason": decision.Reason, "category": decision.Category})
+		recordCleanupEventContext(ctx, w.store, orchstate.EventCleanupDeletionAttempted, decision, map[string]any{"reason": decision.Reason, "category": decision.Category})
 		if err := assertSafeDeletePath(w.safeRoot, workspace); err != nil {
 			mirrorCleanupState(w.store, w.safeRoot, decision, true, "failed", true)
-			recordCleanupError(w.store, decision, err)
+			recordCleanupErrorContext(ctx, w.store, decision, err)
 			return err
 		}
 		if err := os.RemoveAll(workspace); err != nil {
 			mirrorCleanupState(w.store, w.safeRoot, decision, true, "failed", true)
-			recordCleanupError(w.store, decision, err)
+			recordCleanupErrorContext(ctx, w.store, decision, err)
 			return err
 		}
 		removed++
 		mirrorCleanupState(w.store, w.safeRoot, decision, true, "deleted", false)
-		recordCleanupEvent(w.store, orchstate.EventCleanupDeletionSucceeded, decision, map[string]any{"reason": decision.Reason, "category": decision.Category})
+		recordCleanupEventContext(ctx, w.store, orchstate.EventCleanupDeletionSucceeded, decision, map[string]any{"reason": decision.Reason, "category": decision.Category})
 		log("deleted %s [%s]: %s", workspace, decision.Category, decision.Reason)
 	}
 	if w.options.Apply {

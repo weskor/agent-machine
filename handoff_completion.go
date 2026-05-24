@@ -51,7 +51,7 @@ type handoffPendingPayload struct {
 }
 
 func completeAttemptHandoff(ctx context.Context, input handoffCompletion) (bool, error) {
-	writeHandoffPendingState(input)
+	writeHandoffPendingStateContext(ctx, input)
 	if input.candidate == nil {
 		return false, nil
 	}
@@ -84,7 +84,7 @@ func executeAttemptHandoff(ctx context.Context, input handoffCompletion) (bool, 
 	if err != nil || handoffResult.Terminal {
 		return true, err
 	}
-	if err := writeRunRecordWithCommandState(input.stateStore, input.workspace, runRecordFor(input.candidate, input.workspace, configuredRuntimeCommand(input.config), input.githubAuth, input.startedAt, time.Now(), input.runtimeUsage, input.review, input.prURL, runAttemptStatusSuccess, "", input.config.Budget.Active(), "")); err != nil {
+	if err := writeRunRecordWithCommandStateContext(ctx, input.stateStore, input.workspace, runRecordFor(input.candidate, input.workspace, configuredRuntimeCommand(input.config), input.githubAuth, input.startedAt, time.Now(), input.runtimeUsage, input.review, input.prURL, runAttemptStatusSuccess, "", input.config.Budget.Active(), "")); err != nil {
 		return true, err
 	}
 	return true, nil
@@ -137,12 +137,25 @@ func (p handoffPendingPayload) Completion(client linearClient, config runnerConf
 }
 
 func writeHandoffPendingState(input handoffCompletion) {
-	if err := writeHandoffPendingPayload(input.config.WorkspaceRoot, handoffPendingPayloadFromCompletion(input)); err != nil {
+	writeHandoffPendingStateContext(context.Background(), input)
+}
+
+func writeHandoffPendingStateContext(ctx context.Context, input handoffCompletion) {
+	if err := ctx.Err(); err != nil {
+		log("skipping handoff pending state export for canceled context: %v", err)
+		return
+	}
+	payload := handoffPendingPayloadFromCompletion(input)
+	if err := writeHandoffPendingPayload(input.config.WorkspaceRoot, payload); err != nil {
 		identifier := ""
 		if input.candidate != nil {
 			identifier = input.candidate.Identifier
 		}
 		log("failed to write handoff pending payload for %s: %v", emptyAsUnknown(identifier), err)
+	} else if path, err := handoffPendingPayloadPath(input.config.WorkspaceRoot, payload.IssueIdentifier); err == nil {
+		if err := recordHandoffPendingPayloadRefContext(ctx, input.stateStore, payload, path); err != nil {
+			log("failed to write handoff pending state ref for %s: %v", emptyAsUnknown(payload.IssueIdentifier), err)
+		}
 	}
 	writeHandoffPendingProgress(input)
 }
@@ -193,6 +206,10 @@ func readHandoffPendingPayload(workspaceRoot, issueIdentifier string) (handoffPe
 	if err != nil {
 		return handoffPendingPayload{}, err
 	}
+	return readHandoffPendingPayloadFromPath(path)
+}
+
+func readHandoffPendingPayloadFromPath(path string) (handoffPendingPayload, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return handoffPendingPayload{}, err

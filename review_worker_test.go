@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,14 +29,14 @@ func TestReviewWorkerCollectsEvidenceAndRunsSemanticReview(t *testing.T) {
 	started := time.Date(2026, 5, 23, 11, 30, 0, 0, time.UTC)
 	prURL := "https://github.com/acme/repo/pull/156"
 	var gotValidation []string
-	collectReviewEvidenceForWorker = func(config runnerConfig, gotCandidate *issue, gotWorkspace, gotPRURL string, scopeResult scopeGuardResult, validation []string) (reviewEvidence, error) {
+	collectReviewEvidenceForWorker = func(ctx context.Context, config runnerConfig, gotCandidate *issue, gotWorkspace, gotPRURL string, scopeResult scopeGuardResult, validation []string) (reviewEvidence, error) {
 		if config.WorkspaceRoot != root || gotCandidate.Identifier != candidate.Identifier || gotWorkspace != workspace || gotPRURL != prURL {
 			t.Fatalf("unexpected evidence input config=%+v candidate=%+v workspace=%q pr=%q", config, gotCandidate, gotWorkspace, gotPRURL)
 		}
 		gotValidation = append([]string(nil), validation...)
 		return reviewEvidence{ChecksStatus: "success", ChecksSummary: "go-ci=COMPLETED/SUCCESS"}, nil
 	}
-	runReviewForWorker = func(provider, command, gotWorkspace string, gotCandidate *issue, gotPRURL string, env map[string]string, timeout time.Duration, evidence *reviewEvidence) (*reviewResult, error) {
+	runReviewForWorker = func(ctx context.Context, provider, command, gotWorkspace string, gotCandidate *issue, gotPRURL string, env map[string]string, timeout time.Duration, evidence *reviewEvidence) (*reviewResult, error) {
 		if provider != "" || command != "pi review" || gotWorkspace != workspace || gotCandidate.Identifier != candidate.Identifier || gotPRURL != prURL || env["GITHUB_TOKEN"] != "token" || timeout != time.Minute {
 			t.Fatalf("unexpected review input provider=%q command=%q workspace=%q candidate=%+v pr=%q env=%+v timeout=%s", provider, command, gotWorkspace, gotCandidate, gotPRURL, env, timeout)
 		}
@@ -64,6 +65,34 @@ func TestReviewWorkerCollectsEvidenceAndRunsSemanticReview(t *testing.T) {
 	}
 }
 
+func TestReviewWorkerHonorsCanceledContextBeforeEvidenceCollection(t *testing.T) {
+	t.Cleanup(resetReviewWorkerHooks)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var collected bool
+	collectReviewEvidenceForWorker = func(context.Context, runnerConfig, *issue, string, string, scopeGuardResult, []string) (reviewEvidence, error) {
+		collected = true
+		return reviewEvidence{}, nil
+	}
+
+	result, err := reviewWorker{
+		config:    runnerConfig{WorkspaceRoot: t.TempDir(), ReviewCommand: "pi review"},
+		candidate: &issue{ID: "issue-176", Identifier: "CAG-176", Title: "Canceled review"},
+		workspace: t.TempDir(),
+		prURL:     "https://github.com/acme/repo/pull/176",
+	}.Execute(ctx)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Execute() error = %v; want context canceled", err)
+	}
+	if !result.Terminal {
+		t.Fatalf("result = %+v; want terminal canceled result", result)
+	}
+	if collected {
+		t.Fatal("review collected evidence after context cancellation")
+	}
+}
+
 func TestReviewWorkerExecutesPersistedPayloadBoundary(t *testing.T) {
 	t.Cleanup(resetReviewWorkerHooks)
 	root := t.TempDir()
@@ -88,7 +117,7 @@ func TestReviewWorkerExecutesPersistedPayloadBoundary(t *testing.T) {
 		payload.Validation = append(payload.Validation, "payload-boundary-read")
 		return payload, nil
 	}
-	collectReviewEvidenceForWorker = func(config runnerConfig, gotCandidate *issue, gotWorkspace, gotPRURL string, scopeResult scopeGuardResult, validation []string) (reviewEvidence, error) {
+	collectReviewEvidenceForWorker = func(ctx context.Context, config runnerConfig, gotCandidate *issue, gotWorkspace, gotPRURL string, scopeResult scopeGuardResult, validation []string) (reviewEvidence, error) {
 		snapshot, err := readRunProgress(root, candidate.Identifier)
 		if err != nil {
 			t.Fatal(err)
@@ -104,7 +133,7 @@ func TestReviewWorkerExecutesPersistedPayloadBoundary(t *testing.T) {
 		}
 		return reviewEvidence{ChecksStatus: "success", ChecksSummary: "go-ci=COMPLETED/SUCCESS"}, nil
 	}
-	runReviewForWorker = func(string, string, string, *issue, string, map[string]string, time.Duration, *reviewEvidence) (*reviewResult, error) {
+	runReviewForWorker = func(context.Context, string, string, string, *issue, string, map[string]string, time.Duration, *reviewEvidence) (*reviewResult, error) {
 		return &reviewResult{Status: "passed"}, nil
 	}
 
@@ -144,10 +173,10 @@ func TestReviewWorkerRecordsNotReadyWithoutRunningReview(t *testing.T) {
 	defer store.Close()
 	candidate := &issue{ID: "issue-156", Identifier: "CAG-156", Title: "Review worker"}
 	prURL := "https://github.com/acme/repo/pull/156"
-	collectReviewEvidenceForWorker = func(runnerConfig, *issue, string, string, scopeGuardResult, []string) (reviewEvidence, error) {
+	collectReviewEvidenceForWorker = func(context.Context, runnerConfig, *issue, string, string, scopeGuardResult, []string) (reviewEvidence, error) {
 		return reviewEvidence{ChecksStatus: "pending", ChecksSummary: "go-ci=IN_PROGRESS"}, nil
 	}
-	runReviewForWorker = func(string, string, string, *issue, string, map[string]string, time.Duration, *reviewEvidence) (*reviewResult, error) {
+	runReviewForWorker = func(context.Context, string, string, string, *issue, string, map[string]string, time.Duration, *reviewEvidence) (*reviewResult, error) {
 		t.Fatal("review command should not run when checks are not ready")
 		return nil, nil
 	}

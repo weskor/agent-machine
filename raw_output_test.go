@@ -38,6 +38,16 @@ func TestDebugRawArtifactPathPreservesParentRootFallbackForNonstandardWorkspaceL
 	}
 }
 
+func TestDebugRawArtifactPathSanitizesPhase(t *testing.T) {
+	repo := t.TempDir()
+	workspace := filepath.Join(repo, ".symphony", "workspaces", "CAG-123")
+	got := debugRawArtifactPath(workspace, "../review/raw")
+	want := filepath.Join(repo, ".symphony", "debug", "CAG-123", "review_raw-raw.log")
+	if got != want {
+		t.Fatalf("debugRawArtifactPath() = %q, want sanitized path %q", got, want)
+	}
+}
+
 func TestCaptureAgentOutputDoesNotPrintRawOutputByDefault(t *testing.T) {
 	t.Setenv("PI_SYMPHONY_DEBUG_RAW_OUTPUT", "")
 	t.Setenv("PI_SYMPHONY_DEBUG_RAW_OUTPUT_LIMIT_BYTES", "")

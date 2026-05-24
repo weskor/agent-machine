@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,7 +75,11 @@ func AssertSafeDeletePath(root, workspace string) error {
 }
 
 func CurrentGitBranch(workspace string) (string, error) {
-	output, err := sh.CaptureQuiet("git branch --show-current", workspace)
+	return CurrentGitBranchContext(context.Background(), workspace)
+}
+
+func CurrentGitBranchContext(ctx context.Context, workspace string) (string, error) {
+	output, err := sh.CaptureQuietContext(ctx, "git branch --show-current", workspace)
 	if err != nil {
 		return "", err
 	}

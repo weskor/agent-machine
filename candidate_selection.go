@@ -2,10 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -19,11 +16,19 @@ type candidateSelectionOptions struct {
 }
 
 func nextRunnableCandidate(client linearClient, config runnerConfig, store *state.Store) (*issue, *pullRequestSummary, error) {
-	return nextRunnableCandidateWithOptions(client, config, store, candidateSelectionOptions{})
+	return nextRunnableCandidateContext(context.Background(), client, config, store)
+}
+
+func nextRunnableCandidateContext(ctx context.Context, client linearClient, config runnerConfig, store *state.Store) (*issue, *pullRequestSummary, error) {
+	return nextRunnableCandidateWithOptionsContext(ctx, client, config, store, candidateSelectionOptions{})
 }
 
 func nextRunnableCandidateWithOptions(client linearClient, config runnerConfig, store *state.Store, options candidateSelectionOptions) (*issue, *pullRequestSummary, error) {
-	candidates, err := client.candidates(config.ProjectSlug, config.ActiveStates)
+	return nextRunnableCandidateWithOptionsContext(context.Background(), client, config, store, options)
+}
+
+func nextRunnableCandidateWithOptionsContext(ctx context.Context, client linearClient, config runnerConfig, store *state.Store, options candidateSelectionOptions) (*issue, *pullRequestSummary, error) {
+	candidates, err := client.candidatesContext(ctx, config.ProjectSlug, config.ActiveStates)
 	if err != nil || len(candidates) == 0 {
 		return nil, nil, err
 	}
@@ -35,40 +40,52 @@ func nextRunnableCandidateWithOptions(client linearClient, config runnerConfig, 
 	blockedCount := 0
 	for i := range candidates {
 		pr := prsByIssue[candidates[i].Identifier]
-		if skipCandidateForSelectionOptions(config, candidates[i], pr, store, options) {
+		if skipCandidateForSelectionOptionsContext(ctx, config, candidates[i], pr, store, options) {
 			continue
 		}
-		decision := reconcileCandidateForSelection(config, candidates[i], pr, store)
-		retryDecision, retryDecisionFound := retryBackoffDecision(context.Background(), store, candidates[i], config, time.Now().UTC())
+		if active, err := hasActiveImplementationWorkerTask(ctx, store, candidates[i].Identifier); err != nil {
+			return nil, nil, err
+		} else if active {
+			log("skipping %s: implementation worker task already queued or claimed", candidates[i].Identifier)
+			emitCandidateEventContext(ctx, store, state.EventCandidateSkipped, candidates[i], map[string]any{"reason": "implementation_task_active"})
+			continue
+		}
+		decision := reconcileCandidateForSelectionContext(ctx, config, candidates[i], pr, store)
+		retryDecision, retryDecisionFound := retryBackoffDecision(ctx, store, candidates[i], config, time.Now().UTC())
 		if store != nil {
 			if retryDecisionFound && !retryDecision.runnable {
 				log("skipping %s: %s", candidates[i].Identifier, retryDecision.reason)
-				emitCandidateEvent(store, state.EventCandidateSkipped, candidates[i], map[string]any{"reason": retryDecision.reason})
+				emitCandidateEventContext(ctx, store, state.EventCandidateSkipped, candidates[i], map[string]any{"reason": retryDecision.reason})
 				continue
 			}
 		}
 		if decision.Lifecycle == lifecycleBlocked && strings.Contains(strings.Join(decision.Blockers, ","), "blocked label") {
 			blockedCount++
 			log("skipping %s: blocked label", candidates[i].Identifier)
-			emitCandidateEvent(store, state.EventCandidateSkipped, candidates[i], map[string]any{"reason": "blocked_label", "lifecycle": decision.Lifecycle, "blockers": decision.Blockers, "next_action": decision.NextAction})
+			emitCandidateEventContext(ctx, store, state.EventCandidateSkipped, candidates[i], map[string]any{"reason": "blocked_label", "lifecycle": decision.Lifecycle, "blockers": decision.Blockers, "next_action": decision.NextAction})
 			continue
 		}
 		if candidates[i].State.Name == config.ReadyState && (decision.CanRun || retryBackoffOverridesTerminalBlock(decision, retryDecision, retryDecisionFound)) {
-			emitCandidateEvent(store, state.EventCandidateSelected, candidates[i], map[string]any{"state": candidates[i].State.Name, "reason": candidateOrderReason(candidates[i], config.ReadyState)})
+			emitCandidateEventContext(ctx, store, state.EventCandidateSelected, candidates[i], map[string]any{"state": candidates[i].State.Name, "reason": candidateOrderReason(candidates[i], config.ReadyState)})
 			return &candidates[i], pr, nil
 		}
 		log("skipping %s: lifecycle=%s blockers=%s next=%s", candidates[i].Identifier, decision.Lifecycle, strings.Join(decision.Blockers, "; "), decision.NextAction)
 		if !decision.CanRun {
-			emitCandidateEvent(store, state.EventCandidateSkipped, candidates[i], map[string]any{"reason": "not_runnable", "state": candidates[i].State.Name, "lifecycle": decision.Lifecycle, "blockers": decision.Blockers, "next_action": decision.NextAction})
+			emitCandidateEventContext(ctx, store, state.EventCandidateSkipped, candidates[i], map[string]any{"reason": "not_runnable", "state": candidates[i].State.Name, "lifecycle": decision.Lifecycle, "blockers": decision.Blockers, "next_action": decision.NextAction})
 		}
 	}
 	for i := range candidates {
 		pr := prsByIssue[candidates[i].Identifier]
-		if skipCandidateForSelectionOptions(config, candidates[i], pr, store, options) {
+		if skipCandidateForSelectionOptionsContext(ctx, config, candidates[i], pr, store, options) {
 			continue
 		}
-		decision := reconcileCandidateForSelection(config, candidates[i], pr, store)
-		retryDecision, retryDecisionFound := retryBackoffDecision(context.Background(), store, candidates[i], config, time.Now().UTC())
+		if active, err := hasActiveImplementationWorkerTask(ctx, store, candidates[i].Identifier); err != nil {
+			return nil, nil, err
+		} else if active {
+			continue
+		}
+		decision := reconcileCandidateForSelectionContext(ctx, config, candidates[i], pr, store)
+		retryDecision, retryDecisionFound := retryBackoffDecision(ctx, store, candidates[i], config, time.Now().UTC())
 		if store != nil {
 			if retryDecisionFound && !retryDecision.runnable {
 				continue
@@ -78,7 +95,7 @@ func nextRunnableCandidateWithOptions(client linearClient, config runnerConfig, 
 			continue
 		}
 		if decision.CanRun || retryBackoffOverridesTerminalBlock(decision, retryDecision, retryDecisionFound) {
-			emitCandidateEvent(store, state.EventCandidateSelected, candidates[i], map[string]any{"state": candidates[i].State.Name, "reason": candidateOrderReason(candidates[i], config.ReadyState)})
+			emitCandidateEventContext(ctx, store, state.EventCandidateSelected, candidates[i], map[string]any{"state": candidates[i].State.Name, "reason": candidateOrderReason(candidates[i], config.ReadyState)})
 			return &candidates[i], pr, nil
 		}
 	}
@@ -90,20 +107,58 @@ func nextRunnableCandidateWithOptions(client linearClient, config runnerConfig, 
 	return nil, nil, nil
 }
 
+func hasActiveImplementationWorkerTask(ctx context.Context, store *state.Store, issueKey string) (bool, error) {
+	return hasActiveWorkerTask(ctx, store, implementationWorkerRole, issueKey)
+}
+
+func hasActiveWorkerTask(ctx context.Context, store *state.Store, role, issueKey string) (bool, error) {
+	if store == nil || strings.TrimSpace(issueKey) == "" {
+		return false, nil
+	}
+	tasks, err := store.WorkerTasks(ctx, role)
+	if err != nil {
+		return false, err
+	}
+	for _, task := range tasks {
+		if task.IssueKey == issueKey && workerTaskBlocksDispatch(task.Status) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func workerTaskBlocksDispatch(status string) bool {
+	switch status {
+	case state.WorkerTaskStatusQueued, state.WorkerTaskStatusClaimed, state.WorkerTaskStatusReconciliationNeeded:
+		return true
+	default:
+		return false
+	}
+}
+
 func skipCandidateForSelectionOptions(config runnerConfig, candidate issue, pr *pullRequestSummary, store *state.Store, options candidateSelectionOptions) bool {
+	return skipCandidateForSelectionOptionsContext(context.Background(), config, candidate, pr, store, options)
+}
+
+func skipCandidateForSelectionOptionsContext(ctx context.Context, config runnerConfig, candidate issue, pr *pullRequestSummary, store *state.Store, options candidateSelectionOptions) bool {
 	if !options.SkipReviewReadyResumes || strings.TrimSpace(config.ReviewCommand) == "" || pr == nil {
 		return false
 	}
-	if !shouldResumeReviewReadiness(config.WorkspaceRoot, candidate.Identifier, *pr) {
+	decision := reconcileCandidateForSelectionContext(ctx, config, candidate, pr, store)
+	if !decision.CanRun || decision.NextAction != "run_semantic_review_after_checks_ready" {
 		return false
 	}
 	log("skipping %s: review-ready resume is owned by review worker", candidate.Identifier)
-	emitCandidateEvent(store, state.EventCandidateSkipped, candidate, map[string]any{"reason": "review_ready_resume", "next_action": "run_review_worker"})
+	emitCandidateEventContext(ctx, store, state.EventCandidateSkipped, candidate, map[string]any{"reason": "review_ready_resume", "next_action": "run_review_worker"})
 	return true
 }
 
 func reconcileCandidateForSelection(config runnerConfig, candidate issue, pr *pullRequestSummary, store *state.Store) reconciliationDecision {
-	decision := newReconciliationModule(store).ReconcileIssue(config, candidate, pr)
+	return reconcileCandidateForSelectionContext(context.Background(), config, candidate, pr, store)
+}
+
+func reconcileCandidateForSelectionContext(ctx context.Context, config runnerConfig, candidate issue, pr *pullRequestSummary, store *state.Store) reconciliationDecision {
+	decision := newReconciliationModule(store).ReconcileIssueContext(ctx, config, candidate, pr)
 	return decisionWithRepairableReviewFailedPR(config, candidate, pr, decision)
 }
 
@@ -182,13 +237,17 @@ func retryBackoffDuration(retryCount int, max time.Duration) time.Duration {
 }
 
 func emitCandidateEvent(store *state.Store, eventType string, candidate issue, payload map[string]any) {
+	emitCandidateEventContext(context.Background(), store, eventType, candidate, payload)
+}
+
+func emitCandidateEventContext(ctx context.Context, store *state.Store, eventType string, candidate issue, payload map[string]any) {
 	if store == nil {
 		return
 	}
 	if payload == nil {
 		payload = map[string]any{}
 	}
-	if _, err := store.AppendEvent(context.Background(), state.EventInput{OccurredAt: time.Now().UTC(), IssueKey: candidate.Identifier, IssueID: candidate.ID, Attempt: 1, Source: "runner.candidate_selection", Type: eventType, Payload: payload}); err != nil {
+	if _, err := store.AppendEvent(ctx, state.EventInput{OccurredAt: time.Now().UTC(), IssueKey: candidate.Identifier, IssueID: candidate.ID, Attempt: 1, Source: "runner.candidate_selection", Type: eventType, Payload: payload}); err != nil {
 		log("failed to append orchestration event %s for %s: %v", eventType, candidate.Identifier, err)
 	}
 }
@@ -216,30 +275,6 @@ func openPRsByIssue(config runnerConfig) (map[string]*pullRequestSummary, error)
 	return byIssue, nil
 }
 
-func isRunnableWorkspace(workspaceRoot, identifier string) bool {
-	return isRunnableWorkspaceForCandidate(workspaceRoot, issue{Identifier: identifier}, runnerConfig{ReadyState: "Ready for Agent"})
-}
-
-func isRunnableWorkspaceForCandidate(workspaceRoot string, candidate issue, config runnerConfig) bool {
-	workspace := filepath.Join(workspaceRoot, candidate.Identifier)
-	if hasRunLock(workspace) {
-		log("skipping %s because an active run lock exists", candidate.Identifier)
-		return false
-	}
-	if hasUnresolvedReviewFailure(workspaceRoot, candidate.Identifier) {
-		return false
-	}
-	if record, ok := reusableRunRecord(workspace); ok {
-		if feedbackRetryAvailable(workspace, &candidate, record, config, nil) {
-			log("%s has terminal artifact but captured PR feedback is available; allowing retry", candidate.Identifier)
-			return true
-		}
-		log("skipping %s because a terminal run artifact already exists", candidate.Identifier)
-		return false
-	}
-	return true
-}
-
 func feedbackRetryAvailable(workspace string, candidate *issue, record runRecord, config runnerConfig, prArg ...*pullRequestSummary) bool {
 	if candidate == nil || candidate.State.Name != config.ReadyState || record.PRURL == "" {
 		return false
@@ -257,21 +292,6 @@ func feedbackRetryAvailable(workspace string, candidate *issue, record runRecord
 	}
 	feedback, err := readPRFeedback(workspace)
 	return err == nil && strings.TrimSpace(feedback) != ""
-}
-
-func reusableRunRecord(workspace string) (runRecord, bool) {
-	data, err := os.ReadFile(filepath.Join(workspace, ".pi-symphony-run.json"))
-	if err != nil {
-		return runRecord{}, false
-	}
-	var record runRecord
-	if err := json.Unmarshal(data, &record); err != nil {
-		return runRecord{}, false
-	}
-	if (record.Status == "success" || record.Status == runAttemptStatusReviewFailed) && record.PRURL != "" {
-		return record, true
-	}
-	return runRecord{}, false
 }
 
 func orderCandidates(candidates []issue, readyState string) []issue {

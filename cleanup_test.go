@@ -72,8 +72,8 @@ func TestCleanupWorkspacesMirrorsDeletedState(t *testing.T) {
 	if row.workspaceExists != 0 || row.eligible != 1 || row.decision != "completed" || row.deletionResult != "deleted" || row.blockedReason != "" {
 		t.Fatalf("unexpected cleanup mirror row: %+v", row)
 	}
-	if row.artifactRef != filepath.Join(workspace, ".pi-symphony-run.json") {
-		t.Fatalf("artifact_ref = %q", row.artifactRef)
+	if row.artifactRef != "" {
+		t.Fatalf("artifact_ref = %q; want no artifact dependency for SQLite-backed cleanup", row.artifactRef)
 	}
 }
 
@@ -101,6 +101,85 @@ func TestCleanupWorkerDeletesDoneWorkspace(t *testing.T) {
 	row := readCleanupState(t, root, "CAG-159")
 	if row.workspaceExists != 0 || row.eligible != 1 || row.decision != "completed" || row.deletionResult != "deleted" {
 		t.Fatalf("unexpected cleanup worker mirror row: %+v", row)
+	}
+}
+
+func TestScheduleCleanupWorkerTasksEnqueuesWorkspacesWithoutDeleting(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-160")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	didWork, err := scheduleCleanupWorkerTasks(context.Background(), runnerConfig{WorkspaceRoot: root}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didWork {
+		t.Fatal("didWork=false; want cleanup task enqueued")
+	}
+	tasks, err := store.WorkerTasks(context.Background(), cleanupWorkerRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].TaskKey != cleanupWorkerTaskKey("CAG-160") || tasks[0].Status != "queued" {
+		t.Fatalf("cleanup tasks = %+v; want queued workspace task", tasks)
+	}
+	if _, err := os.Stat(workspace); err != nil {
+		t.Fatalf("scheduler should not delete workspace: %v", err)
+	}
+}
+
+func TestRunQueuedCleanupWorkerTaskClaimsTaskAndRefreshesDoneIssues(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-161")
+	writeCleanRunArtifact(t, workspace, "success")
+	seedCleanupAttempt(t, root, workspace, "CAG-161", "success")
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, enqueued, err := enqueueCleanupWorkerTask(context.Background(), store, "CAG-161", workspace, time.Now().UTC()); err != nil || !enqueued {
+		t.Fatalf("enqueueCleanupWorkerTask() enqueued=%v err=%v", enqueued, err)
+	}
+	oldIssueIdentifiers := issueIdentifiersByStateForContinuousCleanup
+	issueIdentifiersByStateForContinuousCleanup = func(ctx context.Context, client linearClient, projectSlug, stateName string) (map[string]bool, error) {
+		if projectSlug != "CAG" || stateName != "Done" {
+			t.Fatalf("Done issue refresh = project %q state %q; want CAG/Done", projectSlug, stateName)
+		}
+		return map[string]bool{"CAG-161": true}, nil
+	}
+	t.Cleanup(func() { issueIdentifiersByStateForContinuousCleanup = oldIssueIdentifiers })
+
+	didWork, err := runQueuedCleanupWorkerTask(linearClient{}, runnerConfig{ProjectSlug: "CAG", DoneState: "Done", WorkspaceRoot: root}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didWork {
+		t.Fatal("didWork=false; want queued cleanup task processed")
+	}
+	if _, err := os.Stat(workspace); !os.IsNotExist(err) {
+		t.Fatalf("workspace still exists after queued cleanup: %v", err)
+	}
+	tasks, err := store.WorkerTasks(context.Background(), cleanupWorkerRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].Status != "completed" {
+		t.Fatalf("cleanup tasks = %+v; want completed queued task", tasks)
+	}
+	results, err := store.WorkerResults(context.Background(), cleanupWorkerRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Reason != "cleanup_deleted" {
+		t.Fatalf("cleanup results = %+v; want cleanup_deleted result", results)
 	}
 }
 
@@ -220,6 +299,56 @@ func TestCleanupWorkspacesUsesSQLiteStatusWhenArtifactIsStale(t *testing.T) {
 	row := readCleanupState(t, root, "CAG-111")
 	if row.decision != "failed" || row.deletionResult != "dry_run" {
 		t.Fatalf("expected SQLite failed status to drive dry-run decision, got %+v", row)
+	}
+}
+
+func TestCleanupWorkspacesUsesSQLiteStatusWhenArtifactIsMissing(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-162")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := sh.Run("git init -q", workspace); err != nil {
+		t.Fatal(err)
+	}
+	seedCleanupAttempt(t, root, workspace, "CAG-162", "success")
+
+	if err := cleanupWorkspaces(root, cleanupOptions{Apply: true, DoneIssues: map[string]bool{"CAG-162": true}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(workspace); !os.IsNotExist(err) {
+		t.Fatalf("workspace still exists after SQLite-backed cleanup without artifact: %v", err)
+	}
+	row := readCleanupState(t, root, "CAG-162")
+	if row.decision != "completed" || row.deletionResult != "deleted" {
+		t.Fatalf("expected SQLite success status to drive cleanup without artifact, got %+v", row)
+	}
+}
+
+func TestCleanupWorkspacesIgnoresStaleArtifactIdentityWhenSQLiteFactsAreTerminal(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspace := filepath.Join(root, "CAG-163")
+	writeCleanRunArtifact(t, workspace, "success")
+	artifactPath := filepath.Join(workspace, ".pi-symphony-run.json")
+	data, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := strings.Replace(string(data), `"issue_identifier":"CAG-163"`, `"issue_identifier":"CAG-other"`, 1)
+	if err := os.WriteFile(artifactPath, []byte(stale), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	seedCleanupAttempt(t, root, workspace, "CAG-163", "success")
+
+	if err := cleanupWorkspaces(root, cleanupOptions{Apply: true, DoneIssues: map[string]bool{"CAG-163": true}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(workspace); !os.IsNotExist(err) {
+		t.Fatalf("workspace still exists after SQLite-backed cleanup with stale artifact identity: %v", err)
+	}
+	row := readCleanupState(t, root, "CAG-163")
+	if row.decision != "completed" || row.deletionResult != "deleted" {
+		t.Fatalf("expected terminal SQLite facts to drive cleanup despite stale artifact identity, got %+v", row)
 	}
 }
 

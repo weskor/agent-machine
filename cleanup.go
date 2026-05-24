@@ -30,13 +30,20 @@ type cleanupPRFacts struct {
 var cleanupPRFactsForURL = githubCleanupPRFactsForURL
 
 func cleanupWorkspaces(workspaceRoot string, options cleanupOptions) error {
+	return cleanupWorkspacesContext(context.Background(), workspaceRoot, options)
+}
+
+func cleanupWorkspacesContext(ctx context.Context, workspaceRoot string, options cleanupOptions) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	safeRoot, err := safeWorkspaceRoot(workspaceRoot)
 	if err != nil {
 		return err
 	}
 	store := options.StateStore
 	if store == nil {
-		opened, dbPath, openErr := openStateProjectionStore(context.Background(), safeRoot)
+		opened, dbPath, openErr := openStateProjectionStore(ctx, safeRoot)
 		if openErr != nil {
 			if options.Apply {
 				return fmt.Errorf("cleanup requires SQLite for mutating apply: %w", openErr)
@@ -51,7 +58,7 @@ func cleanupWorkspaces(workspaceRoot string, options cleanupOptions) error {
 			defer store.Close()
 		}
 	}
-	return cleanupWorker{workspaceRoot: workspaceRoot, safeRoot: safeRoot, options: options, store: store}.Execute(context.Background())
+	return cleanupWorker{workspaceRoot: workspaceRoot, safeRoot: safeRoot, options: options, store: store}.Execute(ctx)
 }
 
 func cleanupDecisions(ctx context.Context, workspaceRoot string, doneIssues map[string]bool, store *orchstate.Store, hasChanges workspaceChangeChecker) ([]cleanupResult, error) {
@@ -88,10 +95,32 @@ func cleanupDecisions(ctx context.Context, workspaceRoot string, doneIssues map[
 }
 
 func cleanupDecisionForWorkspace(ctx context.Context, workspaceRoot, workspace string, doneIssues map[string]bool, store *orchstate.Store, hasChanges workspaceChangeChecker) (cleanupResult, error) {
-	decision, err := cleanupDecisionForRootWithChanges(workspaceRoot, workspace, doneIssues, hasChanges)
-	if store != nil {
-		decision, err = cleanupDecisionFromSQLite(ctx, store, workspaceRoot, workspace, doneIssues, decision)
+	if err := ctx.Err(); err != nil {
+		return cleanupResult{}, err
 	}
+	if store != nil {
+		decision, err := cleanupSafetyDecisionForRootWithChanges(workspaceRoot, workspace, hasChanges)
+		if err != nil {
+			return decision, err
+		}
+		if decision.Category == "dirty" || decision.Category == "unsafe" {
+			decision.WorkspacePath = workspace
+			return decision, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return decision, err
+		}
+		decision, err = cleanupDecisionFromSQLite(ctx, store, workspaceRoot, workspace, doneIssues, decision)
+		if err != nil {
+			return decision, err
+		}
+		decision.WorkspacePath = workspace
+		return decision, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return cleanupResult{}, err
+	}
+	decision, err := cleanupDecisionForRootWithChanges(workspaceRoot, workspace, doneIssues, hasChanges)
 	if err != nil {
 		return decision, err
 	}
@@ -100,6 +129,10 @@ func cleanupDecisionForWorkspace(ctx context.Context, workspaceRoot, workspace s
 }
 
 func recordCleanupEvent(store *orchstate.Store, eventType string, decision cleanupResult, payload map[string]any) {
+	recordCleanupEventContext(context.Background(), store, eventType, decision, payload)
+}
+
+func recordCleanupEventContext(ctx context.Context, store *orchstate.Store, eventType string, decision cleanupResult, payload map[string]any) {
 	if store == nil {
 		return
 	}
@@ -109,16 +142,20 @@ func recordCleanupEvent(store *orchstate.Store, eventType string, decision clean
 	if decision.ArtifactRef != "" {
 		payload["artifact_ref"] = decision.ArtifactRef
 	}
-	if _, err := store.AppendEvent(context.Background(), orchstate.EventInput{OccurredAt: time.Now().UTC(), IssueKey: decision.IssueIdentifier, Source: "cleanup", Type: eventType, Payload: payload}); err != nil {
+	if _, err := store.AppendEvent(ctx, orchstate.EventInput{OccurredAt: time.Now().UTC(), IssueKey: decision.IssueIdentifier, Source: "cleanup", Type: eventType, Payload: payload}); err != nil {
 		log("skipping sqlite cleanup event %s: %v", eventType, err)
 	}
 }
 
 func recordCleanupError(store *orchstate.Store, decision cleanupResult, err error) {
+	recordCleanupErrorContext(context.Background(), store, decision, err)
+}
+
+func recordCleanupErrorContext(ctx context.Context, store *orchstate.Store, decision cleanupResult, err error) {
 	if err == nil {
 		return
 	}
-	recordCleanupEvent(store, orchstate.EventErrorRecorded, decision, map[string]any{"error": err.Error(), "lane": "cleanup"})
+	recordCleanupEventContext(ctx, store, orchstate.EventErrorRecorded, decision, map[string]any{"error": err.Error(), "lane": "cleanup"})
 }
 
 func cleanupDeletionResult(decision cleanupResult, fallback string) string {
@@ -129,8 +166,18 @@ func cleanupDeletionResult(decision cleanupResult, fallback string) string {
 }
 
 func removeDoneWorkspace(workspaceRoot, identifier string) error {
+	return removeDoneWorkspaceContext(context.Background(), workspaceRoot, identifier)
+}
+
+func removeDoneWorkspaceContext(ctx context.Context, workspaceRoot, identifier string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	workspace, err := safeWorkspacePath(workspaceRoot, identifier)
 	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if _, err := os.Stat(workspace); err != nil {
@@ -141,6 +188,9 @@ func removeDoneWorkspace(workspaceRoot, identifier string) error {
 		return err
 	}
 	if err := assertSafeDeletePath(workspaceRoot, workspace); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(workspace); err != nil {
@@ -159,6 +209,45 @@ type cleanupResult struct {
 	WorkspacePath   string
 }
 
+func cleanupGateResult(decision cleanupResult) deterministicGateResult {
+	subject := firstNonEmpty(decision.IssueIdentifier, decision.WorkspacePath)
+	gate := newDeterministicGateResult("cleanup", subject)
+	gate.ReasonText = decision.Reason
+	gate.Metadata = map[string]string{}
+	if decision.Category != "" {
+		gate.Metadata["category"] = decision.Category
+	}
+	if decision.ArtifactRef != "" {
+		gate.Metadata["artifact_ref"] = decision.ArtifactRef
+	}
+	if decision.WorkspacePath != "" {
+		gate.Metadata["workspace_path"] = decision.WorkspacePath
+	}
+	if len(gate.Metadata) == 0 {
+		gate.Metadata = nil
+	}
+	if decision.Delete {
+		gate.NextAction = "delete_workspace"
+		return gate
+	}
+	code := cleanupGateCode(decision.Category)
+	if decision.Category == "reconciliation-needed" {
+		gate.ReconciliationNeeded(code, decision.Reason, "repair_or_reconcile_cleanup_state")
+		return gate
+	}
+	gate.Block(code, decision.Reason)
+	gate.NextAction = "keep_workspace"
+	return gate
+}
+
+func cleanupGateCode(category string) string {
+	category = strings.TrimSpace(category)
+	if category == "" {
+		return "cleanup_blocked"
+	}
+	return "cleanup_" + strings.ReplaceAll(category, "-", "_")
+}
+
 func cleanupDecision(workspace string, doneIssues map[string]bool) (cleanupResult, error) {
 	root := filepath.Dir(workspace)
 	return cleanupDecisionForRoot(root, workspace, doneIssues)
@@ -170,18 +259,28 @@ func cleanupDecisionForRoot(workspaceRoot, workspace string, doneIssues map[stri
 
 type workspaceChangeChecker func(string) (bool, error)
 
-func cleanupDecisionForRootWithChanges(workspaceRoot, workspace string, doneIssues map[string]bool, hasChanges workspaceChangeChecker) (cleanupResult, error) {
+func cleanupSafetyDecisionForRootWithChanges(workspaceRoot, workspace string, hasChanges workspaceChangeChecker) (cleanupResult, error) {
 	if _, err := safeWorkspaceRoot(workspaceRoot); err != nil {
 		return cleanupResult{}, err
 	}
 	if err := assertSafeDeletePath(workspaceRoot, workspace); err != nil {
-		return cleanupResult{Category: "unsafe", Reason: err.Error()}, nil
+		return cleanupResult{IssueIdentifier: filepath.Base(workspace), Category: "unsafe", Reason: err.Error()}, nil
 	}
-	identifier := filepath.Base(workspace)
 	if dirty, err := hasChanges(workspace); err != nil {
 		return cleanupResult{}, err
 	} else if dirty {
-		return cleanupResult{Category: "dirty", Reason: "workspace has uncommitted or untracked files"}, nil
+		return cleanupResult{IssueIdentifier: filepath.Base(workspace), Category: "dirty", Reason: "workspace has uncommitted or untracked files"}, nil
+	}
+	return cleanupResult{IssueIdentifier: filepath.Base(workspace)}, nil
+}
+
+func cleanupDecisionForRootWithChanges(workspaceRoot, workspace string, doneIssues map[string]bool, hasChanges workspaceChangeChecker) (cleanupResult, error) {
+	identifier := filepath.Base(workspace)
+	if decision, err := cleanupSafetyDecisionForRootWithChanges(workspaceRoot, workspace, hasChanges); err != nil {
+		return cleanupResult{}, err
+	} else if decision.Category == "dirty" || decision.Category == "unsafe" {
+		decision.IssueIdentifier = ""
+		return decision, nil
 	}
 	recordPath := filepath.Join(workspace, ".pi-symphony-run.json")
 	data, err := os.ReadFile(recordPath)
@@ -244,7 +343,7 @@ func cleanupDecisionFromSQLite(ctx context.Context, store *orchstate.Store, work
 		base.Reason = fmt.Sprintf("run artifact issue %s conflicts with SQLite issue %s", artifactDecision.IssueIdentifier, facts.IssueKey)
 		return base, nil
 	}
-	if artifactDecision.Category == "dirty" || artifactDecision.Category == "unsafe" || artifactDecision.Category == "missing-artifact" || artifactDecision.Category == "insufficient-artifact" {
+	if artifactDecision.Category == "dirty" || artifactDecision.Category == "unsafe" {
 		artifactDecision.IssueIdentifier = facts.IssueKey
 		return artifactDecision, nil
 	}
@@ -472,6 +571,10 @@ func assertSafeDeletePath(root, workspace string) error {
 
 func currentGitBranch(workspace string) (string, error) {
 	return ws.CurrentGitBranch(workspace)
+}
+
+func currentGitBranchContext(ctx context.Context, workspace string) (string, error) {
+	return ws.CurrentGitBranchContext(ctx, workspace)
 }
 
 func workspaceHasChanges(workspace string) (bool, error) {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"path"
 	"regexp"
@@ -27,7 +28,11 @@ func (r scopeGuardResult) Summary() string {
 }
 
 func checkScopeGuard(description, workspace, baseBranch string) (scopeGuardResult, error) {
-	changed, err := scopeGuardChangedFiles(workspace, baseBranch)
+	return checkScopeGuardContext(context.Background(), description, workspace, baseBranch)
+}
+
+func checkScopeGuardContext(ctx context.Context, description, workspace, baseBranch string) (scopeGuardResult, error) {
+	changed, err := scopeGuardChangedFilesContext(ctx, workspace, baseBranch)
 	if err != nil {
 		return scopeGuardResult{}, err
 	}
@@ -35,11 +40,15 @@ func checkScopeGuard(description, workspace, baseBranch string) (scopeGuardResul
 }
 
 func scopeGuardChangedFiles(workspace, baseBranch string) ([]string, error) {
+	return scopeGuardChangedFilesContext(context.Background(), workspace, baseBranch)
+}
+
+func scopeGuardChangedFilesContext(ctx context.Context, workspace, baseBranch string) ([]string, error) {
 	base := strings.TrimSpace(baseBranch)
 	if base == "" {
 		base = "main"
 	}
-	output, err := sh.CaptureQuiet(fmt.Sprintf("git diff --name-only --diff-filter=ACMRT %s...HEAD", sh.Quote("origin/"+base)), workspace)
+	output, err := sh.CaptureQuietContext(ctx, fmt.Sprintf("git diff --name-only --diff-filter=ACMRT %s...HEAD", sh.Quote("origin/"+base)), workspace)
 	if err != nil {
 		return nil, fmt.Errorf("scope guard changed-file lookup failed: %w", err)
 	}

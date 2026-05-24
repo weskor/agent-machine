@@ -1,7 +1,6 @@
 package orchestrator
 
 import (
-	"errors"
 	"reflect"
 	"testing"
 
@@ -39,6 +38,13 @@ func TestCLIDependenciesAdaptsModeOperationsThroughRunnerFacade(t *testing.T) {
 				t.Fatalf("repair root = %q, want workspace", root)
 			}
 			calls = append(calls, "repair")
+			return nil
+		},
+		RepairTaskFunc: func(root, taskKey string) error {
+			if root != "workspace" || taskKey != "merge:CAG-1:7" {
+				t.Fatalf("repair task args = %q, %q; want workspace, merge:CAG-1:7", root, taskKey)
+			}
+			calls = append(calls, "repair-task")
 			return nil
 		},
 		CleanupFunc: func(root string, options cli.CleanupOptions) error {
@@ -89,11 +95,6 @@ func TestCLIDependenciesAdaptsModeOperationsThroughRunnerFacade(t *testing.T) {
 			calls = append(calls, "worker")
 			return nil
 		},
-		RunOneFunc: func(client testClient, _ cfg.Workflow, config testConfig) (bool, error) {
-			assertConfig(client, config)
-			calls = append(calls, "run-one")
-			return false, nil
-		},
 	}, func(config cli.Config) testConfig {
 		return testConfig{project: config.ProjectSlug}
 	})
@@ -104,6 +105,9 @@ func TestCLIDependenciesAdaptsModeOperationsThroughRunnerFacade(t *testing.T) {
 	}
 	if err := deps.RepairArtifacts("workspace"); err != nil {
 		t.Fatalf("RepairArtifacts returned error: %v", err)
+	}
+	if err := deps.RepairWorkerTask("workspace", "merge:CAG-1:7"); err != nil {
+		t.Fatalf("RepairWorkerTask returned error: %v", err)
 	}
 	if err := deps.CleanupWorkspaces("workspace", cli.CleanupOptions{Apply: true, DoneIssues: map[string]bool{"CAG-1": true}}); err != nil {
 		t.Fatalf("CleanupWorkspaces returned error: %v", err)
@@ -126,27 +130,10 @@ func TestCLIDependenciesAdaptsModeOperationsThroughRunnerFacade(t *testing.T) {
 	if err := deps.RunWorker(testClient{id: "linear"}, cfg.Workflow{}, cliConfig, "status"); err != nil {
 		t.Fatalf("RunWorker returned error: %v", err)
 	}
-	if err := deps.RunOne(testClient{id: "linear"}, cfg.Workflow{}, cliConfig); err != nil {
-		t.Fatalf("RunOne returned error: %v", err)
-	}
 
-	wantCalls := []string{"backfill", "repair", "cleanup", "status", "run-status", "explain", "merge", "continuous", "worker", "run-one"}
+	wantCalls := []string{"backfill", "repair", "repair-task", "cleanup", "status", "run-status", "explain", "merge", "continuous", "worker"}
 	if !reflect.DeepEqual(calls, wantCalls) {
 		t.Fatalf("calls = %#v, want %#v", calls, wantCalls)
-	}
-}
-
-func TestCLIDependenciesPreservesRunOneErrorContract(t *testing.T) {
-	runErr := errors.New("run failed")
-	runner := NewRunner(SetupDependencies[testClient]{}, ModeOperationFuncs[testClient, testConfig]{
-		RunOneFunc: func(testClient, cfg.Workflow, testConfig) (bool, error) {
-			return true, runErr
-		},
-	}, func(cli.Config) testConfig { return testConfig{} })
-
-	deps := runner.CLIDependencies()
-	if err := deps.RunOne(testClient{}, cfg.Workflow{}, cli.Config{}); !errors.Is(err, runErr) {
-		t.Fatalf("RunOne error = %v, want %v", err, runErr)
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	artifactio "github.com/weskor/pi-symphony/internal/artifacts"
 	orchstate "github.com/weskor/pi-symphony/internal/state"
 )
 
@@ -39,18 +41,25 @@ func mergeApprovedPRs(client linearClient, config runnerConfig) error {
 }
 
 func mergeApprovedPRsWithStore(client linearClient, config runnerConfig, store *orchstate.Store) error {
+	return mergeApprovedPRsWithStoreContext(context.Background(), client, config, store)
+}
+
+func mergeApprovedPRsWithStoreContext(parent context.Context, client linearClient, config runnerConfig, store *orchstate.Store) error {
+	if err := parent.Err(); err != nil {
+		return err
+	}
 	if store == nil {
 		return fmt.Errorf("SQLite state store unavailable for merge at %s", orchstate.DefaultDBPath(config.WorkspaceRoot))
 	}
-	github, ctx, cancel, err := githubClientWithTimeout(config.Budget.MergeTimeout)
+	github, ctx, cancel, err := githubClientWithContextTimeout(parent, config.Budget.MergeTimeout)
 	if err != nil {
-		recordMergeError(store, "", "", 0, err)
+		recordMergeErrorContext(parent, store, "", "", 0, err)
 		return err
 	}
 	defer cancel()
 	prs, err := github.OpenPullRequests(ctx)
 	if err != nil {
-		recordMergeError(store, "", "", 0, err)
+		recordMergeErrorContext(ctx, store, "", "", 0, err)
 		return fmt.Errorf("GitHub API open PR metadata lookup failed: %w", err)
 	}
 	prs = symphonyPRs(prs)
@@ -64,7 +73,112 @@ func mergeApprovedPRsWithStore(client linearClient, config runnerConfig, store *
 	return nil
 }
 
+func scheduleMergeWorkerTasks(ctx context.Context, client linearClient, config runnerConfig, store *orchstate.Store) (bool, error) {
+	if store == nil {
+		return false, fmt.Errorf("SQLite state store unavailable for merge scheduling at %s", orchstate.DefaultDBPath(config.WorkspaceRoot))
+	}
+	github, ghCtx, cancel, err := githubClientWithContextTimeout(ctx, config.Budget.MergeTimeout)
+	if err != nil {
+		recordMergeErrorContext(ctx, store, "", "", 0, err)
+		return false, err
+	}
+	defer cancel()
+	prs, err := github.OpenPullRequests(ghCtx)
+	if err != nil {
+		recordMergeErrorContext(ctx, store, "", "", 0, err)
+		return false, fmt.Errorf("GitHub API open PR metadata lookup failed: %w", err)
+	}
+	didWork := false
+	now := time.Now().UTC()
+	for _, pr := range symphonyPRs(prs) {
+		identifier := issueIdentifierFromBranch(pr.HeadRefName)
+		if identifier == "" {
+			continue
+		}
+		candidate, err := client.issueByIdentifierContext(ctx, identifier)
+		if err != nil {
+			recordMergeErrorContext(ctx, store, identifier, "", pr.Number, err)
+			return didWork, err
+		}
+		if candidate == nil || candidate.State.Name != config.HandoffState {
+			continue
+		}
+		if _, enqueued, err := enqueueMergeWorkerTask(ctx, store, *candidate, pr, now); err != nil {
+			return didWork, err
+		} else if enqueued {
+			didWork = true
+		}
+	}
+	return didWork, nil
+}
+
+func runQueuedMergeWorkerTask(client linearClient, config runnerConfig, store *orchstate.Store) (bool, error) {
+	return runQueuedMergeWorkerTaskContext(context.Background(), client, config, store)
+}
+
+func runQueuedMergeWorkerTaskContext(parent context.Context, client linearClient, config runnerConfig, store *orchstate.Store) (bool, error) {
+	if err := parent.Err(); err != nil {
+		return false, err
+	}
+	if store == nil {
+		return false, fmt.Errorf("SQLite state store unavailable for merge worker at %s", orchstate.DefaultDBPath(config.WorkspaceRoot))
+	}
+	github, ctx, cancel, err := githubClientWithContextTimeout(parent, config.Budget.MergeTimeout)
+	if err != nil {
+		recordMergeErrorContext(parent, store, "", "", 0, err)
+		return false, err
+	}
+	defer cancel()
+	now := time.Now().UTC()
+	task, ok, err := claimNextQueuedMergeWorkerTask(ctx, store, now)
+	if err != nil || !ok {
+		return false, err
+	}
+	startedAt := time.Now().UTC()
+	taskPayload := mergeWorkerTaskPayload{IssueKey: task.IssueKey}
+	if len(task.Payload) > 0 {
+		_ = json.Unmarshal(task.Payload, &taskPayload)
+	}
+	prs, err := github.OpenPullRequests(ctx)
+	if err != nil {
+		finishedAt := time.Now().UTC()
+		recordMergeErrorContext(ctx, store, task.IssueKey, task.IssueID, taskPayload.PRNumber, err)
+		return true, errors.Join(fmt.Errorf("GitHub API open PR metadata lookup failed: %w", err), completeClaimedMergeWorkerTask(ctx, store, task, "failed", true, "github_open_pr_lookup_failed", err.Error(), startedAt, finishedAt))
+	}
+	pr, ok := findMergeTaskPullRequest(symphonyPRs(prs), task, taskPayload)
+	if !ok {
+		finishedAt := time.Now().UTC()
+		return true, completeClaimedMergeWorkerTask(ctx, store, task, "completed", true, "pull_request_not_open", "", startedAt, finishedAt)
+	}
+	worker := mergeWorker{client: client, config: config, store: store, github: github}
+	if err := worker.HandlePullRequest(ctx, pr); err != nil {
+		finishedAt := time.Now().UTC()
+		return true, errors.Join(err, completeClaimedMergeWorkerTask(ctx, store, task, "failed", true, "merge_worker_error", err.Error(), startedAt, finishedAt))
+	}
+	finishedAt := time.Now().UTC()
+	return true, completeClaimedMergeWorkerTask(ctx, store, task, "completed", true, "merge_task_processed", "", startedAt, finishedAt)
+}
+
+func findMergeTaskPullRequest(prs []pullRequestSummary, task orchstate.WorkerTask, payload mergeWorkerTaskPayload) (pullRequestSummary, bool) {
+	for _, pr := range prs {
+		if payload.PRNumber > 0 && pr.Number == payload.PRNumber {
+			return pr, true
+		}
+		if payload.PRURL != "" && pr.URL == payload.PRURL {
+			return pr, true
+		}
+		if task.IssueKey != "" && issueIdentifierFromBranch(pr.HeadRefName) == task.IssueKey {
+			return pr, true
+		}
+	}
+	return pullRequestSummary{}, false
+}
+
 func recordMergeEvent(store *orchstate.Store, eventType, issueKey, issueID string, prNumber int, payload map[string]any) {
+	recordMergeEventContext(context.Background(), store, eventType, issueKey, issueID, prNumber, payload)
+}
+
+func recordMergeEventContext(ctx context.Context, store *orchstate.Store, eventType, issueKey, issueID string, prNumber int, payload map[string]any) {
 	if store == nil {
 		return
 	}
@@ -74,32 +188,42 @@ func recordMergeEvent(store *orchstate.Store, eventType, issueKey, issueID strin
 	if prNumber > 0 {
 		payload["pr_number"] = prNumber
 	}
-	if _, err := store.AppendEvent(context.Background(), orchstate.EventInput{OccurredAt: time.Now().UTC(), IssueKey: issueKey, IssueID: issueID, Source: "merge-lane", Type: eventType, Payload: payload}); err != nil {
+	if _, err := store.AppendEvent(ctx, orchstate.EventInput{OccurredAt: time.Now().UTC(), IssueKey: issueKey, IssueID: issueID, Source: "merge-lane", Type: eventType, Payload: payload}); err != nil {
 		log("skipping sqlite merge event %s: %v", eventType, err)
 	}
 }
 
 func recordMergeError(store *orchstate.Store, issueKey, issueID string, prNumber int, err error) {
+	recordMergeErrorContext(context.Background(), store, issueKey, issueID, prNumber, err)
+}
+
+func recordMergeErrorContext(ctx context.Context, store *orchstate.Store, issueKey, issueID string, prNumber int, err error) {
 	if err == nil {
 		return
 	}
-	recordMergeEvent(store, orchstate.EventErrorRecorded, issueKey, issueID, prNumber, map[string]any{"error": err.Error(), "lane": "merge"})
+	recordMergeEventContext(ctx, store, orchstate.EventErrorRecorded, issueKey, issueID, prNumber, map[string]any{"error": err.Error(), "lane": "merge"})
 }
 
-func feedbackAlreadyAddressed(workspace, prURL, feedback string) bool {
-	record, ok := reusableRunRecord(workspace)
-	if !ok || record.Status != "success" || record.ReviewStatus != "passed" || record.PRURL != prURL {
+func feedbackAlreadyAddressed(store *orchstate.Store, issueKey, prURL, feedback string) bool {
+	return feedbackAlreadyAddressedContext(context.Background(), store, issueKey, prURL, feedback)
+}
+
+func feedbackAlreadyAddressedContext(ctx context.Context, store *orchstate.Store, issueKey, prURL, feedback string) bool {
+	if store == nil {
 		return false
 	}
 	currentHash := feedbackHash(feedback)
 	if currentHash == "" {
 		return false
 	}
-	if record.FeedbackHash != "" {
-		return record.FeedbackHash == currentHash
+	facts, ok, err := store.ReconciliationFacts(ctx, issueKey)
+	if err != nil || !ok {
+		return false
 	}
-	previousFeedback, err := readPRFeedback(workspace)
-	return err == nil && feedbackHash(previousFeedback) == currentHash
+	return facts.Status == runAttemptStatusSuccess &&
+		facts.ReviewStatus == "passed" &&
+		facts.PRURL == prURL &&
+		facts.FeedbackHash == currentHash
 }
 
 func renderPRConflictFeedback(pr pullRequestSummary, reason string) string {
@@ -229,8 +353,11 @@ func runArtifactHasHumanApprovedMissingEvidence(record runRecord) bool {
 }
 
 func readRunArtifact(workspace string) (runRecord, bool) {
-	data, err := os.ReadFile(filepath.Join(workspace, ".pi-symphony-run.json"))
+	data, err := os.ReadFile(filepath.Join(workspace, artifactio.RunRecordName))
 	if err != nil {
+		return runRecord{}, false
+	}
+	if _, _, err := artifactio.ValidateArtifactSchema(data, artifactio.RunRecordName); err != nil {
 		return runRecord{}, false
 	}
 	var record runRecord

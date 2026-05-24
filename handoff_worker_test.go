@@ -29,12 +29,12 @@ func TestHandoffWorkerPostsCommentsAndMovesToHandoffState(t *testing.T) {
 		postedSummary = summary
 		return nil
 	}
-	updateIssueStateForLinearStatusWorker = func(client linearClient, issueID, stateID string) error {
+	updateIssueStateForLinearStatusWorker = func(ctx context.Context, client linearClient, issueID, stateID string) error {
 		updatedIssueID = issueID
 		updatedStateID = stateID
 		return nil
 	}
-	createCommentForLinearStatusWorker = func(client linearClient, issueID, body string) error {
+	createCommentForLinearStatusWorker = func(ctx context.Context, client linearClient, issueID, body string) error {
 		commentIssueID = issueID
 		commentBody = body
 		return nil
@@ -74,6 +74,35 @@ func TestHandoffWorkerPostsCommentsAndMovesToHandoffState(t *testing.T) {
 	}
 }
 
+func TestHandoffWorkerHonorsCanceledContextBeforeSideEffects(t *testing.T) {
+	t.Cleanup(resetHandoffWorkerHooks)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var posted bool
+	postOrUpdatePRHandoffCommentForWorker = func(handoffSummary) error {
+		posted = true
+		return nil
+	}
+
+	result, err := handoffWorker{
+		config:    runnerConfig{PiCommand: "pi run", HandoffState: "Human Review"},
+		candidate: &issue{ID: "issue-158", Identifier: "CAG-158", Title: "Canceled handoff"},
+		workspace: t.TempDir(),
+		startedAt: time.Now(),
+		prURL:     "https://github.com/acme/repo/pull/158",
+	}.Execute(ctx)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Execute() error = %v; want context canceled", err)
+	}
+	if !result.Terminal {
+		t.Fatalf("result = %+v; want terminal canceled result", result)
+	}
+	if posted {
+		t.Fatal("handoff posted PR comment after context cancellation")
+	}
+}
+
 func TestHandoffWorkerRecordsFailedRunWhenHandoffTransitionFails(t *testing.T) {
 	t.Cleanup(resetHandoffWorkerHooks)
 	root := t.TempDir()
@@ -89,8 +118,8 @@ func TestHandoffWorkerRecordsFailedRunWhenHandoffTransitionFails(t *testing.T) {
 
 	transitionErr := errors.New("linear transition failed")
 	postOrUpdatePRHandoffCommentForWorker = func(handoffSummary) error { return nil }
-	updateIssueStateForLinearStatusWorker = func(linearClient, string, string) error { return transitionErr }
-	createCommentForLinearStatusWorker = func(linearClient, string, string) error {
+	updateIssueStateForLinearStatusWorker = func(context.Context, linearClient, string, string) error { return transitionErr }
+	createCommentForLinearStatusWorker = func(context.Context, linearClient, string, string) error {
 		t.Fatal("Linear handoff comment should not be created after transition failure")
 		return nil
 	}

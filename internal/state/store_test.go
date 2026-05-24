@@ -44,11 +44,11 @@ func TestOpenInitializesDeterministicSchemaAndIsIdempotent(t *testing.T) {
 		t.Fatalf("SchemaVersion() = %d, %v; want %d, nil", version, err, CurrentSchemaVersion)
 	}
 
-	expectedTables := []string{"cleanup_states", "daemon_heartbeats", "external_fact_snapshots", "feedback_states", "issue_attempts", "leases", "merge_blockers", "orchestration_events", "pr_mappings", "retry_decisions", "review_states", "schema_migrations", "terminal_outcomes", "worker_tasks"}
+	expectedTables := []string{"cleanup_states", "daemon_heartbeats", "external_fact_snapshots", "feedback_states", "issue_attempts", "leases", "merge_blockers", "orchestration_events", "pr_handoff_intents", "pr_mappings", "retry_decisions", "review_states", "schema_migrations", "terminal_outcomes", "worker_payload_refs", "worker_results", "worker_tasks"}
 	if !reflect.DeepEqual(firstTables, expectedTables) {
 		t.Fatalf("tables = %v; want %v", firstTables, expectedTables)
 	}
-	expectedIndexes := []string{"idx_daemon_heartbeats_lane", "idx_issue_attempts_status", "idx_leases_expires_at", "idx_merge_blockers_active", "idx_orchestration_events_issue", "idx_orchestration_events_type", "idx_pr_mappings_pr_number", "idx_worker_tasks_issue", "idx_worker_tasks_role_status"}
+	expectedIndexes := []string{"idx_daemon_heartbeats_lane", "idx_issue_attempts_status", "idx_leases_expires_at", "idx_merge_blockers_active", "idx_orchestration_events_issue", "idx_orchestration_events_type", "idx_pr_handoff_intents_issue", "idx_pr_handoff_intents_status", "idx_pr_mappings_pr_number", "idx_worker_payload_refs_issue", "idx_worker_payload_refs_role_phase_status", "idx_worker_results_lane_status", "idx_worker_results_role_status", "idx_worker_tasks_issue", "idx_worker_tasks_role_status"}
 	for _, name := range expectedIndexes {
 		if !contains(firstIndexes, name) {
 			t.Fatalf("missing expected index %q in %v", name, firstIndexes)
@@ -265,6 +265,283 @@ func TestWorkerTaskClaimAndCompletionAreAtomic(t *testing.T) {
 	}
 }
 
+func TestMarkStaleClaimedWorkerTasksReconciliationNeeded(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	now := time.Date(2026, 5, 24, 12, 0, 0, 0, time.UTC)
+	old := now.Add(-30 * time.Minute)
+	if err := s.UpsertWorkerTask(ctx, WorkerTask{TaskKey: "implementation:CAG-201:1", Role: "implementation", IssueKey: "CAG-201", IssueID: "issue-201", Attempt: 1, Status: WorkerTaskStatusClaimed, AvailableAt: old, UpdatedAt: old}); err != nil {
+		t.Fatalf("UpsertWorkerTask(stale) error = %v", err)
+	}
+	if err := s.UpsertWorkerTask(ctx, WorkerTask{TaskKey: "implementation:CAG-202:1", Role: "implementation", IssueKey: "CAG-202", IssueID: "issue-202", Attempt: 1, Status: WorkerTaskStatusClaimed, AvailableAt: now, UpdatedAt: now}); err != nil {
+		t.Fatalf("UpsertWorkerTask(fresh) error = %v", err)
+	}
+
+	recovered, err := s.MarkStaleClaimedWorkerTasksReconciliationNeeded(ctx, now, 15*time.Minute)
+	if err != nil {
+		t.Fatalf("MarkStaleClaimedWorkerTasksReconciliationNeeded() error = %v", err)
+	}
+	if len(recovered) != 1 || recovered[0].TaskKey != "implementation:CAG-201:1" || recovered[0].Status != WorkerTaskStatusReconciliationNeeded {
+		t.Fatalf("recovered = %+v; want stale implementation task marked reconciliation_needed", recovered)
+	}
+	stale, ok, err := s.WorkerTask(ctx, "implementation:CAG-201:1")
+	if err != nil || !ok {
+		t.Fatalf("WorkerTask(stale) ok=%v err=%v", ok, err)
+	}
+	if stale.Status != WorkerTaskStatusReconciliationNeeded {
+		t.Fatalf("stale status = %q, want reconciliation_needed", stale.Status)
+	}
+	fresh, ok, err := s.WorkerTask(ctx, "implementation:CAG-202:1")
+	if err != nil || !ok {
+		t.Fatalf("WorkerTask(fresh) ok=%v err=%v", ok, err)
+	}
+	if fresh.Status != WorkerTaskStatusClaimed {
+		t.Fatalf("fresh status = %q, want claimed", fresh.Status)
+	}
+	results, err := s.WorkerResults(ctx, "implementation")
+	if err != nil {
+		t.Fatalf("WorkerResults() error = %v", err)
+	}
+	if len(results) != 1 || results[0].TaskKey != "implementation:CAG-201:1" || results[0].Status != WorkerTaskStatusReconciliationNeeded || results[0].Reason != "stale_claim_reconciliation_required" {
+		t.Fatalf("worker results = %+v; want stale claim reconciliation result", results)
+	}
+	events, err := s.Events(ctx, EventFilter{Type: EventReconciliationNeeded, Limit: 10})
+	if err != nil {
+		t.Fatalf("Events() error = %v", err)
+	}
+	if len(events) != 1 || events[0].IssueKey != "CAG-201" {
+		t.Fatalf("reconciliation events = %+v; want CAG-201 event", events)
+	}
+}
+
+func TestMarkStaleClaimedWorkerTasksRequiresExpiredLeaseAndStaleHeartbeat(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	now := time.Date(2026, 5, 24, 12, 0, 0, 0, time.UTC)
+	old := now.Add(-30 * time.Minute)
+	task := WorkerTask{TaskKey: "merge:CAG-203:1", Role: "merge", IssueKey: "CAG-203", IssueID: "issue-203", Attempt: 1, Status: WorkerTaskStatusClaimed, AvailableAt: old, LeaseName: "worker:merge:CAG-203", UpdatedAt: old}
+	if err := s.UpsertWorkerTask(ctx, task); err != nil {
+		t.Fatalf("UpsertWorkerTask() error = %v", err)
+	}
+	if err := s.UpsertLease(ctx, Lease{Name: task.LeaseName, Scope: task.TaskKey, Owner: "host:123", AcquiredAt: old, RenewedAt: old, ExpiresAt: now.Add(time.Minute)}); err != nil {
+		t.Fatalf("UpsertLease(active) error = %v", err)
+	}
+	if recovered, err := s.MarkStaleClaimedWorkerTasksReconciliationNeeded(ctx, now, 15*time.Minute); err != nil || len(recovered) != 0 {
+		t.Fatalf("active lease recovery = %+v err=%v; want no recovery", recovered, err)
+	}
+	if err := s.UpsertLease(ctx, Lease{Name: task.LeaseName, Scope: task.TaskKey, Owner: "host:123", AcquiredAt: old, RenewedAt: old, ExpiresAt: old.Add(time.Minute)}); err != nil {
+		t.Fatalf("UpsertLease(expired) error = %v", err)
+	}
+	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "merge", WorkflowPath: "/repo/WORKFLOW.md", CycleNumber: 1, LastSuccessAt: now, UpdatedAt: now}); err != nil {
+		t.Fatalf("UpsertDaemonHeartbeat() error = %v", err)
+	}
+	if recovered, err := s.MarkStaleClaimedWorkerTasksReconciliationNeeded(ctx, now, 15*time.Minute); err != nil || len(recovered) != 0 {
+		t.Fatalf("fresh heartbeat recovery = %+v err=%v; want no recovery", recovered, err)
+	}
+	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "merge", WorkflowPath: "/repo/WORKFLOW.md", CycleNumber: 1, LastSuccessAt: old, UpdatedAt: old}); err != nil {
+		t.Fatalf("UpsertDaemonHeartbeat(stale) error = %v", err)
+	}
+	recovered, err := s.MarkStaleClaimedWorkerTasksReconciliationNeeded(ctx, now, 15*time.Minute)
+	if err != nil {
+		t.Fatalf("MarkStaleClaimedWorkerTasksReconciliationNeeded() error = %v", err)
+	}
+	if len(recovered) != 1 || recovered[0].TaskKey != task.TaskKey {
+		t.Fatalf("recovered = %+v; want expired lease with stale heartbeat recovered", recovered)
+	}
+}
+
+func TestClaimNextWorkerTaskClaimsAvailableRoleByPriority(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	now := time.Date(2026, 5, 24, 12, 0, 0, 0, time.UTC)
+	tasks := []WorkerTask{
+		{TaskKey: "implementation:CAG-low:1", Role: "implementation", IssueKey: "CAG-low", Attempt: 1, Status: "queued", Priority: 1, AvailableAt: now, UpdatedAt: now},
+		{TaskKey: "implementation:CAG-high:1", Role: "implementation", IssueKey: "CAG-high", Attempt: 1, Status: "queued", Priority: 10, AvailableAt: now, UpdatedAt: now},
+		{TaskKey: "implementation:CAG-later:1", Role: "implementation", IssueKey: "CAG-later", Attempt: 1, Status: "queued", Priority: 99, AvailableAt: now.Add(time.Hour), UpdatedAt: now},
+		{TaskKey: "review:CAG-review:1", Role: "review", IssueKey: "CAG-review", Attempt: 1, Status: "queued", Priority: 99, AvailableAt: now, UpdatedAt: now},
+	}
+	for _, task := range tasks {
+		if err := s.UpsertWorkerTask(ctx, task); err != nil {
+			t.Fatalf("UpsertWorkerTask(%s) error = %v", task.TaskKey, err)
+		}
+	}
+
+	claimed, ok, err := s.ClaimNextWorkerTask(ctx, "implementation", now)
+	if err != nil || !ok {
+		t.Fatalf("ClaimNextWorkerTask() ok=%v err=%v", ok, err)
+	}
+	if claimed.TaskKey != "implementation:CAG-high:1" || claimed.Status != "claimed" {
+		t.Fatalf("claimed task = %+v; want high priority implementation task", claimed)
+	}
+	next, ok, err := s.ClaimNextWorkerTask(ctx, "implementation", now)
+	if err != nil || !ok {
+		t.Fatalf("second ClaimNextWorkerTask() ok=%v err=%v", ok, err)
+	}
+	if next.TaskKey != "implementation:CAG-low:1" {
+		t.Fatalf("second claimed task = %+v; want low priority implementation task", next)
+	}
+	if _, ok, err := s.ClaimNextWorkerTask(ctx, "implementation", now); err != nil || ok {
+		t.Fatalf("third ClaimNextWorkerTask() ok=%v err=%v; want no available implementation task", ok, err)
+	}
+	review, ok, err := s.ClaimNextWorkerTask(ctx, "review", now)
+	if err != nil || !ok || review.TaskKey != "review:CAG-review:1" {
+		t.Fatalf("review ClaimNextWorkerTask() task=%+v ok=%v err=%v", review, ok, err)
+	}
+}
+
+func TestWorkerResultsUpsertAndFilterByRole(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	now := time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC)
+	if err := s.UpsertWorkerTask(ctx, WorkerTask{TaskKey: "continuous:merge", Role: "merge", Status: "claimed", AvailableAt: now, UpdatedAt: now}); err != nil {
+		t.Fatalf("UpsertWorkerTask() error = %v", err)
+	}
+	if err := s.UpsertWorkerResult(ctx, WorkerResult{TaskKey: "continuous:merge", Role: "merge", LaneName: "merge", Status: "completed", DidWork: true, Reason: "work_completed", Payload: json.RawMessage(`{"did_work":true}`), StartedAt: now, FinishedAt: now.Add(time.Second), UpdatedAt: now.Add(time.Second)}); err != nil {
+		t.Fatalf("UpsertWorkerResult() insert error = %v", err)
+	}
+	if err := s.UpsertWorkerResult(ctx, WorkerResult{TaskKey: "continuous:merge", Role: "merge", LaneName: "merge", Status: "failed", DidWork: false, Reason: "worker_error", Error: "boom", Payload: json.RawMessage(`{"error":"boom"}`), StartedAt: now, FinishedAt: now.Add(2 * time.Second), UpdatedAt: now.Add(2 * time.Second)}); err != nil {
+		t.Fatalf("UpsertWorkerResult() update error = %v", err)
+	}
+
+	results, err := s.WorkerResults(ctx, "merge")
+	if err != nil {
+		t.Fatalf("WorkerResults() error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results = %+v; want one", results)
+	}
+	result := results[0]
+	if result.TaskKey != "continuous:merge" || result.Status != "failed" || result.Reason != "worker_error" || result.Error != "boom" || result.DidWork {
+		t.Fatalf("result = %+v; want latest failed result", result)
+	}
+	counts, err := s.Counts(ctx)
+	if err != nil {
+		t.Fatalf("Counts() error = %v", err)
+	}
+	if counts.WorkerResults != 1 {
+		t.Fatalf("WorkerResults count = %d; want 1", counts.WorkerResults)
+	}
+}
+
+func TestWorkerPayloadRefsTrackPendingPayloads(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	now := time.Date(2026, 5, 24, 11, 0, 0, 0, time.UTC)
+	ref := WorkerPayloadRef{
+		Role:          "review",
+		Phase:         "review_pending",
+		IssueKey:      "CAG-184",
+		IssueID:       "issue-184",
+		Attempt:       1,
+		WorkspacePath: "/tmp/CAG-184",
+		BranchName:    "symphony/CAG-184-workspace",
+		PRURL:         "https://github.com/acme/repo/pull/184",
+		PayloadPath:   "/tmp/CAG-184/review-pending.json",
+		Status:        "pending",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := s.UpsertWorkerPayloadRef(ctx, ref); err != nil {
+		t.Fatalf("UpsertWorkerPayloadRef() error = %v", err)
+	}
+	refs, err := s.PendingWorkerPayloadRefs(ctx, "review", "review_pending")
+	if err != nil {
+		t.Fatalf("PendingWorkerPayloadRefs() error = %v", err)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("refs = %+v; want one pending ref", refs)
+	}
+	if refs[0].IssueKey != ref.IssueKey || refs[0].PayloadPath != ref.PayloadPath || refs[0].PRURL != ref.PRURL {
+		t.Fatalf("ref = %+v; want persisted review payload ref", refs[0])
+	}
+	if err := s.CompleteWorkerPayloadRef(ctx, refs[0], "completed", now.Add(time.Minute)); err != nil {
+		t.Fatalf("CompleteWorkerPayloadRef() error = %v", err)
+	}
+	refs, err = s.PendingWorkerPayloadRefs(ctx, "review", "review_pending")
+	if err != nil {
+		t.Fatalf("PendingWorkerPayloadRefs(after complete) error = %v", err)
+	}
+	if len(refs) != 0 {
+		t.Fatalf("refs after complete = %+v; want no pending refs", refs)
+	}
+	counts, err := s.Counts(ctx)
+	if err != nil {
+		t.Fatalf("Counts() error = %v", err)
+	}
+	if counts.WorkerPayloadRefs != 1 {
+		t.Fatalf("WorkerPayloadRefs count = %d; want 1", counts.WorkerPayloadRefs)
+	}
+}
+
+func TestPRHandoffIntentsTrackPendingAndResultIdempotently(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	now := time.Date(2026, 5, 24, 12, 0, 0, 0, time.UTC)
+	intent := PRHandoffIntent{
+		IssueKey:      "CAG-185",
+		IssueID:       "issue-185",
+		Attempt:       1,
+		WorkspacePath: "/tmp/CAG-185",
+		BranchName:    "symphony/CAG-185-workspace",
+		AgentPRURL:    "https://github.com/acme/repo/pull/old",
+		PayloadPath:   "/tmp/CAG-185/pr-handoff-pending.json",
+		Status:        PRHandoffIntentStatusPending,
+		UpdatedAt:     now,
+	}
+	if err := s.UpsertPRHandoffIntent(ctx, intent); err != nil {
+		t.Fatalf("UpsertPRHandoffIntent() error = %v", err)
+	}
+	if err := s.CompletePRHandoffIntent(ctx, intent.IssueKey, intent.Attempt, PRHandoffIntentStatusCompleted, "https://github.com/acme/repo/pull/185", "", now.Add(time.Minute)); err != nil {
+		t.Fatalf("CompletePRHandoffIntent() error = %v", err)
+	}
+	intent.AgentPRURL = "https://github.com/acme/repo/pull/new"
+	intent.UpdatedAt = now.Add(2 * time.Minute)
+	if err := s.UpsertPRHandoffIntent(ctx, intent); err != nil {
+		t.Fatalf("UpsertPRHandoffIntent(second) error = %v", err)
+	}
+	got, ok, err := s.PRHandoffIntent(ctx, intent.IssueKey, intent.Attempt)
+	if err != nil || !ok {
+		t.Fatalf("PRHandoffIntent() got ok=%t err=%v", ok, err)
+	}
+	if got.Status != PRHandoffIntentStatusCompleted || got.PRURL != "https://github.com/acme/repo/pull/185" || got.Result != "success" {
+		t.Fatalf("intent = %+v; want completed result preserved", got)
+	}
+	if got.AgentPRURL != intent.AgentPRURL {
+		t.Fatalf("intent AgentPRURL = %q, want latest pending evidence %q", got.AgentPRURL, intent.AgentPRURL)
+	}
+	counts, err := s.Counts(ctx)
+	if err != nil {
+		t.Fatalf("Counts() error = %v", err)
+	}
+	if counts.PRHandoffIntents != 1 {
+		t.Fatalf("PRHandoffIntents count = %d; want 1", counts.PRHandoffIntents)
+	}
+}
+
 func TestWorkerTaskClaimWaitsUntilAvailable(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
@@ -381,6 +658,45 @@ func TestInspectHealthToleratesPreWorkerTaskSchema(t *testing.T) {
 	}
 }
 
+func TestInspectHealthToleratesPreWorkerResultSchema(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx() error = %v", err)
+	}
+	if err := ensureMigrationTable(ctx, tx); err != nil {
+		t.Fatalf("ensureMigrationTable() error = %v", err)
+	}
+	if err := migrateV1(ctx, tx); err != nil {
+		t.Fatalf("migrateV1() error = %v", err)
+	}
+	if err := migrateV2(ctx, tx); err != nil {
+		t.Fatalf("migrateV2() error = %v", err)
+	}
+	if err := migrateV3(ctx, tx); err != nil {
+		t.Fatalf("migrateV3() error = %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit v3 db: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("Close seed db: %v", err)
+	}
+
+	health, err := InspectHealth(ctx, path)
+	if err != nil {
+		t.Fatalf("InspectHealth(v3) error = %v", err)
+	}
+	if !health.OK || health.SchemaVersion != 3 || health.Counts.WorkerResults != 0 {
+		t.Fatalf("health = %+v; want ok v3 with zero worker_results", health)
+	}
+}
+
 func TestAcquireLeaseComparesFractionalExpiryAsTime(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
@@ -479,12 +795,27 @@ func TestUpsertDaemonHeartbeatInsertsAndUpdatesLaneProcessRow(t *testing.T) {
 	defer s.Close()
 
 	firstSuccess := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
-	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "work", WorkflowPath: "/repo/WORKFLOW.md", CycleNumber: 1, LastSuccessAt: firstSuccess, UpdatedAt: firstSuccess}); err != nil {
+	activeStartedAt := firstSuccess.Add(-time.Minute)
+	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "work", WorkflowPath: "/repo/WORKFLOW.md", CycleNumber: 1, LastSuccessAt: firstSuccess, ActiveTaskKey: "continuous:work", ActiveTaskRole: "implementation", ActiveLeaseName: "lane:work", ActiveTaskStartedAt: activeStartedAt, UpdatedAt: firstSuccess}); err != nil {
 		t.Fatalf("UpsertDaemonHeartbeat() insert error = %v", err)
+	}
+	heartbeats, err := s.SnapshotHeartbeats(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(heartbeats) != 1 || heartbeats[0].ActiveTaskKey != "continuous:work" || heartbeats[0].ActiveTaskRole != "implementation" || heartbeats[0].ActiveLeaseName != "lane:work" || !heartbeats[0].ActiveTaskStartedAt.Equal(activeStartedAt) {
+		t.Fatalf("active heartbeat fields = %+v", heartbeats)
 	}
 	failedAt := firstSuccess.Add(time.Minute)
 	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "work", WorkflowPath: "/repo/WORKFLOW.md", CycleNumber: 2, LastError: "boom", RecoveryRequired: true, UpdatedAt: failedAt}); err != nil {
 		t.Fatalf("UpsertDaemonHeartbeat() update error = %v", err)
+	}
+	heartbeats, err = s.SnapshotHeartbeats(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(heartbeats) != 1 || heartbeats[0].ActiveTaskKey != "" || !heartbeats[0].ActiveTaskStartedAt.IsZero() {
+		t.Fatalf("active heartbeat fields after clear = %+v", heartbeats)
 	}
 
 	var count, cycle, recovery int
@@ -494,6 +825,45 @@ func TestUpsertDaemonHeartbeatInsertsAndUpdatesLaneProcessRow(t *testing.T) {
 	}
 	if count != 1 || cycle != 2 || lastSuccess != firstSuccess.Format(time.RFC3339Nano) || lastError != "boom" || recovery != 1 || updatedAt != failedAt.Format(time.RFC3339Nano) {
 		t.Fatalf("heartbeat row = count=%d cycle=%d last_success=%q last_error=%q recovery=%d updated_at=%q", count, cycle, lastSuccess, lastError, recovery, updatedAt)
+	}
+}
+
+func TestRequeueReconciliationNeededWorkerTaskRecordsRepairEvent(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	now := time.Date(2026, 5, 24, 15, 0, 0, 0, time.UTC)
+	task := WorkerTask{
+		TaskKey:     "merge:CAG-203:91",
+		Role:        "merge",
+		IssueKey:    "CAG-203",
+		IssueID:     "issue-203",
+		Attempt:     1,
+		Status:      WorkerTaskStatusReconciliationNeeded,
+		AvailableAt: now.Add(-time.Hour),
+		Payload:     json.RawMessage(`{"pr_number":91}`),
+		UpdatedAt:   now.Add(-time.Hour),
+	}
+	if err := s.UpsertWorkerTask(ctx, task); err != nil {
+		t.Fatalf("UpsertWorkerTask() error = %v", err)
+	}
+
+	requeued, err := s.RequeueReconciliationNeededWorkerTask(ctx, task.TaskKey, "operator verified task can retry", now)
+	if err != nil {
+		t.Fatalf("RequeueReconciliationNeededWorkerTask() error = %v", err)
+	}
+	if requeued.Status != WorkerTaskStatusQueued || !requeued.AvailableAt.Equal(now) {
+		t.Fatalf("requeued = %+v; want queued at repair time", requeued)
+	}
+	events, err := s.Events(ctx, EventFilter{IssueKey: task.IssueKey, Type: EventWorkerTaskRepaired})
+	if err != nil {
+		t.Fatalf("Events() error = %v", err)
+	}
+	if len(events) != 1 || events[0].IssueKey != task.IssueKey {
+		t.Fatalf("repair events = %+v; want one repair event", events)
 	}
 }
 
@@ -612,6 +982,64 @@ func TestUpsertRunArtifactReplacesRetryDecision(t *testing.T) {
 	}
 }
 
+func TestUpsertAttemptResultPersistsDecisionWithoutArtifactRefs(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+	now := time.Date(2026, 5, 24, 12, 0, 0, 0, time.UTC)
+	result := AttemptResult{
+		IssueKey:             "CAG-190",
+		IssueID:              "issue-190",
+		Attempt:              1,
+		WorkspacePath:        "/repo/.symphony/workspaces/CAG-190",
+		BranchName:           "symphony/CAG-190-workspace",
+		BaseBranch:           "main",
+		Status:               "review_not_ready",
+		StartedAt:            now.Add(-time.Minute),
+		UpdatedAt:            now,
+		Repository:           "weskor/pi-symphony",
+		PRNumber:             190,
+		PRURL:                "https://github.com/weskor/pi-symphony/pull/190",
+		ReviewStatus:         "failed",
+		ReviewClassification: "behavior_spec_blocker",
+		ReviewOutputRef:      "/tmp/review-output.txt",
+		ReviewOutputHash:     "review-output-hash",
+		FeedbackHash:         "feedback-hash",
+		FeedbackNextAction:   "retry_with_unresolved_pr_feedback",
+		RetryReason:          "waiting_for_checks",
+		RetryNextState:       "retry_after_backoff",
+		TerminalOutcome:      "waiting_for_checks",
+		TerminalReason:       "review not ready",
+	}
+	if err := s.UpsertAttemptResult(ctx, result); err != nil {
+		t.Fatalf("UpsertAttemptResult() error = %v", err)
+	}
+	facts, ok, err := s.ReconciliationFacts(ctx, "CAG-190")
+	if err != nil || !ok {
+		t.Fatalf("ReconciliationFacts() ok=%v err=%v", ok, err)
+	}
+	if facts.Status != "review_not_ready" || facts.PRURL != result.PRURL || facts.ReviewStatus != "failed" || facts.ReviewClassification != "behavior_spec_blocker" || facts.ReviewOutputRef != "/tmp/review-output.txt" || facts.ReviewOutputHash != "review-output-hash" || facts.FeedbackHash != "feedback-hash" || facts.FeedbackNextAction != "retry_with_unresolved_pr_feedback" || facts.RetryNextState != "retry_after_backoff" || facts.TerminalOutcome != "waiting_for_checks" {
+		t.Fatalf("facts = %+v; want typed attempt result facts", facts)
+	}
+	var artifactRefs int
+	if err := s.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM external_fact_snapshots WHERE source = 'artifact'`).Scan(&artifactRefs); err != nil {
+		t.Fatal(err)
+	}
+	if artifactRefs != 0 {
+		t.Fatalf("artifact refs = %d; want 0 for direct attempt result", artifactRefs)
+	}
+	events, err := s.Events(ctx, EventFilter{IssueKey: "CAG-190", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := eventTypes(events); !reflect.DeepEqual(got, []string{EventAttemptFinished, EventPRDetected, EventReviewCompleted, EventErrorRecorded}) {
+		t.Fatalf("events = %v; want typed attempt result events", got)
+	}
+}
+
 func TestOpenFailsClosedForFutureSchemaVersion(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "state.db")
@@ -698,6 +1126,14 @@ func eventIssueAttempts(events []Event) []string {
 	values := make([]string, 0, len(events))
 	for _, event := range events {
 		values = append(values, fmt.Sprintf("%s#%d", event.IssueKey, event.Attempt))
+	}
+	return values
+}
+
+func eventTypes(events []Event) []string {
+	values := make([]string, 0, len(events))
+	for _, event := range events {
+		values = append(values, event.Type)
 	}
 	return values
 }

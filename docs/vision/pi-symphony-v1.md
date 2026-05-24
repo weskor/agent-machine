@@ -61,8 +61,8 @@ future API, ACP-style, or MCP-style providers.
 
 Provider preflight should fail early before claiming or mutating work when the
 selected runtime is unavailable or not configured. Runtime capabilities such as
-review support, usage reporting, cancellation, `max_turns`, structured output,
-raw debug capture, and handoff hints should be declared explicitly.
+review support, usage reporting, cancellation, structured output, raw debug
+capture, and handoff hints should be declared explicitly.
 
 Git/PR handoff remains a runner invariant: commit/push/PR create-update, branch
 and base validation, PR URL validation, and artifact recording should be

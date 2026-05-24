@@ -73,7 +73,14 @@ func reviewEvidenceFromPRDetails(candidate *issue, workspace string, details prH
 }
 
 func collectReviewEvidence(config runnerConfig, candidate *issue, workspace, prURL string, scopeResult scopeGuardResult, validation []string) (reviewEvidence, error) {
-	github, ctx, cancel, err := githubClientWithTimeout(config.Budget.GitHubTimeout)
+	return collectReviewEvidenceContext(context.Background(), config, candidate, workspace, prURL, scopeResult, validation)
+}
+
+func collectReviewEvidenceContext(parent context.Context, config runnerConfig, candidate *issue, workspace, prURL string, scopeResult scopeGuardResult, validation []string) (reviewEvidence, error) {
+	if err := parent.Err(); err != nil {
+		return reviewEvidence{}, err
+	}
+	github, ctx, cancel, err := githubClientWithContextTimeout(parent, config.Budget.GitHubTimeout)
 	if err != nil {
 		return reviewEvidence{}, err
 	}
@@ -237,14 +244,21 @@ func reviewCommandWithHighReasoning(command string) string {
 }
 
 func runReview(reviewCommand, workspace string, candidate *issue, prURL string, env map[string]string, timeout time.Duration, evidence *reviewEvidence) (*reviewResult, error) {
-	return runReviewWithProvider(runtimeProviderPiCLI, reviewCommand, workspace, candidate, prURL, env, timeout, evidence)
+	return runReviewWithProviderContext(context.Background(), runtimeProviderPiCLI, reviewCommand, workspace, candidate, prURL, env, timeout, evidence)
 }
 
 // runReviewWithProvider performs a separate read-only Agent pass over the final
 // diff before the runner hands the Linear issue to Human Review.
 func runReviewWithProvider(provider, reviewCommand, workspace string, candidate *issue, prURL string, env map[string]string, timeout time.Duration, evidence *reviewEvidence) (*reviewResult, error) {
+	return runReviewWithProviderContext(context.Background(), provider, reviewCommand, workspace, candidate, prURL, env, timeout, evidence)
+}
+
+func runReviewWithProviderContext(ctx context.Context, provider, reviewCommand, workspace string, candidate *issue, prURL string, env map[string]string, timeout time.Duration, evidence *reviewEvidence) (*reviewResult, error) {
 	if strings.TrimSpace(reviewCommand) == "" {
 		return nil, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	prompt := reviewPrompt(candidate, prURL, workspace, reviewGuidanceFromEvidence(evidence), evidence)
 	runtime, err := newAgentRuntime(provider)
@@ -253,7 +267,7 @@ func runReviewWithProvider(provider, reviewCommand, workspace string, candidate 
 	}
 
 	started := time.Now()
-	runtimeResult, err := runtime.ReviewAttempt(context.Background(), candidate.Identifier, agentruntime.ReviewAttemptInput{Command: reviewCommandForProvider(provider, reviewCommand), WorkingDir: workspace, Prompt: prompt, PullRequest: prURL, Timeout: timeout, Environment: env}, agentruntime.NoopSink{})
+	runtimeResult, err := runtime.ReviewAttempt(ctx, candidate.Identifier, agentruntime.ReviewAttemptInput{Command: reviewCommandForProvider(provider, reviewCommand), WorkingDir: workspace, Prompt: prompt, PullRequest: prURL, Timeout: timeout, Environment: env}, agentruntime.NoopSink{})
 	log("review duration: %s", time.Since(started).Round(time.Second))
 	result := reviewResultFromRuntime(runtimeResult)
 	if result.Usage != nil {

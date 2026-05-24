@@ -143,7 +143,7 @@ func TestExplainCleanupDoesNotDeleteEligibleWorkspace(t *testing.T) {
 	}
 }
 
-func TestExplainCleanupUsesSQLiteReconciliationDecision(t *testing.T) {
+func TestExplainCleanupUsesSQLiteFactsDespiteStaleArtifactIdentity(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
 	workspace := filepath.Join(root, "CAG-138")
 	writeCleanRunArtifact(t, workspace, "success")
@@ -166,8 +166,8 @@ func TestExplainCleanupUsesSQLiteReconciliationDecision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(decisions) != 1 || decisions[0].Eligible || decisions[0].Category != "reconciliation-needed" || !strings.Contains(decisions[0].Reason, "conflicts") {
-		t.Fatalf("cleanup decisions = %+v, want SQLite reconciliation-needed conflict", decisions)
+	if len(decisions) != 1 || !decisions[0].Eligible || decisions[0].Category != "completed" || !strings.Contains(decisions[0].Reason, "SQLite issue CAG-138 is Done") {
+		t.Fatalf("cleanup decisions = %+v, want SQLite-backed completed decision despite stale artifact identity", decisions)
 	}
 	if _, err := os.Stat(workspace); err != nil {
 		t.Fatalf("explain cleanup mutated workspace: %v", err)

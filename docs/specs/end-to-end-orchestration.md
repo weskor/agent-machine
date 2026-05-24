@@ -61,13 +61,13 @@ implementation or review command executables for shell CLI providers are hard
 pre-claim failures.
 
 Provider capabilities should be explicit for implementation runs, review runs,
-usage/cost reporting, timeout/cancellation, `max_turns`/iteration limits,
-structured output, raw debug capture, and deterministic handoff support.
+usage/cost reporting, timeout/cancellation, structured output, raw debug
+capture, and deterministic handoff support.
 
 ## Happy path
 
 1. A Linear issue is written with Goal, Scope, Requirements, Acceptance Criteria, and Validation.
-2. The Candidate reconciliation Module determines that the issue is runnable and not blocked by active attempts, open PRs, stale artifacts, or missing external facts. After the relevant SQLite rollout phase, it uses SQLite for local claim/retry/reconciliation decisions, fresh Linear/GitHub for their external facts, and artifacts only as evidence exports or verified backfill inputs.
+2. The Candidate reconciliation Module determines that the issue is runnable and not blocked by active attempts, open PRs, durable reconciliation blockers, or missing external facts. After the relevant SQLite rollout phase, it uses SQLite for local claim/retry/reconciliation decisions, fresh Linear/GitHub for their external facts, and artifacts only as evidence exports or explicit reconciliation/backfill inputs.
 3. Pi Symphony claims the issue by recording a lease and heartbeat before mutating external state.
 4. Pi Symphony creates or refreshes an isolated Workspace for the attempt.
 5. The Agent attempt reads `AGENTS.md`, `CONTEXT.md`, `LANGUAGE.md`, relevant specs, relevant ADRs, and the Linear issue contract.
@@ -83,8 +83,8 @@ structured output, raw debug capture, and deterministic handoff support.
 12. Review runs when configured and classifies the semantic/spec result.
 13. Pi Symphony posts deterministic PR and Linear Handoff comments with behavior-contract evidence.
 14. The Linear issue moves to Human Review, Needs Info, Done, or another configured state according to the outcome.
-15. The merge lane merges only Symphony-owned PRs that pass all configured gates.
-16. Cleanup deletes only workspaces that are safe by current cleanup policy and records cleanup state.
+15. The scheduler queues merge tasks for current Symphony-owned Human Review PRs, and the merge lane claims those durable tasks, refreshes GitHub/Linear/SQLite facts, and merges only PRs that pass all configured gates.
+16. The scheduler queues cleanup tasks for current workspaces, and the cleanup lane claims those durable tasks, refreshes Done/SQLite/workspace facts, deletes only workspaces that are safe by current cleanup policy, and records cleanup state.
 
 During the attempt, Pi Symphony updates a compact local progress snapshot for the
 issue so operators can inspect current phase, PR URL, review/check state, next
@@ -132,15 +132,10 @@ Terminal failure must include the failing phase, evidence pointer, and side effe
 ### Scheduler parameter contract (runtime semantics)
 
 - `max_concurrent_agents`:
-  - Current CLI runtime behavior: the implementation lane deterministically claims up to `agent.max_concurrent_agents` distinct runnable attempts per scheduler cycle, then executes the claimed attempts concurrently.
+  - Current CLI runtime behavior: the continuous scheduler lane deterministically enqueues cleanup tasks for current workspaces, merge tasks for current Symphony-owned Human Review PRs, plus up to `agent.max_concurrent_agents` distinct runnable review-resume tasks and implementation tasks per scheduler cycle. The cleanup lane claims queued cleanup tasks, the merge lane claims queued merge tasks, the handoff lane claims pending PR/final handoff payload refs, the review lane claims queued review-resume tasks after pending review payload refs, and the implementation lane claims up to `agent.max_concurrent_agents` queued implementation tasks before executing the claimed attempts concurrently.
   - Default of `1` preserves current behavior.
   - Invalid/zero handling is delegated to configuration parsing, which currently falls back to `1` for missing/malformed/negative values.
-  - Duplicate dispatch protection remains authoritative in candidate selection, reusable terminal artifact checks, run locks, and SQLite leases before Agent execution starts; increasing capacity must not intentionally bypass those protections.
-- `max_turns`:
-  - Current one-shot shell CLI runtime behavior: no multi-turn loop exists today, so missing, invalid, zero, or `1` resolves to exactly one implementation attempt for the selected issue.
-  - A normalized value greater than `1` is unsupported for `codex_cli` and `pi_cli` and fails runtime preflight before claim, lease acquisition, workspace mutation, Linear state movement, or Agent execution.
-  - The failure is an operator-facing configuration error that names the selected provider, the configured value, and the remediation: set `agent.max_turns: 1` or use a future provider with a proven multi-turn contract.
-  - The runner must not approximate multi-turn behavior by issuing multiple independent one-shot CLI attempts.
+  - Duplicate dispatch protection remains authoritative in candidate selection, durable implementation worker tasks, run locks, and SQLite leases before Agent execution starts; increasing capacity must not intentionally bypass those protections.
 - `max_retry_backoff_ms`:
   - Current CLI runtime behavior: parsed for configuration storage only; no scheduler delay/backoff is applied before retry.
   - Default is `300000` ms.
@@ -148,11 +143,11 @@ Terminal failure must include the failing phase, evidence pointer, and side effe
 
 ### Retry/backoff persistence and process restart expectations
 
-- Current retry continuation is evidence-based (run/feedback artifacts), not scheduler-state-based:
-  - `.pi-symphony-run.json` is the source for terminal outcome and PR URL reuse.
-  - `.pi-symphony-feedback.md` is the source for whether a retry can continue on captured feedback.
-- There is no persisted backoff timer state in the current runner that survives restart.
-- A restart may still continue or re-attempt work based on preserved artifacts, but timing/backoff policy is not yet durable/portable across restarts.
+- Current retry continuation is SQLite-state-based for implementation scheduling:
+  - retry rows record retry/backoff timing and next action;
+  - review classification and PR mapping rows decide repairable review-failed retries;
+  - run/evaluation/feedback artifacts remain compatibility evidence and repair inputs, not the scheduler queue when SQLite is available.
+- Process restarts preserve retry-delay state through SQLite.
 - Future retry/backoff implementations should move backoff state to durable local state (SQLite in the v1 orchestration target).
 
 ## Quality evidence

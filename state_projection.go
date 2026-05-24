@@ -18,6 +18,44 @@ import (
 type stateProjection struct{}
 
 func (stateProjection) RunArtifact(workspace string, record runRecord, evaluation evaluationArtifact) state.RunArtifactSnapshot {
+	result := stateProjection{}.AttemptResult(workspace, record, evaluation)
+	return state.RunArtifactSnapshot{
+		SchemaVersion:         state.CurrentSchemaVersion,
+		ArtifactSchemaVersion: evaluationArtifactSchemaVersion(evaluation),
+		ArtifactSchemaSource:  evaluationArtifactSchemaSource(evaluation),
+		IssueKey:              result.IssueKey,
+		IssueID:               result.IssueID,
+		Attempt:               result.Attempt,
+		WorkspacePath:         result.WorkspacePath,
+		BranchName:            result.BranchName,
+		BaseBranch:            result.BaseBranch,
+		Status:                result.Status,
+		StartedAt:             result.StartedAt,
+		UpdatedAt:             result.UpdatedAt,
+		Repository:            result.Repository,
+		PRNumber:              result.PRNumber,
+		PRURL:                 result.PRURL,
+		ReviewStatus:          result.ReviewStatus,
+		ReviewPassed:          result.ReviewPassed,
+		ReviewClassification:  result.ReviewClassification,
+		ReviewOutputRef:       result.ReviewOutputRef,
+		ReviewOutputHash:      result.ReviewOutputHash,
+		MergeEligible:         result.MergeEligible,
+		FeedbackHash:          result.FeedbackHash,
+		FeedbackNextAction:    result.FeedbackNextAction,
+		RetryCount:            result.RetryCount,
+		RetryBudgetState:      result.RetryBudgetState,
+		RetryReason:           result.RetryReason,
+		RetryInputHash:        result.RetryInputHash,
+		RetryNextState:        result.RetryNextState,
+		TerminalOutcome:       result.TerminalOutcome,
+		TerminalReason:        result.TerminalReason,
+		RunArtifactRef:        filepath.Join(workspace, ".pi-symphony-run.json"),
+		EvaluationRef:         filepath.Join(workspace, evaluationArtifactName),
+	}
+}
+
+func (stateProjection) AttemptResult(workspace string, record runRecord, evaluation evaluationArtifact) state.AttemptResult {
 	repo, prNumber := parseGitHubPR(record.PRURL)
 	reviewHash := ""
 	if strings.TrimSpace(record.ReviewFindings) != "" {
@@ -37,7 +75,49 @@ func (stateProjection) RunArtifact(workspace string, record runRecord, evaluatio
 		snapshot.RetryReason = firstNonEmpty(record.Error, record.BudgetExceeded, record.Status)
 		snapshot.RetryNextState = "retry_after_backoff"
 	}
-	return snapshot
+	return state.AttemptResult{
+		IssueKey:             snapshot.IssueKey,
+		IssueID:              snapshot.IssueID,
+		Attempt:              snapshot.Attempt,
+		WorkspacePath:        snapshot.WorkspacePath,
+		BranchName:           snapshot.BranchName,
+		BaseBranch:           snapshot.BaseBranch,
+		Status:               snapshot.Status,
+		StartedAt:            snapshot.StartedAt,
+		UpdatedAt:            snapshot.UpdatedAt,
+		Repository:           snapshot.Repository,
+		PRNumber:             snapshot.PRNumber,
+		PRURL:                snapshot.PRURL,
+		ReviewStatus:         snapshot.ReviewStatus,
+		ReviewPassed:         snapshot.ReviewPassed,
+		ReviewClassification: snapshot.ReviewClassification,
+		ReviewOutputRef:      snapshot.ReviewOutputRef,
+		ReviewOutputHash:     snapshot.ReviewOutputHash,
+		MergeEligible:        snapshot.MergeEligible,
+		FeedbackHash:         snapshot.FeedbackHash,
+		FeedbackNextAction:   snapshot.FeedbackNextAction,
+		RetryCount:           snapshot.RetryCount,
+		RetryBudgetState:     snapshot.RetryBudgetState,
+		RetryReason:          snapshot.RetryReason,
+		RetryInputHash:       snapshot.RetryInputHash,
+		RetryNextState:       snapshot.RetryNextState,
+		TerminalOutcome:      snapshot.TerminalOutcome,
+		TerminalReason:       snapshot.TerminalReason,
+	}
+}
+
+func evaluationArtifactSchemaVersion(evaluation evaluationArtifact) int {
+	if evaluation.SchemaVersion != 0 {
+		return evaluation.SchemaVersion
+	}
+	return artifactio.CurrentArtifactSchemaVersion
+}
+
+func evaluationArtifactSchemaSource(evaluation evaluationArtifact) string {
+	if evaluation.SchemaSource != "" {
+		return evaluation.SchemaSource
+	}
+	return artifactio.ArtifactSchemaSourceCurrent
 }
 
 func retryableRunStatus(status string) bool {
@@ -118,14 +198,18 @@ func (stateProjection) DaemonHeartbeat(processID string, config runnerConfig, he
 		lastSuccessAt = heartbeat.At
 	}
 	return state.DaemonHeartbeat{
-		ProcessID:        processID,
-		LaneName:         heartbeat.LaneName,
-		WorkflowPath:     config.WorkflowPath,
-		CycleNumber:      heartbeat.CycleNumber,
-		LastSuccessAt:    lastSuccessAt,
-		LastError:        lastError,
-		RecoveryRequired: heartbeat.Err != nil,
-		UpdatedAt:        heartbeat.At,
+		ProcessID:           processID,
+		LaneName:            heartbeat.LaneName,
+		WorkflowPath:        config.WorkflowPath,
+		CycleNumber:         heartbeat.CycleNumber,
+		LastSuccessAt:       lastSuccessAt,
+		LastError:           lastError,
+		RecoveryRequired:    heartbeat.Err != nil,
+		ActiveTaskKey:       heartbeat.ActiveTaskKey,
+		ActiveTaskRole:      heartbeat.ActiveTaskRole,
+		ActiveLeaseName:     heartbeat.ActiveLeaseName,
+		ActiveTaskStartedAt: heartbeat.ActiveTaskStartedAt,
+		UpdatedAt:           heartbeat.At,
 	}
 }
 

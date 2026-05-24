@@ -68,20 +68,46 @@ func newReconciliationModule(reader reconciliationStateReader) reconciliationMod
 }
 
 func reconcileIssue(config runnerConfig, candidate issue, pr *pullRequestSummary) reconciliationDecision {
-	return newReconciliationModule(nil).ReconcileIssue(config, candidate, pr)
+	return reconcileIssueContext(context.Background(), config, candidate, pr)
+}
+
+func reconcileIssueContext(ctx context.Context, config runnerConfig, candidate issue, pr *pullRequestSummary) reconciliationDecision {
+	return newReconciliationModule(nil).ReconcileIssueContext(ctx, config, candidate, pr)
 }
 
 func reconcileIssueWithArtifact(config runnerConfig, candidate issue, pr *pullRequestSummary, artifact *artifactSummary) reconciliationDecision {
-	return newReconciliationModule(nil).ReconcileIssueWithArtifact(config, candidate, pr, artifact)
+	return reconcileIssueWithArtifactContext(context.Background(), config, candidate, pr, artifact)
+}
+
+func reconcileIssueWithArtifactContext(ctx context.Context, config runnerConfig, candidate issue, pr *pullRequestSummary, artifact *artifactSummary) reconciliationDecision {
+	return newReconciliationModule(nil).ReconcileIssueWithArtifactContext(ctx, config, candidate, pr, artifact)
 }
 
 func (m reconciliationModule) ReconcileIssue(config runnerConfig, candidate issue, pr *pullRequestSummary) reconciliationDecision {
-	return m.ReconcileIssueWithArtifact(config, candidate, pr, nil)
+	return m.ReconcileIssueContext(context.Background(), config, candidate, pr)
+}
+
+func (m reconciliationModule) ReconcileIssueContext(ctx context.Context, config runnerConfig, candidate issue, pr *pullRequestSummary) reconciliationDecision {
+	return m.ReconcileIssueWithArtifactContext(ctx, config, candidate, pr, nil)
 }
 
 func (m reconciliationModule) ReconcileIssueWithArtifact(config runnerConfig, candidate issue, pr *pullRequestSummary, artifact *artifactSummary) reconciliationDecision {
+	return m.ReconcileIssueWithArtifactContext(context.Background(), config, candidate, pr, artifact)
+}
+
+func (m reconciliationModule) ReconcileIssueWithArtifactContext(ctx context.Context, config runnerConfig, candidate issue, pr *pullRequestSummary, artifact *artifactSummary) reconciliationDecision {
 	workspace := filepath.Join(config.WorkspaceRoot, candidate.Identifier)
 	decision := reconciliationDecision{IssueIdentifier: candidate.Identifier, StateName: candidate.State.Name, Lifecycle: lifecycleReady, NextAction: "run_agent"}
+	if err := ctx.Err(); err != nil {
+		decision.StateStoreError = err
+		decision.ReconciliationNeeded = true
+		decision.block(lifecycleBlocked, fmt.Sprintf("reconciliation context canceled: %v", err), "retry_when_worker_context_active")
+		return decision
+	}
+	stateBacked := m.reader != nil
+	artifactOnlyEvidence := false
+	artifactConflict := false
+	missingStateBackedPRFacts := false
 	if pr != nil {
 		copy := *pr
 		decision.PR = &copy
@@ -89,11 +115,11 @@ func (m reconciliationModule) ReconcileIssueWithArtifact(config runnerConfig, ca
 	if artifact != nil {
 		copy := *artifact
 		decision.Artifact = &copy
-		if copy.HasArtifact && terminalRunStatus(copy.Status) {
+		if !stateBacked && copy.HasArtifact && terminalRunStatus(copy.Status) {
 			decision.RunRecord = &runRecord{Status: copy.Status, PRURL: copy.PRURL, ReviewStatus: copy.Review}
 		}
 	}
-	if facts, ok, err := m.reconciliationFacts(context.Background(), candidate.Identifier); err != nil {
+	if facts, ok, err := m.reconciliationFacts(ctx, candidate.Identifier); err != nil {
 		decision.StateStoreError = err
 		decision.ReconciliationNeeded = true
 	} else if ok {
@@ -104,15 +130,22 @@ func (m reconciliationModule) ReconcileIssueWithArtifact(config runnerConfig, ca
 		if facts.PRURL != "" && pr == nil {
 			decision.ReconciliationNeeded = true
 		}
-		if artifact != nil && artifact.HasArtifact && facts.Status != "" && artifact.Status != "" && artifact.Status != facts.Status {
+	} else if stateBacked && pr != nil {
+		missingStateBackedPRFacts = true
+		decision.ReconciliationNeeded = true
+	}
+	if stateBacked && artifact != nil && artifact.HasArtifact {
+		if decision.DBFacts == nil || decision.DBFacts.Status == "" {
+			artifactOnlyEvidence = true
+			decision.ReconciliationNeeded = true
+		} else if artifact.Status != "" && artifact.Status != decision.DBFacts.Status {
+			artifactConflict = true
 			decision.ReconciliationNeeded = true
 		}
 	}
-	if record, ok := readRunArtifact(workspace); ok {
-		if decision.DBFacts == nil || decision.DBFacts.Status == "" {
+	if !stateBacked {
+		if record, ok := readRunArtifact(workspace); ok {
 			decision.RunRecord = &record
-		} else if record.Status != decision.DBFacts.Status || record.PRURL != decision.DBFacts.PRURL {
-			decision.ReconciliationNeeded = true
 		}
 	}
 	if isBlockedCandidate(candidate) {
@@ -127,13 +160,25 @@ func (m reconciliationModule) ReconcileIssueWithArtifact(config runnerConfig, ca
 		decision.block(lifecycleBlocked, fmt.Sprintf("SQLite reconciliation state unavailable: %v", decision.StateStoreError), "repair_sqlite_state_store")
 		return decision
 	}
-	if active, err := m.activeRunLease(context.Background(), candidate.Identifier); err != nil {
+	if missingStateBackedPRFacts {
+		decision.block(lifecycleBlocked, "SQLite has no attempt state for current PR", "repair_sqlite_state_store")
+		return decision
+	}
+	if active, err := m.activeRunLease(ctx, candidate.Identifier); err != nil {
 		decision.StateStoreError = err
 		decision.ReconciliationNeeded = true
 		decision.block(lifecycleBlocked, fmt.Sprintf("SQLite run lease unavailable: %v", err), "repair_sqlite_state_store")
 		return decision
 	} else if active {
 		decision.block(lifecycleRunning, "active SQLite run lease exists", "wait_for_or_release_run_lease")
+		return decision
+	}
+	if artifactOnlyEvidence {
+		decision.block(lifecycleBlocked, "artifact exists without SQLite attempt state", "repair_sqlite_state_store")
+		return decision
+	}
+	if artifactConflict {
+		decision.block(lifecycleBlocked, "artifact state conflicts with SQLite attempt state", "repair_artifact_or_sqlite_state")
 		return decision
 	}
 	if candidate.State.Name == config.NeedsInfoState {
@@ -148,6 +193,11 @@ func (m reconciliationModule) ReconcileIssueWithArtifact(config runnerConfig, ca
 		if decision.DBFacts != nil && decision.DBFacts.PRURL != "" && decision.DBFacts.PRURL != pr.URL {
 			decision.ReconciliationNeeded = true
 		}
+		if decision.DBFacts != nil && strings.TrimSpace(decision.DBFacts.Status) == "" {
+			decision.ReconciliationNeeded = true
+			decision.block(lifecycleBlocked, "SQLite attempt status is missing for current PR", "repair_sqlite_state_store")
+			return decision
+		}
 		decision.applyPRInvariants(config, candidate, workspace, *pr)
 		return decision
 	}
@@ -155,7 +205,11 @@ func (m reconciliationModule) ReconcileIssueWithArtifact(config runnerConfig, ca
 		decision.block(lifecycleBlocked, "SQLite PR mapping has no current open PR", "reconcile_missing_or_closed_pr_mapping")
 		return decision
 	}
-	if hasUnresolvedReviewFailure(config.WorkspaceRoot, candidate.Identifier) {
+	if stateBacked && decision.DBFacts != nil && decision.DBFacts.Status == runAttemptStatusReviewFailed {
+		decision.block(lifecycleReviewFailed, "SQLite review-failed attempt is unresolved", "repair_review_findings_before_retry")
+		return decision
+	}
+	if !stateBacked && hasUnresolvedReviewFailure(config.WorkspaceRoot, candidate.Identifier) {
 		decision.block(lifecycleReviewFailed, "prior review-failure findings are unresolved", "repair_review_findings_before_retry")
 		return decision
 	}
@@ -169,6 +223,13 @@ func (m reconciliationModule) ReconcileIssueWithArtifact(config runnerConfig, ca
 }
 
 func runReconciliationScan(client linearClient, config runnerConfig, store *state.Store) (bool, error) {
+	return runReconciliationScanContext(context.Background(), client, config, store)
+}
+
+func runReconciliationScanContext(ctx context.Context, client linearClient, config runnerConfig, store *state.Store) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	if store == nil {
 		return false, fmt.Errorf("SQLite state store unavailable for reconciliation worker at %s", state.DefaultDBPath(config.WorkspaceRoot))
 	}
@@ -186,7 +247,7 @@ func runReconciliationScan(client linearClient, config runnerConfig, store *stat
 	}
 	prsByIssue := indexPRsByIssue(prs)
 	artifactIndex := indexArtifacts(artifacts)
-	decisions := newReconciliationModule(store).ReconcileIssues(config, issues, prsByIssue, artifactIndex.byIssue)
+	decisions := newReconciliationModule(store).ReconcileIssuesContext(ctx, config, issues, prsByIssue, artifactIndex.byIssue)
 	decisions = repairableReviewFailedReconciliationDecisions(config, issues, prsByIssue, decisions)
 	issueIDs := map[string]string{}
 	for _, issue := range issues {
@@ -197,7 +258,7 @@ func runReconciliationScan(client linearClient, config runnerConfig, store *stat
 		if !decision.ReconciliationNeeded && !decision.ShouldQuarantine {
 			continue
 		}
-		if err := recordReconciliationNeededEvent(store, decision, issueIDs[decision.IssueIdentifier]); err != nil {
+		if err := recordReconciliationNeededEventContext(ctx, store, decision, issueIDs[decision.IssueIdentifier]); err != nil {
 			return true, err
 		}
 		recorded++
@@ -207,6 +268,10 @@ func runReconciliationScan(client linearClient, config runnerConfig, store *stat
 }
 
 func recordReconciliationNeededEvent(store *state.Store, decision reconciliationDecision, issueID string) error {
+	return recordReconciliationNeededEventContext(context.Background(), store, decision, issueID)
+}
+
+func recordReconciliationNeededEventContext(ctx context.Context, store *state.Store, decision reconciliationDecision, issueID string) error {
 	if store == nil {
 		return nil
 	}
@@ -237,7 +302,7 @@ func recordReconciliationNeededEvent(store *state.Store, decision reconciliation
 		payload["artifact_pr_url"] = decision.Artifact.PRURL
 		payload["artifact_outcome"] = decision.Artifact.Outcome
 	}
-	_, err := store.AppendEvent(context.Background(), state.EventInput{
+	_, err := store.AppendEvent(ctx, state.EventInput{
 		OccurredAt: time.Now().UTC(),
 		IssueKey:   decision.IssueIdentifier,
 		IssueID:    issueID,
@@ -272,10 +337,18 @@ func (m reconciliationModule) activeRunLease(ctx context.Context, issueKey strin
 }
 
 func reconcileIssues(config runnerConfig, issues []issue, prsByIssue map[string]*pullRequestSummary, artifactsByIssue map[string]artifactSummary) []reconciliationDecision {
-	return newReconciliationModule(nil).ReconcileIssues(config, issues, prsByIssue, artifactsByIssue)
+	return reconcileIssuesContext(context.Background(), config, issues, prsByIssue, artifactsByIssue)
+}
+
+func reconcileIssuesContext(ctx context.Context, config runnerConfig, issues []issue, prsByIssue map[string]*pullRequestSummary, artifactsByIssue map[string]artifactSummary) []reconciliationDecision {
+	return newReconciliationModule(nil).ReconcileIssuesContext(ctx, config, issues, prsByIssue, artifactsByIssue)
 }
 
 func (m reconciliationModule) ReconcileIssues(config runnerConfig, issues []issue, prsByIssue map[string]*pullRequestSummary, artifactsByIssue map[string]artifactSummary) []reconciliationDecision {
+	return m.ReconcileIssuesContext(context.Background(), config, issues, prsByIssue, artifactsByIssue)
+}
+
+func (m reconciliationModule) ReconcileIssuesContext(ctx context.Context, config runnerConfig, issues []issue, prsByIssue map[string]*pullRequestSummary, artifactsByIssue map[string]artifactSummary) []reconciliationDecision {
 	decisions := make([]reconciliationDecision, 0, len(issues))
 	for _, issue := range issues {
 		var artifact *artifactSummary
@@ -288,7 +361,7 @@ func (m reconciliationModule) ReconcileIssues(config runnerConfig, issues []issu
 		if prsByIssue != nil {
 			pr = prsByIssue[issue.Identifier]
 		}
-		decisions = append(decisions, m.ReconcileIssueWithArtifact(config, issue, pr, artifact))
+		decisions = append(decisions, m.ReconcileIssueWithArtifactContext(ctx, config, issue, pr, artifact))
 	}
 	return decisions
 }
@@ -348,7 +421,7 @@ func (d *reconciliationDecision) applyPRInvariants(config runnerConfig, candidat
 		d.ShouldRetry = true
 		return
 	}
-	if canRetryReviewReadiness(config, candidate, pr, d.RunRecord) {
+	if canRetryReviewReadiness(config, candidate, pr, d.DBFacts) {
 		d.Lifecycle = lifecycleRunning
 		d.CanRun = true
 		d.CanMerge = false
@@ -368,7 +441,7 @@ func (d *reconciliationDecision) applyPRInvariants(config runnerConfig, candidat
 		d.block(lifecycleHandoffReady, reason, "wait_for_green_mergeable_pr")
 		return
 	}
-	if reason := runArtifactMergeBlockReason(config.WorkspaceRoot, candidate.Identifier, pr.URL); reason != "" {
+	if reason := d.mergeStateBlockReason(config, candidate, pr); reason != "" {
 		d.block(lifecycleQuarantined, reason, "repair_run_artifact_before_merge")
 		d.ShouldQuarantine = true
 		return
@@ -382,6 +455,29 @@ func (d *reconciliationDecision) applyPRInvariants(config runnerConfig, candidat
 	d.NextAction = "merge_approved_pr"
 }
 
+func (d reconciliationDecision) mergeStateBlockReason(config runnerConfig, candidate issue, pr pullRequestSummary) string {
+	if d.DBFacts != nil {
+		return sqliteMergeBlockReason(*d.DBFacts, pr.URL)
+	}
+	return runArtifactMergeBlockReason(config.WorkspaceRoot, candidate.Identifier, pr.URL)
+}
+
+func sqliteMergeBlockReason(facts state.ReconciliationFacts, prURL string) string {
+	if strings.TrimSpace(facts.PRURL) != "" && strings.TrimSpace(prURL) != "" && strings.TrimSpace(facts.PRURL) != strings.TrimSpace(prURL) {
+		return fmt.Sprintf("SQLite PR URL %s does not match candidate PR %s", facts.PRURL, prURL)
+	}
+	if facts.Status != runAttemptStatusSuccess {
+		return fmt.Sprintf("run status is %s", emptyAsUnknown(facts.Status))
+	}
+	if facts.ReviewStatus == "passed" {
+		return ""
+	}
+	if facts.ReviewStatus == "failed" && facts.ReviewClassification == reviewClassificationMissingEvidenceOnly {
+		return ""
+	}
+	return fmt.Sprintf("review status is %s", emptyAsUnknown(facts.ReviewStatus))
+}
+
 func (d *reconciliationDecision) block(state lifecycleState, reason, next string) {
 	d.Lifecycle = state
 	d.CanRun = false
@@ -390,25 +486,18 @@ func (d *reconciliationDecision) block(state lifecycleState, reason, next string
 	d.NextAction = next
 }
 
-func canRetryReviewReadiness(config runnerConfig, candidate issue, pr pullRequestSummary, record *runRecord) bool {
+func canRetryReviewReadiness(config runnerConfig, candidate issue, pr pullRequestSummary, facts *state.ReconciliationFacts) bool {
 	if !stateIsRunnable(candidate.State.Name, config) {
 		return false
 	}
-	snapshot, err := readRunProgress(config.WorkspaceRoot, candidate.Identifier)
-	if err != nil {
-		return false
-	}
-	if snapshot.Phase != "review_not_ready" {
-		return false
-	}
-	if strings.TrimSpace(snapshot.PRURL) != "" && snapshot.PRURL != pr.URL {
-		return false
-	}
-	if record != nil && record.Status != runAttemptStatusReviewNotReady {
-		return false
-	}
 	status, _ := reviewChecksStatus(pr.StatusCheckRollup)
-	return status == "success"
+	if status != "success" {
+		return false
+	}
+	if facts == nil || facts.Status == "" {
+		return false
+	}
+	return facts.Status == runAttemptStatusReviewNotReady && (strings.TrimSpace(facts.PRURL) == "" || facts.PRURL == pr.URL)
 }
 
 func prInvariantBlockReason(config runnerConfig, candidate issue, pr pullRequestSummary) string {

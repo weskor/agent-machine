@@ -58,6 +58,55 @@ func TestLockManagerLifecycleTable(t *testing.T) {
 	}
 }
 
+func TestLockManagerAcquireContextHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	workspace := filepath.Join(t.TempDir(), "CAG-199")
+
+	_, _, err := (LockManager{}).AcquireContext(ctx, workspace, &domain.Issue{Identifier: "CAG-199", ID: "issue-id"}, "symphony/CAG-199-workspace", time.Now())
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("AcquireContext() error = %v; want context.Canceled", err)
+	}
+	if _, statErr := os.Stat(workspace); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("workspace stat error = %v; want workspace not created", statErr)
+	}
+}
+
+func TestLockManagerMirrorAcquireContextHonorsCanceledContext(t *testing.T) {
+	store, err := state.Open(context.Background(), filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	lock := domain.RunLock{Owner: Owner(), PID: os.Getpid(), Host: Hostname(), IssueIdentifier: "CAG-199", IssueID: "issue-id", Branch: "symphony/CAG-199-workspace", Workspace: filepath.Join(t.TempDir(), "CAG-199"), StartedAt: now, HeartbeatAt: now}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	(LockManager{StateStore: store}).MirrorAcquireContext(ctx, lock)
+
+	if _, ok, err := store.Lease(context.Background(), RunLockLeaseName(lock)); err != nil || ok {
+		t.Fatalf("Lease() ok=%t err=%v; want no mirrored lease after cancellation", ok, err)
+	}
+}
+
+func TestLockManagerCleanupStaleContextHonorsCanceledContext(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	workspace := filepath.Join(t.TempDir(), "CAG-199")
+	writeLockFixture(t, workspace, domain.RunLock{Workspace: workspace, IssueIdentifier: "CAG-199", Host: "other", PID: os.Getpid(), HeartbeatAt: now.Add(-RunLockStaleAfter - time.Second)})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	removed, err := (LockManager{}).CleanupStaleContext(ctx, filepath.Dir(workspace), now)
+
+	if !errors.Is(err, context.Canceled) || removed != 0 {
+		t.Fatalf("CleanupStaleContext() = (%d, %v), want canceled no removals", removed, err)
+	}
+	if _, err := os.Stat(Path(workspace)); err != nil {
+		t.Fatalf("lock file stat after canceled cleanup = %v; want lock retained", err)
+	}
+}
+
 func TestLockManagerReclaimsDeadOwnerSQLiteLease(t *testing.T) {
 	ctx := context.Background()
 	store, err := state.Open(ctx, filepath.Join(t.TempDir(), "state.db"))

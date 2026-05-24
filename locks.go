@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"time"
 
 	"github.com/weskor/pi-symphony/internal/state"
@@ -25,14 +26,30 @@ func acquireRunLock(workspace string, candidate *issue, branch string, now time.
 	return runLockManager().Acquire(workspace, candidate, branch, now)
 }
 
+func acquireRunLockContext(ctx context.Context, workspace string, candidate *issue, branch string, now time.Time) (*runLock, func(), error) {
+	return runLockManager().AcquireContext(ctx, workspace, candidate, branch, now)
+}
+
 func acquireRunLockWithState(store *state.Store, workspace string, candidate *issue, branch string, now time.Time) (*runLock, func(), error) {
 	return runLockManagerWithState(store).Acquire(workspace, candidate, branch, now)
 }
 
+func acquireRunLockWithStateContext(ctx context.Context, store *state.Store, workspace string, candidate *issue, branch string, now time.Time) (*runLock, func(), error) {
+	return runLockManagerWithState(store).AcquireContext(ctx, workspace, candidate, branch, now)
+}
+
 func heartbeatRunLock(workspace string, at time.Time) { runLockManager().Heartbeat(workspace, at) }
+
+func heartbeatRunLockContext(ctx context.Context, workspace string, at time.Time) {
+	runLockManager().HeartbeatContext(ctx, workspace, at)
+}
 
 func heartbeatRunLockWithState(store *state.Store, workspace string, at time.Time) {
 	runLockManagerWithState(store).Heartbeat(workspace, at)
+}
+
+func heartbeatRunLockWithStateContext(ctx context.Context, store *state.Store, workspace string, at time.Time) {
+	runLockManagerWithState(store).HeartbeatContext(ctx, workspace, at)
 }
 
 func describeExistingRunLock(path string, now time.Time) error { return ws.DescribeExisting(path, now) }
@@ -41,16 +58,36 @@ func cleanupStaleRunLocks(workspaceRoot string, now time.Time) (int, error) {
 	return runLockManager().CleanupStale(workspaceRoot, now)
 }
 
+func cleanupStaleRunLocksContext(ctx context.Context, workspaceRoot string, now time.Time) (int, error) {
+	return runLockManager().CleanupStaleContext(ctx, workspaceRoot, now)
+}
+
 func cleanupStaleRunLocksWithState(store *state.Store, workspaceRoot string, now time.Time) (int, error) {
 	return runLockManagerWithState(store).CleanupStale(workspaceRoot, now)
 }
 
+func cleanupStaleRunLocksWithStateContext(ctx context.Context, store *state.Store, workspaceRoot string, now time.Time) (int, error) {
+	return runLockManagerWithState(store).CleanupStaleContext(ctx, workspaceRoot, now)
+}
+
 func mirrorRunLockAcquire(lock runLock) { runLockManager().MirrorAcquire(lock) }
+
+func mirrorRunLockAcquireContext(ctx context.Context, lock runLock) {
+	runLockManager().MirrorAcquireContext(ctx, lock)
+}
 
 func mirrorRunLockRenew(lock runLock) { runLockManager().MirrorRenew(lock) }
 
+func mirrorRunLockRenewContext(ctx context.Context, lock runLock) {
+	runLockManager().MirrorRenewContext(ctx, lock)
+}
+
 func mirrorRunLockRelease(lock runLock, at time.Time, reason string) {
 	runLockManager().MirrorRelease(lock, at, reason)
+}
+
+func mirrorRunLockReleaseContext(ctx context.Context, lock runLock, at time.Time, reason string) {
+	runLockManager().MirrorReleaseContext(ctx, lock, at, reason)
 }
 
 func sameHost(host string) bool { return ws.SameHost(host) }

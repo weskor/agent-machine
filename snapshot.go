@@ -19,6 +19,7 @@ type orchestrationSnapshot struct {
 	Artifacts         []artifactSummary
 	RecentEvents      []eventSummary
 	WorkerTasks       []snapshotWorkerTask
+	WorkerResults     []snapshotWorkerResult
 	SQLiteHealth      state.Health
 	SQLiteHealthError string
 }
@@ -52,14 +53,18 @@ type snapshotLock struct {
 }
 
 type snapshotLane struct {
-	Name             string
-	ProcessID        string
-	CycleNumber      int
-	LastSuccessAt    time.Time
-	LastError        string
-	RecoveryRequired bool
-	UpdatedAt        time.Time
-	Source           string
+	Name                string
+	ProcessID           string
+	CycleNumber         int
+	LastSuccessAt       time.Time
+	LastError           string
+	RecoveryRequired    bool
+	ActiveTaskKey       string
+	ActiveTaskRole      string
+	ActiveLeaseName     string
+	ActiveTaskStartedAt time.Time
+	UpdatedAt           time.Time
+	Source              string
 }
 
 type snapshotWorkerTask struct {
@@ -69,8 +74,24 @@ type snapshotWorkerTask struct {
 	Attempt     int
 	Status      string
 	Priority    int
+	LeaseName   string
 	AvailableAt time.Time
 	UpdatedAt   time.Time
+}
+
+type snapshotWorkerResult struct {
+	TaskKey    string
+	Role       string
+	LaneName   string
+	IssueKey   string
+	Attempt    int
+	Status     string
+	DidWork    bool
+	Reason     string
+	Error      string
+	StartedAt  time.Time
+	FinishedAt time.Time
+	UpdatedAt  time.Time
 }
 
 func buildOrchestrationSnapshot(ctx context.Context, config runnerConfig, observedAt time.Time) (orchestrationSnapshot, error) {
@@ -88,11 +109,12 @@ func buildOrchestrationSnapshot(ctx context.Context, config runnerConfig, observ
 		}
 		byIssue[a.Issue] = &snapshotIssue{Issue: a.Issue, Status: a.Status, Review: a.Review, PRURL: a.PRURL, Outcome: a.Outcome, Source: "artifact", Artifact: &a}
 	}
-	rows, lanes, events, tasks, health, healthErr := loadSnapshotState(ctx, config.WorkspaceRoot)
+	rows, lanes, events, tasks, results, health, healthErr := loadSnapshotState(ctx, config.WorkspaceRoot)
 	snap.SQLiteHealth = health
 	snap.ActiveLanes = lanes
 	snap.RecentEvents = events
 	snap.WorkerTasks = tasks
+	snap.WorkerResults = results
 	if healthErr != nil {
 		snap.SQLiteHealthError = healthErr.Error()
 	}
@@ -139,6 +161,12 @@ func buildOrchestrationSnapshot(ctx context.Context, config runnerConfig, observ
 		}
 		return snap.WorkerTasks[i].TaskKey < snap.WorkerTasks[j].TaskKey
 	})
+	sort.Slice(snap.WorkerResults, func(i, j int) bool {
+		if !snap.WorkerResults[i].UpdatedAt.Equal(snap.WorkerResults[j].UpdatedAt) {
+			return snap.WorkerResults[i].UpdatedAt.After(snap.WorkerResults[j].UpdatedAt)
+		}
+		return snap.WorkerResults[i].TaskKey < snap.WorkerResults[j].TaskKey
+	})
 	return snap, nil
 }
 
@@ -179,32 +207,36 @@ type snapshotStateRow struct {
 	UpdatedAt                                              time.Time
 }
 
-func loadSnapshotState(ctx context.Context, workspaceRoot string) ([]snapshotStateRow, []snapshotLane, []eventSummary, []snapshotWorkerTask, state.Health, error) {
+func loadSnapshotState(ctx context.Context, workspaceRoot string) ([]snapshotStateRow, []snapshotLane, []eventSummary, []snapshotWorkerTask, []snapshotWorkerResult, state.Health, error) {
 	path := state.DefaultDBPath(workspaceRoot)
 	health, err := state.InspectHealth(ctx, path)
 	if err != nil || !health.OK {
-		return nil, nil, nil, nil, health, err
+		return nil, nil, nil, nil, nil, health, err
 	}
 	store, err := state.Open(ctx, path)
 	if err != nil {
-		return nil, nil, nil, nil, health, err
+		return nil, nil, nil, nil, nil, health, err
 	}
 	defer store.Close()
 	rows, err := store.SnapshotAttempts(ctx)
 	if err != nil {
-		return nil, nil, nil, nil, health, err
+		return nil, nil, nil, nil, nil, health, err
 	}
 	heartbeats, err := store.SnapshotHeartbeats(ctx)
 	if err != nil {
-		return nil, nil, nil, nil, health, err
+		return nil, nil, nil, nil, nil, health, err
 	}
 	recent, err := store.RecentEvents(ctx, 5)
 	if err != nil {
-		return nil, nil, nil, nil, health, err
+		return nil, nil, nil, nil, nil, health, err
 	}
 	workerTasks, err := store.WorkerTasks(ctx, "")
 	if err != nil {
-		return nil, nil, nil, nil, health, err
+		return nil, nil, nil, nil, nil, health, err
+	}
+	workerResults, err := store.WorkerResults(ctx, "")
+	if err != nil {
+		return nil, nil, nil, nil, nil, health, err
 	}
 	out := make([]snapshotStateRow, 0, len(rows))
 	for _, row := range rows {
@@ -212,7 +244,7 @@ func loadSnapshotState(ctx context.Context, workspaceRoot string) ([]snapshotSta
 	}
 	lanes := make([]snapshotLane, 0, len(heartbeats))
 	for _, heartbeat := range heartbeats {
-		lanes = append(lanes, snapshotLane{Name: heartbeat.LaneName, ProcessID: heartbeat.ProcessID, CycleNumber: heartbeat.CycleNumber, LastSuccessAt: heartbeat.LastSuccessAt, LastError: heartbeat.LastError, RecoveryRequired: heartbeat.RecoveryRequired, UpdatedAt: heartbeat.UpdatedAt, Source: "sqlite"})
+		lanes = append(lanes, snapshotLane{Name: heartbeat.LaneName, ProcessID: heartbeat.ProcessID, CycleNumber: heartbeat.CycleNumber, LastSuccessAt: heartbeat.LastSuccessAt, LastError: heartbeat.LastError, RecoveryRequired: heartbeat.RecoveryRequired, ActiveTaskKey: heartbeat.ActiveTaskKey, ActiveTaskRole: heartbeat.ActiveTaskRole, ActiveLeaseName: heartbeat.ActiveLeaseName, ActiveTaskStartedAt: heartbeat.ActiveTaskStartedAt, UpdatedAt: heartbeat.UpdatedAt, Source: "sqlite"})
 	}
 	events := make([]eventSummary, 0, len(recent))
 	for _, event := range recent {
@@ -220,7 +252,11 @@ func loadSnapshotState(ctx context.Context, workspaceRoot string) ([]snapshotSta
 	}
 	tasks := make([]snapshotWorkerTask, 0, len(workerTasks))
 	for _, task := range workerTasks {
-		tasks = append(tasks, snapshotWorkerTask{TaskKey: task.TaskKey, Role: task.Role, IssueKey: task.IssueKey, Attempt: task.Attempt, Status: task.Status, Priority: task.Priority, AvailableAt: task.AvailableAt, UpdatedAt: task.UpdatedAt})
+		tasks = append(tasks, snapshotWorkerTask{TaskKey: task.TaskKey, Role: task.Role, IssueKey: task.IssueKey, Attempt: task.Attempt, Status: task.Status, Priority: task.Priority, LeaseName: task.LeaseName, AvailableAt: task.AvailableAt, UpdatedAt: task.UpdatedAt})
 	}
-	return out, lanes, events, tasks, health, nil
+	results := make([]snapshotWorkerResult, 0, len(workerResults))
+	for _, result := range workerResults {
+		results = append(results, snapshotWorkerResult{TaskKey: result.TaskKey, Role: result.Role, LaneName: result.LaneName, IssueKey: result.IssueKey, Attempt: result.Attempt, Status: result.Status, DidWork: result.DidWork, Reason: result.Reason, Error: result.Error, StartedAt: result.StartedAt, FinishedAt: result.FinishedAt, UpdatedAt: result.UpdatedAt})
+	}
+	return out, lanes, events, tasks, results, health, nil
 }

@@ -129,7 +129,7 @@ func run(ctx context.Context, args []string, environ []string) error {
 	}
 
 	for range issueRefs {
-		command := fmt.Sprintf("go run . --once %s", shellQuote(smokeWorkflow))
+		command := fmt.Sprintf("go run . --worker=implementation %s", shellQuote(smokeWorkflow))
 		report.Commands = append(report.Commands, command)
 		if err := runCommand(ctx, command, "."); err != nil {
 			_ = writeReport(report)
@@ -285,7 +285,6 @@ hooks:
   timeout_ms: %s
 agent:
   max_concurrent_agents: %d
-  max_turns: 1
   max_retry_backoff_ms: %s
 pi:
   command: >-

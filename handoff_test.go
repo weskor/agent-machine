@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	sh "github.com/weskor/pi-symphony/internal/shell"
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 func TestEnsureRunnerPRHandoffCreatesPRWhenAgentEmitsNoURL(t *testing.T) {
@@ -116,6 +118,36 @@ func TestEnsureRunnerPRHandoffCreatesPRWhenAgentEmitsStaleMissingURL(t *testing.
 	}
 	if prURL != "https://github.com/weskor/pi-symphony/pull/900" {
 		t.Fatalf("expected runner-created PR URL, got %q", prURL)
+	}
+}
+
+func TestEnsureRunnerPRHandoffRecordsDurableIntentResult(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	workspace := runnerHandoffGitWorkspace(t, "main")
+	candidate := testIssue("CAG-185", "In Progress")
+	branch := expectedWorkspaceBranch(candidate.Identifier)
+	if err := sh.Run("git switch -q -C "+sh.Quote(branch)+" && echo change > handoff.go", workspace); err != nil {
+		t.Fatal(err)
+	}
+	config := testRunnerConfig(filepath.Dir(workspace))
+	config.BaseBranch = "main"
+	store, err := state.Open(context.Background(), state.DefaultDBPath(config.WorkspaceRoot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	withFakeGitHubAPI(t, fakeGitHubAPI{})
+
+	prURL, err := ensureRunnerPRHandoffFromInput(config, prHandoffInput{Candidate: &candidate, Workspace: workspace, StateStore: store}, nil)
+	if err != nil {
+		t.Fatalf("ensureRunnerPRHandoffFromInput() error = %v", err)
+	}
+	intent, ok, err := store.PRHandoffIntent(context.Background(), candidate.Identifier, 1)
+	if err != nil || !ok {
+		t.Fatalf("PRHandoffIntent() ok=%t err=%v", ok, err)
+	}
+	if intent.Status != state.PRHandoffIntentStatusCompleted || intent.PRURL != prURL || intent.Result != "success" {
+		t.Fatalf("intent = %+v; want completed PR handoff result for %s", intent, prURL)
 	}
 }
 

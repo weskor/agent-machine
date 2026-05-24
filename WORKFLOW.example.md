@@ -28,7 +28,6 @@ hooks:
   before_remove: null
 agent:
   max_concurrent_agents: 1
-  max_turns: 1
   max_retry_backoff_ms: 300000
 runtime:
   provider: codex_cli

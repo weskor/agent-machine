@@ -72,6 +72,36 @@ func TestWriteRunRecordDoesNotExportArtifactsWhenSQLiteCommitFails(t *testing.T)
 	assertFileMissing(t, filepath.Join(workspace, ".pi-symphony-evaluation.json"))
 }
 
+func TestWriteRunRecordHonorsCanceledContextBeforeSQLiteAndArtifactWrites(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-108")
+	if err := os.MkdirAll(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(context.Background(), filepath.Join(root, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err = writeRunRecordWithCommandStateContext(ctx, store, workspace, testWorkspaceRunRecord(workspace, runAttemptStatusSuccess, "https://github.com/acme/repo/pull/1", nil))
+	if err != context.Canceled {
+		t.Fatalf("writeRunRecordWithCommandStateContext() error = %v, want %v", err, context.Canceled)
+	}
+	assertFileMissing(t, filepath.Join(workspace, ".pi-symphony-run.json"))
+	assertFileMissing(t, filepath.Join(workspace, ".pi-symphony-evaluation.json"))
+	var attempts int
+	if err := store.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM issue_attempts WHERE issue_key = 'CAG-108'`).Scan(&attempts); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 0 {
+		t.Fatalf("attempt rows = %d, want 0", attempts)
+	}
+}
+
 func TestWriteRunRecordRecordsExportFailureAfterSQLiteCommit(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
@@ -97,6 +127,13 @@ func TestWriteRunRecordRecordsExportFailureAfterSQLiteCommit(t *testing.T) {
 	}
 	if failures != 1 {
 		t.Fatalf("artifact export failure facts = %d, want 1", failures)
+	}
+	var artifactRefs int
+	if err := store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM external_fact_snapshots WHERE fact_key IN ('run_record', 'evaluation')`).Scan(&artifactRefs); err != nil {
+		t.Fatal(err)
+	}
+	if artifactRefs != 0 {
+		t.Fatalf("artifact refs = %d, want 0 when artifact export failed after attempt result", artifactRefs)
 	}
 }
 

@@ -24,8 +24,6 @@ func TestRunDispatchesRepresentativeArgCombinations(t *testing.T) {
 		wantApply  bool
 		wantCycles int
 	}{
-		{name: "default once", args: []string{workflowPath}, wantMode: modeOnce},
-		{name: "explicit once", args: []string{"--once", workflowPath}, wantMode: modeOnce},
 		{name: "status", args: []string{"--status", workflowPath}, wantMode: modeStatus},
 		{name: "run status", args: []string{"--run-status=CAG-119", workflowPath}, wantMode: modeRunStatus},
 		{name: "explain", args: []string{"--explain", workflowPath}, wantMode: modeExplain},
@@ -34,6 +32,7 @@ func TestRunDispatchesRepresentativeArgCombinations(t *testing.T) {
 		{name: "daemon alias", args: []string{"--daemon", workflowPath}, wantMode: modeContinuous},
 		{name: "merge approved", args: []string{"--merge-approved", workflowPath}, wantMode: modeMerge},
 		{name: "repair artifacts", args: []string{"--repair-artifacts", workflowPath}, wantMode: modeRepair},
+		{name: "repair worker task", args: []string{"--repair-worker-task=merge:CAG-1:7", workflowPath}, wantMode: modeRepairTask},
 		{name: "cleanup apply", args: []string{"--cleanup-workspaces", "--apply", workflowPath}, wantMode: modeCleanup, wantApply: true},
 		{name: "backfill", args: []string{"--backfill-state", workflowPath}, wantMode: modeBackfill},
 		{name: "worker", args: []string{"--worker=status", workflowPath}, wantMode: modeWorker},
@@ -64,6 +63,32 @@ func TestRunDispatchesRepresentativeArgCombinations(t *testing.T) {
 				t.Fatalf("cycles = %d, want %d", gotCycles, tt.wantCycles)
 			}
 		})
+	}
+}
+
+func TestRunRejectsRemovedOnceMode(t *testing.T) {
+	workflowPath := writeWorkflow(t, "")
+	err := Run([]string{"--once", workflowPath}, testDeps(t, nil, nil, nil))
+	if err == nil || !strings.Contains(err.Error(), "--once has been removed") {
+		t.Fatalf("Run() error = %v, want removed once mode error", err)
+	}
+}
+
+func TestRunRejectsMissingModeWithoutLinearClient(t *testing.T) {
+	workflowPath := writeWorkflow(t, "tracker:\n  api_key: \"\"\n")
+	calledClient := false
+	deps := testDeps(t, nil, nil, nil)
+	deps.NewLinearClient = func(apiKey, endpoint string) fakeClient {
+		calledClient = true
+		return fakeClient{}
+	}
+
+	err := Run([]string{workflowPath}, deps)
+	if err == nil || !strings.Contains(err.Error(), "no CLI mode selected") {
+		t.Fatalf("Run() error = %v, want missing mode error", err)
+	}
+	if calledClient {
+		t.Fatal("NewLinearClient called for missing mode")
 	}
 }
 
@@ -155,10 +180,6 @@ func TestRunExplainDispatchesNoMutatingOperations(t *testing.T) {
 	}
 	deps.RunWorker = func(fakeClient, cfg.Workflow, Config, string) error {
 		t.Fatal("explain dispatched worker process")
-		return nil
-	}
-	deps.RunOne = func(fakeClient, cfg.Workflow, Config) error {
-		t.Fatal("explain dispatched run-one mutation")
 		return nil
 	}
 	calledExplain := false
@@ -303,6 +324,12 @@ func testDeps(t *testing.T, gotMode *string, gotApply *bool, gotCycles *int) Dep
 			setMode(modeRepair)
 			return nil
 		},
+		RepairWorkerTask: func(_, taskKey string) error {
+			if taskKey != "" {
+				setMode(modeRepairTask)
+			}
+			return nil
+		},
 		CleanupWorkspaces: func(_ string, options CleanupOptions) error {
 			setMode(modeCleanup)
 			if gotApply != nil {
@@ -335,10 +362,6 @@ func testDeps(t *testing.T, gotMode *string, gotApply *bool, gotCycles *int) Dep
 		},
 		RunWorker: func(_ fakeClient, _ cfg.Workflow, _ Config, _ string) error {
 			setMode(modeWorker)
-			return nil
-		},
-		RunOne: func(fakeClient, cfg.Workflow, Config) error {
-			setMode(modeOnce)
 			return nil
 		},
 	}

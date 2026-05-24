@@ -38,12 +38,19 @@ func (m LockManager) logf(format string, args ...any) {
 }
 
 func (m LockManager) Acquire(workspace string, candidate *domain.Issue, branch string, now time.Time) (*domain.RunLock, func(), error) {
+	return m.AcquireContext(context.Background(), workspace, candidate, branch, now)
+}
+
+func (m LockManager) AcquireContext(ctx context.Context, workspace string, candidate *domain.Issue, branch string, now time.Time) (*domain.RunLock, func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		return nil, nil, err
 	}
 	lock := domain.RunLock{Owner: Owner(), PID: os.Getpid(), Host: Hostname(), IssueIdentifier: candidate.Identifier, IssueID: candidate.ID, Branch: branch, Workspace: workspace, StartedAt: now, HeartbeatAt: now}
 	if m.StateStore != nil {
-		return m.acquireSQLiteLease(workspace, lock, now)
+		return m.acquireSQLiteLease(ctx, workspace, lock, now)
 	}
 	data, err := json.MarshalIndent(lock, "", "  ")
 	if err != nil {
@@ -70,19 +77,18 @@ func (m LockManager) Acquire(workspace string, candidate *domain.Issue, branch s
 		return nil, nil, err
 	}
 	m.logf("acquired run lock: %s", path)
-	m.MirrorAcquire(lock)
+	m.MirrorAcquireContext(ctx, lock)
 	release := func() {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			m.logf("failed to release run lock %s: %v", path, err)
 		}
-		m.MirrorRelease(lock, time.Now(), "released")
+		m.MirrorReleaseContext(context.WithoutCancel(ctx), lock, time.Now(), "released")
 	}
 	return &lock, release, nil
 }
 
-func (m LockManager) acquireSQLiteLease(workspace string, lock domain.RunLock, now time.Time) (*domain.RunLock, func(), error) {
+func (m LockManager) acquireSQLiteLease(ctx context.Context, workspace string, lock domain.RunLock, now time.Time) (*domain.RunLock, func(), error) {
 	lease := RunLockLease(lock, now)
-	ctx := context.Background()
 	acquired, err := m.StateStore.AcquireLease(ctx, lease, now)
 	if err != nil {
 		return nil, nil, err
@@ -105,7 +111,7 @@ func (m LockManager) acquireSQLiteLease(workspace string, lock domain.RunLock, n
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			m.logf("failed to release run lock export %s: %v", path, err)
 		}
-		if err := m.StateStore.ReleaseLease(context.Background(), RunLockLeaseName(lock), time.Now(), "released"); err != nil {
+		if err := m.StateStore.ReleaseLease(context.WithoutCancel(ctx), RunLockLeaseName(lock), time.Now(), "released"); err != nil {
 			m.logf("failed to release SQLite run lease %s: %v", RunLockLeaseName(lock), err)
 		}
 	}
@@ -168,6 +174,14 @@ func writeExportedLock(path string, lock domain.RunLock) error {
 }
 
 func (m LockManager) Heartbeat(workspace string, at time.Time) {
+	m.HeartbeatContext(context.Background(), workspace, at)
+}
+
+func (m LockManager) HeartbeatContext(ctx context.Context, workspace string, at time.Time) {
+	if err := ctx.Err(); err != nil {
+		m.logf("skipping run lock heartbeat for canceled context: %v", err)
+		return
+	}
 	path := Path(workspace)
 	data, err := os.ReadFile(path)
 	if err != nil && m.StateStore == nil {
@@ -186,7 +200,7 @@ func (m LockManager) Heartbeat(workspace string, at time.Time) {
 	}
 	if m.StateStore != nil {
 		lock.HeartbeatAt = at
-		if err := m.StateStore.RenewLease(context.Background(), RunLockLeaseName(lock), at, at.Add(RunLockStaleAfter)); err != nil {
+		if err := m.StateStore.RenewLease(ctx, RunLockLeaseName(lock), at, at.Add(RunLockStaleAfter)); err != nil {
 			m.logf("failed to renew SQLite run lease %s: %v", RunLockLeaseName(lock), err)
 			return
 		}
@@ -209,7 +223,7 @@ func (m LockManager) Heartbeat(workspace string, at time.Time) {
 		m.logf("failed to write run lock heartbeat: %v", err)
 		return
 	}
-	m.MirrorRenew(lock)
+	m.MirrorRenewContext(ctx, lock)
 }
 
 func DescribeExisting(path string, now time.Time) error {
@@ -229,6 +243,13 @@ func DescribeExisting(path string, now time.Time) error {
 }
 
 func (m LockManager) CleanupStale(root string, now time.Time) (int, error) {
+	return m.CleanupStaleContext(context.Background(), root, now)
+}
+
+func (m LockManager) CleanupStaleContext(ctx context.Context, root string, now time.Time) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	paths, err := filepath.Glob(filepath.Join(root, RunLockDir, "*.json"))
 	if err != nil {
 		return 0, err
@@ -258,40 +279,62 @@ func (m LockManager) CleanupStale(root string, now time.Time) (int, error) {
 		}
 		if deadOwner {
 			m.logf("removed dead-owner run lock: %s", path)
-			m.MirrorRelease(lock, now, "dead_owner")
+			m.MirrorReleaseContext(ctx, lock, now, "dead_owner")
 		} else {
 			m.logf("removed stale run lock: %s", path)
-			m.MirrorRelease(lock, now, "stale")
+			m.MirrorReleaseContext(ctx, lock, now, "stale")
 		}
 	}
 	return removed, nil
 }
 
 func (m LockManager) MirrorAcquire(lock domain.RunLock) {
-	m.withStateStore(lock.Workspace, func(store *state.Store) error {
-		return store.UpsertLease(context.Background(), RunLockLease(lock, lock.StartedAt))
+	m.MirrorAcquireContext(context.Background(), lock)
+}
+
+func (m LockManager) MirrorAcquireContext(ctx context.Context, lock domain.RunLock) {
+	m.withStateStoreContext(ctx, lock.Workspace, func(ctx context.Context, store *state.Store) error {
+		return store.UpsertLease(ctx, RunLockLease(lock, lock.StartedAt))
 	})
 }
 func (m LockManager) MirrorRenew(lock domain.RunLock) {
-	m.withStateStore(lock.Workspace, func(store *state.Store) error {
-		if err := store.UpsertLease(context.Background(), RunLockLease(lock, lock.HeartbeatAt)); err != nil {
+	m.MirrorRenewContext(context.Background(), lock)
+}
+
+func (m LockManager) MirrorRenewContext(ctx context.Context, lock domain.RunLock) {
+	m.withStateStoreContext(ctx, lock.Workspace, func(ctx context.Context, store *state.Store) error {
+		if err := store.UpsertLease(ctx, RunLockLease(lock, lock.HeartbeatAt)); err != nil {
 			return err
 		}
-		return store.RenewLease(context.Background(), RunLockLeaseName(lock), lock.HeartbeatAt, lock.HeartbeatAt.Add(RunLockStaleAfter))
+		return store.RenewLease(ctx, RunLockLeaseName(lock), lock.HeartbeatAt, lock.HeartbeatAt.Add(RunLockStaleAfter))
 	})
 }
 func (m LockManager) MirrorRelease(lock domain.RunLock, at time.Time, reason string) {
-	m.withStateStore(lock.Workspace, func(store *state.Store) error {
-		if err := store.UpsertLease(context.Background(), RunLockLease(lock, at)); err != nil {
+	m.MirrorReleaseContext(context.Background(), lock, at, reason)
+}
+
+func (m LockManager) MirrorReleaseContext(ctx context.Context, lock domain.RunLock, at time.Time, reason string) {
+	m.withStateStoreContext(ctx, lock.Workspace, func(ctx context.Context, store *state.Store) error {
+		if err := store.UpsertLease(ctx, RunLockLease(lock, at)); err != nil {
 			return err
 		}
-		return store.ReleaseLease(context.Background(), RunLockLeaseName(lock), at, reason)
+		return store.ReleaseLease(ctx, RunLockLeaseName(lock), at, reason)
 	})
 }
 
 func (m LockManager) withStateStore(workspace string, fn func(*state.Store) error) {
+	m.withStateStoreContext(context.Background(), workspace, func(_ context.Context, store *state.Store) error {
+		return fn(store)
+	})
+}
+
+func (m LockManager) withStateStoreContext(ctx context.Context, workspace string, fn func(context.Context, *state.Store) error) {
+	if err := ctx.Err(); err != nil {
+		m.logf("skipping sqlite lease mirror for canceled context: %v", err)
+		return
+	}
 	if m.StateStore != nil {
-		if err := fn(m.StateStore); err != nil {
+		if err := fn(ctx, m.StateStore); err != nil {
 			m.logf("skipping sqlite lease mirror: %v", err)
 		}
 		return
@@ -305,13 +348,13 @@ func (m LockManager) withStateStore(workspace string, fn func(*state.Store) erro
 		m.logf("skipping sqlite lease mirror: state db path is empty")
 		return
 	}
-	store, err := state.Open(context.Background(), dbPath)
+	store, err := state.Open(ctx, dbPath)
 	if err != nil {
 		m.logf("skipping sqlite lease mirror: %v", err)
 		return
 	}
 	defer store.Close()
-	if err := fn(store); err != nil {
+	if err := fn(ctx, store); err != nil {
 		m.logf("skipping sqlite lease mirror: %v", err)
 	}
 }

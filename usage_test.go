@@ -39,8 +39,18 @@ func TestCodexUsageToRuntimeParsesTokensUsedSummary(t *testing.T) {
 }
 
 func TestNewAgentRuntimeRejectsUnsupportedProvider(t *testing.T) {
-	if _, err := newAgentRuntime("mystery"); err == nil || !strings.Contains(err.Error(), "unsupported runtime.provider") {
+	if _, err := newAgentRuntime("mystery"); err == nil || !strings.Contains(err.Error(), "unsupported runtime.provider") || !strings.Contains(err.Error(), "codex_app_server") {
 		t.Fatalf("expected unsupported provider error, got %v", err)
+	}
+}
+
+func TestNewAgentRuntimeRecognizesCodexAppServerProvider(t *testing.T) {
+	runtime, err := newAgentRuntime("codex_app_server")
+	if err != nil {
+		t.Fatalf("newAgentRuntime() error = %v", err)
+	}
+	if !runtime.Capabilities().CanRunMultipleTurns() {
+		t.Fatalf("codex_app_server capabilities = %+v, want multi-turn session support", runtime.Capabilities())
 	}
 }
 

@@ -30,7 +30,7 @@ func TestCodexThreadStartRequestUsesAppServerThreadMethod(t *testing.T) {
 }
 
 func TestCodexTurnStartRequestUsesPersistentThread(t *testing.T) {
-	req := NewCodexTurnStartRequest(8, SessionTurnInput{ThreadID: "thread-1", Prompt: "continue", WorkingDir: "/tmp/work"}, "never", "workspace-write", "gpt-5")
+	req := NewCodexTurnStartRequest(8, SessionTurnInput{SessionID: "thread-1", Prompt: "continue", WorkingDir: "/tmp/work"}, "never", "workspace-write", "gpt-5")
 
 	raw, err := json.Marshal(req)
 	if err != nil {

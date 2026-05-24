@@ -165,16 +165,16 @@ type AttemptTimeouts struct {
 
 // AttemptContext identifies an active session/attempt at runtime level.
 type AttemptContext struct {
-	ID              string          `json:"id"`
-	IssueID         string          `json:"issue_id"`
-	IssueIdentifier string          `json:"issue_identifier"`
-	Workspace       string          `json:"workspace"`
-	ExpectedBranch  string          `json:"expected_branch,omitempty"`
-	Branch          string          `json:"branch,omitempty"`
-	Attempt         int             `json:"attempt"`
-	MaxTurns        int             `json:"max_turns,omitempty"`
-	RuntimeThreadID string          `json:"runtime_thread_id,omitempty"`
-	RunTimeouts     AttemptTimeouts `json:"run_timeouts"`
+	ID               string          `json:"id"`
+	IssueID          string          `json:"issue_id"`
+	IssueIdentifier  string          `json:"issue_identifier"`
+	Workspace        string          `json:"workspace"`
+	ExpectedBranch   string          `json:"expected_branch,omitempty"`
+	Branch           string          `json:"branch,omitempty"`
+	Attempt          int             `json:"attempt"`
+	MaxTurns         int             `json:"max_turns,omitempty"`
+	RuntimeSessionID string          `json:"runtime_session_id,omitempty"`
+	RunTimeouts      AttemptTimeouts `json:"run_timeouts"`
 }
 
 // AttemptUsage holds parsed usage telemetry that can be surfaced for audit and
@@ -211,54 +211,6 @@ type RunAttemptInput struct {
 	Timeout     time.Duration
 	MaxTurns    int
 	Environment map[string]string
-}
-
-type SessionStartInput struct {
-	AttemptContext AttemptContext
-	WorkingDir     string
-	ApprovalPolicy string
-	Sandbox        string
-	Model          string
-}
-
-type SessionContext struct {
-	AttemptID string `json:"attempt_id"`
-	ThreadID  string `json:"thread_id"`
-	Workspace string `json:"workspace"`
-	MaxTurns  int    `json:"max_turns"`
-}
-
-type SessionTurnInput struct {
-	ThreadID   string
-	TurnNumber int
-	Prompt     string
-	WorkingDir string
-	Timeout    time.Duration
-}
-
-type SessionTurnResult struct {
-	ThreadID          string
-	TurnID            string
-	TurnNumber        int
-	Output            string
-	Usage             *AttemptUsage
-	NeedsContinuation bool
-	TerminalOutcome   AttemptOutcome
-	ErrorKind         RuntimeErrorKind
-	Error             string
-}
-
-// SessionRuntime extends AgentRuntime for providers that keep one durable
-// runtime thread across multiple runner turns.
-type SessionRuntime interface {
-	AgentRuntime
-	StartSession(ctx context.Context, input SessionStartInput) (SessionContext, error)
-	RunSessionTurn(ctx context.Context, session SessionContext, input SessionTurnInput, events EventSink) (SessionTurnResult, error)
-}
-
-type SessionClient interface {
-	StartThread(ctx context.Context, input SessionStartInput) (SessionContext, error)
-	StartTurn(ctx context.Context, session SessionContext, input SessionTurnInput) (SessionTurnResult, error)
 }
 
 type ReviewAttemptInput struct {

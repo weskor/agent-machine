@@ -99,8 +99,8 @@ Runtime providers declare capabilities instead of relying on caller guesses:
 | `usage_cost_reporting` | Can report token, cost, or other usage telemetry. |
 | `timeout_cancellation` | Can enforce timeout and/or cancellation signals. |
 | `max_turns` | Can enforce turn/iteration limits inside one attempt. |
-| `sessions` | Can keep one runtime thread alive across runner turns. |
-| `turn_continuation` | Can accept a typed continuation turn in the same runtime thread. |
+| `sessions` | Can keep one runtime session alive across runner turns. |
+| `turn_continuation` | Can accept a typed continuation turn in the same runtime session. |
 | `structured_output` | Can emit typed outcomes/events without text scraping. |
 | `raw_debug_capture` | Can expose raw streams for capped debug artifacts. |
 | `deterministic_handoff_support` | Can provide machine-readable PR/handoff hints, while the runner still validates and owns handoff. |

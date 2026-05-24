@@ -14,6 +14,10 @@ runner may execute multi-turn attempts.
 
 ## Provider Shape
 
+Session runtime is provider-neutral. The runner speaks in terms of sessions,
+turns, continuation envelopes, usage, and terminal outcomes. Provider-specific
+transports map their own vocabulary to those terms inside their Adapter.
+
 The first target session provider is a Codex app-server Adapter:
 
 - provider name: `codex_app_server`
@@ -22,6 +26,12 @@ The first target session provider is a Codex app-server Adapter:
 - protocol: JSON-RPC with `thread/start` for one attempt session and
   `turn/start` for each runner turn
 - thread source: `pi_symphony`
+
+Codex app-server "threads" are a provider protocol detail. They must be exposed
+to the runner only as `session_id` / `runtime_session_id` evidence. Future
+providers such as a Claude CLI session, Anthropic API session, or another app
+server should use the same `SessionRuntime` contract without inheriting Codex
+thread terminology.
 
 The app-server provider is distinct from `codex_cli`. `codex_cli` uses
 `codex exec` as a one-shot command and must continue to reject
@@ -34,8 +44,8 @@ exercise the Adapter seam without claiming Linear work.
 
 ## Turn Semantics
 
-For one implementation attempt, the runner starts exactly one runtime thread.
-The thread ID is attempt evidence and must be persisted in progress/SQLite state
+For one implementation attempt, the runner starts exactly one runtime session.
+The session ID is attempt evidence and must be persisted in progress/SQLite state
 before the first turn result can drive further decisions.
 
 Turn 1 sends the normal implementation prompt. Later turns may be sent only when
@@ -91,7 +101,7 @@ Minimum persisted evidence:
 
 - attempt ID
 - provider
-- runtime thread ID
+- runtime session ID
 - current turn number
 - max turns
 - last turn ID

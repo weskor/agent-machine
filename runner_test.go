@@ -70,12 +70,22 @@ func TestNextRunnableCandidatePrefersReadyCandidate(t *testing.T) {
 
 func TestNextRunnableCandidateRecordsSelectedAndSkippedEvents(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-1", `{"status":"review_failed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/1"}`)
 	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
+	if err := store.UpsertAttemptResult(context.Background(), state.AttemptResult{
+		IssueKey:             "CAG-1",
+		Attempt:              1,
+		BranchName:           expectedWorkspaceBranch("CAG-1"),
+		Status:               runAttemptStatusReviewFailed,
+		ReviewStatus:         "failed",
+		ReviewClassification: reviewClassificationBehaviorSpecBlocker,
+		UpdatedAt:            time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	client := linearClientWithCandidates(t, []issue{
 		testIssue("CAG-1", "Ready for Agent"),
 		testIssue("CAG-2", "Ready for Agent"),
@@ -661,46 +671,6 @@ func TestRunOneMissingReviewCommandFailsBeforeClaimOrWorkspaceMutation(t *testin
 	}
 }
 
-func TestRunOneUnsupportedPiCLIMaxTurnsFailsBeforeClaimOrWorkspaceMutation(t *testing.T) {
-	root := t.TempDir()
-	var updatedStates []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request struct {
-			Query     string         `json:"query"`
-			Variables map[string]any `json:"variables"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			t.Fatalf("decode request: %v", err)
-		}
-		switch {
-		case strings.Contains(request.Query, "issues(first"):
-			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issues": map[string]any{"nodes": []issue{testIssue("CAG-100", "Ready for Agent")}}}})
-		case strings.Contains(request.Query, "issueUpdate"):
-			updatedStates = append(updatedStates, request.Variables["stateId"].(string))
-			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issueUpdate": map[string]any{"success": true}}})
-		default:
-			t.Fatalf("unexpected Linear query after preflight should have failed: %s", request.Query)
-		}
-	}))
-	defer server.Close()
-
-	config := testRunnerConfig(root)
-	config.PiCommand = "sh"
-	didWork, err := runOne(linearClient{apiKey: "test-key", endpoint: server.URL}, workflow{YAML: "agent:\n  max_turns: 2\n", Body: "# Test workflow"}, config)
-	if err == nil || !strings.Contains(err.Error(), "pi_cli") || !strings.Contains(err.Error(), "agent.max_turns=2") || !strings.Contains(err.Error(), "proven multi-turn contract") {
-		t.Fatalf("expected actionable max_turns preflight error, got %v", err)
-	}
-	if !didWork {
-		t.Fatal("expected selected issue to count as work")
-	}
-	if len(updatedStates) != 0 {
-		t.Fatalf("preflight mutated Linear state: %#v", updatedStates)
-	}
-	if _, err := os.Stat(filepath.Join(root, "CAG-100")); !os.IsNotExist(err) {
-		t.Fatalf("workspace was created before preflight failure: %v", err)
-	}
-}
-
 func TestRunOneMovesNeedsInfoAndCommentsWithoutPRHandoff(t *testing.T) {
 	t.Setenv("GITHUB_APP_ID", "")
 	t.Setenv("GITHUB_APP_INSTALLATION_ID", "")
@@ -1095,6 +1065,21 @@ func linearClientWithCandidates(t *testing.T, candidates []issue) linearClient {
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
+		if id, ok := request.Variables["id"].(string); ok {
+			var found issue
+			for _, candidate := range candidates {
+				if candidate.Identifier == id || candidate.ID == id {
+					found = candidate
+					break
+				}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": map[string]any{
+					"issue": found,
+				},
+			})
+			return
+		}
 		if request.Variables["projectSlug"] != "CAG" {
 			t.Fatalf("unexpected projectSlug: %#v", request.Variables["projectSlug"])
 		}
@@ -1163,6 +1148,9 @@ func writeRunRecordFixture(t *testing.T, root, identifier, record string) {
 func candidateEventTypes(events []state.Event) []string {
 	out := make([]string, 0, len(events))
 	for _, event := range events {
+		if event.Type != state.EventCandidateSkipped && event.Type != state.EventCandidateSelected {
+			continue
+		}
 		out = append(out, event.IssueKey+":"+event.Type)
 	}
 	return out

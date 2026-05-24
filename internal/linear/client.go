@@ -2,6 +2,7 @@ package linear
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,8 +22,12 @@ func NewClient(apiKey, endpoint string) Client {
 }
 
 func (c Client) query(query string, variables map[string]any, out any) error {
+	return c.queryContext(context.Background(), query, variables, out)
+}
+
+func (c Client) queryContext(ctx context.Context, query string, variables map[string]any, out any) error {
 	body, _ := json.Marshal(map[string]any{"query": query, "variables": variables})
-	req, err := http.NewRequest(http.MethodPost, c.endpoint, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -48,12 +53,16 @@ func (c Client) query(query string, variables map[string]any, out any) error {
 }
 
 func (c Client) Candidates(projectSlug string, states []string) ([]domain.Issue, error) {
+	return c.CandidatesContext(context.Background(), projectSlug, states)
+}
+
+func (c Client) CandidatesContext(ctx context.Context, projectSlug string, states []string) ([]domain.Issue, error) {
 	var out struct {
 		Issues struct {
 			Nodes []domain.Issue `json:"nodes"`
 		} `json:"issues"`
 	}
-	err := c.query(`query($projectSlug: String!, $states: [String!]) {
+	err := c.queryContext(ctx, `query($projectSlug: String!, $states: [String!]) {
   issues(first: 10, filter: { project: { slugId: { eq: $projectSlug } }, state: { name: { in: $states } } }) {
     nodes { id identifier title url description priority createdAt team { id key name } state { name } labels { nodes { name } } }
   }
@@ -62,12 +71,16 @@ func (c Client) Candidates(projectSlug string, states []string) ([]domain.Issue,
 }
 
 func (c Client) IssueIdentifiersByState(projectSlug, state string) (map[string]bool, error) {
+	return c.IssueIdentifiersByStateContext(context.Background(), projectSlug, state)
+}
+
+func (c Client) IssueIdentifiersByStateContext(ctx context.Context, projectSlug, state string) (map[string]bool, error) {
 	var out struct {
 		Issues struct {
 			Nodes []domain.Issue `json:"nodes"`
 		} `json:"issues"`
 	}
-	err := c.query(`query($projectSlug: String!, $state: String!) {
+	err := c.queryContext(ctx, `query($projectSlug: String!, $state: String!) {
   issues(first: 100, filter: { project: { slugId: { eq: $projectSlug } }, state: { name: { eq: $state } } }) {
     nodes { identifier }
   }
@@ -83,22 +96,30 @@ func (c Client) IssueIdentifiersByState(projectSlug, state string) (map[string]b
 }
 
 func (c Client) WorkflowStates(teamID string) ([]domain.WorkflowState, error) {
+	return c.WorkflowStatesContext(context.Background(), teamID)
+}
+
+func (c Client) WorkflowStatesContext(ctx context.Context, teamID string) ([]domain.WorkflowState, error) {
 	var out struct {
 		WorkflowStates struct {
 			Nodes []domain.WorkflowState `json:"nodes"`
 		} `json:"workflowStates"`
 	}
-	err := c.query(`query($teamId: ID!) { workflowStates(first: 50, filter: { team: { id: { eq: $teamId } } }) { nodes { id name } } }`, map[string]any{"teamId": teamID}, &out)
+	err := c.queryContext(ctx, `query($teamId: ID!) { workflowStates(first: 50, filter: { team: { id: { eq: $teamId } } }) { nodes { id name } } }`, map[string]any{"teamId": teamID}, &out)
 	return out.WorkflowStates.Nodes, err
 }
 
 func (c Client) UpdateIssueState(issueID, stateID string) error {
+	return c.UpdateIssueStateContext(context.Background(), issueID, stateID)
+}
+
+func (c Client) UpdateIssueStateContext(ctx context.Context, issueID, stateID string) error {
 	var out struct {
 		IssueUpdate struct {
 			Success bool `json:"success"`
 		} `json:"issueUpdate"`
 	}
-	err := c.query(`mutation($id: String!, $stateId: String!) { issueUpdate(id: $id, input: { stateId: $stateId }) { success } }`, map[string]any{"id": issueID, "stateId": stateID}, &out)
+	err := c.queryContext(ctx, `mutation($id: String!, $stateId: String!) { issueUpdate(id: $id, input: { stateId: $stateId }) { success } }`, map[string]any{"id": issueID, "stateId": stateID}, &out)
 	if err != nil {
 		return err
 	}
@@ -109,12 +130,16 @@ func (c Client) UpdateIssueState(issueID, stateID string) error {
 }
 
 func (c Client) CreateComment(issueID, body string) error {
+	return c.CreateCommentContext(context.Background(), issueID, body)
+}
+
+func (c Client) CreateCommentContext(ctx context.Context, issueID, body string) error {
 	var out struct {
 		CommentCreate struct {
 			Success bool `json:"success"`
 		} `json:"commentCreate"`
 	}
-	err := c.query(`mutation($issueId: String!, $body: String!) { commentCreate(input: { issueId: $issueId, body: $body }) { success } }`, map[string]any{"issueId": issueID, "body": body}, &out)
+	err := c.queryContext(ctx, `mutation($issueId: String!, $body: String!) { commentCreate(input: { issueId: $issueId, body: $body }) { success } }`, map[string]any{"issueId": issueID, "body": body}, &out)
 	if err != nil {
 		return err
 	}
@@ -125,10 +150,14 @@ func (c Client) CreateComment(issueID, body string) error {
 }
 
 func (c Client) IssueByIdentifier(identifier string) (*domain.Issue, error) {
+	return c.IssueByIdentifierContext(context.Background(), identifier)
+}
+
+func (c Client) IssueByIdentifierContext(ctx context.Context, identifier string) (*domain.Issue, error) {
 	var out struct {
 		Issue domain.Issue `json:"issue"`
 	}
-	err := c.query(`query($id: String!) { issue(id: $id) { id identifier title url description priority createdAt team { id key name } state { name } labels { nodes { name } } } }`, map[string]any{"id": identifier}, &out)
+	err := c.queryContext(ctx, `query($id: String!) { issue(id: $id) { id identifier title url description priority createdAt team { id key name } state { name } labels { nodes { name } } } }`, map[string]any{"id": identifier}, &out)
 	if err != nil {
 		return nil, err
 	}

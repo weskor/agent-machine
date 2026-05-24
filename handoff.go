@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -201,7 +202,7 @@ func validatePRForHandoff(config runnerConfig, candidate *issue, prURL string) (
 }
 
 func ensureRunnerPRHandoff(config runnerConfig, candidate *issue, workspace, agentPRURL string, githubEnv map[string]string) (string, error) {
-	return ensureRunnerPRHandoffFromInput(config, prHandoffInput{Candidate: candidate, Workspace: workspace, AgentPRURL: agentPRURL}, githubEnv)
+	return ensureRunnerPRHandoffFromInputContext(context.Background(), config, prHandoffInput{Candidate: candidate, Workspace: workspace, AgentPRURL: agentPRURL}, githubEnv)
 }
 
 type prHandoffInput struct {
@@ -214,27 +215,44 @@ type prHandoffInput struct {
 	ScopeResult      scopeGuardResult
 	Validation       []string
 	GitHubAuth       string
+	StateStore       *state.Store
 }
 
 func ensureRunnerPRHandoffFromInput(config runnerConfig, input prHandoffInput, githubEnv map[string]string) (string, error) {
-	if err := writePRHandoffPendingState(config, input); err != nil {
+	return ensureRunnerPRHandoffFromInputContext(context.Background(), config, input, githubEnv)
+}
+
+func ensureRunnerPRHandoffFromInputContext(ctx context.Context, config runnerConfig, input prHandoffInput, githubEnv map[string]string) (string, error) {
+	if err := writePRHandoffPendingStateContext(ctx, config, input); err != nil {
 		return "", err
 	}
 	payload, err := readPRHandoffPendingPayloadForExecution(config.WorkspaceRoot, input.Candidate.Identifier)
 	if err != nil {
 		return "", err
 	}
-	return executePRHandoffPendingPayload(config, payload, githubEnv)
+	prURL, err := executePRHandoffPendingPayloadContext(ctx, config, payload, githubEnv)
+	if completeErr := completePRHandoffIntent(ctx, input.StateStore, payload, prURL, err); completeErr != nil {
+		return prURL, errors.Join(err, completeErr)
+	}
+	return prURL, err
 }
 
 func executePRHandoffPendingPayload(config runnerConfig, payload prHandoffPendingPayload, githubEnv map[string]string) (string, error) {
+	return executePRHandoffPendingPayloadContext(context.Background(), config, payload, githubEnv)
+}
+
+func executePRHandoffPendingPayloadContext(ctx context.Context, config runnerConfig, payload prHandoffPendingPayload, githubEnv map[string]string) (string, error) {
 	candidate := payload.Issue()
-	return executeRunnerPRHandoff(config, candidate, payload.Workspace, payload.AgentPRURL, githubEnv)
+	return executeRunnerPRHandoffContext(ctx, config, candidate, payload.Workspace, payload.AgentPRURL, githubEnv)
 }
 
 func executeRunnerPRHandoff(config runnerConfig, candidate *issue, workspace, agentPRURL string, githubEnv map[string]string) (string, error) {
+	return executeRunnerPRHandoffContext(context.Background(), config, candidate, workspace, agentPRURL, githubEnv)
+}
+
+func executeRunnerPRHandoffContext(ctx context.Context, config runnerConfig, candidate *issue, workspace, agentPRURL string, githubEnv map[string]string) (string, error) {
 	branch := expectedWorkspaceBranch(candidate.Identifier)
-	current, err := currentGitBranch(workspace)
+	current, err := currentGitBranchContext(ctx, workspace)
 	if err != nil {
 		return "", err
 	}
@@ -246,29 +264,29 @@ func executeRunnerPRHandoff(config runnerConfig, candidate *issue, workspace, ag
 		base = "main"
 	}
 	worktreePathspec := "-- . ':!.pi-symphony-*' ':!.pi-symphony/**'"
-	status, err := sh.CaptureQuiet("git status --porcelain "+worktreePathspec, workspace)
+	status, err := sh.CaptureQuietContext(ctx, "git status --porcelain "+worktreePathspec, workspace)
 	if err != nil {
 		return "", fmt.Errorf("git status failed before PR handoff: %w", err)
 	}
 	if strings.TrimSpace(status) != "" {
-		if err := sh.RunWithTimeout("git add -A "+worktreePathspec+" && git commit -m "+sh.Quote(candidate.Identifier+": runner handoff"), workspace, config.Budget.CommandTimeout); err != nil {
+		if err := sh.RunWithContextTimeout(ctx, "git add -A "+worktreePathspec+" && git commit -m "+sh.Quote(candidate.Identifier+": runner handoff"), workspace, config.Budget.CommandTimeout); err != nil {
 			return "", fmt.Errorf("runner commit failed: %w", err)
 		}
 	}
-	if err := sh.RunWithTimeout("git diff --quiet "+sh.Quote("origin/"+base+"...HEAD"), workspace, config.Budget.CommandTimeout); err == nil {
+	if err := sh.RunWithContextTimeout(ctx, "git diff --quiet "+sh.Quote("origin/"+base+"...HEAD"), workspace, config.Budget.CommandTimeout); err == nil {
 		return "", fmt.Errorf("no branch changes to hand off for %s", candidate.Identifier)
 	}
-	if _, err := sh.CaptureEnvWithOutputTimeout("git push --force-with-lease origin HEAD:refs/heads/"+sh.Quote(branch), workspace, githubEnv, true, config.Budget.CommandTimeout); err != nil {
+	if _, err := sh.CaptureEnvWithOutputContextTimeout(ctx, "git push --force-with-lease origin HEAD:refs/heads/"+sh.Quote(branch), workspace, githubEnv, true, config.Budget.CommandTimeout); err != nil {
 		return "", fmt.Errorf("git push failed for %s: %w", branch, err)
 	}
 
-	github, ctx, cancel, err := githubClientWithTimeout(config.Budget.GitHubTimeout)
+	github, githubCtx, cancel, err := githubClientWithContextTimeout(ctx, config.Budget.GitHubTimeout)
 	if err != nil {
 		return "", err
 	}
 	defer cancel()
 	if strings.TrimSpace(agentPRURL) != "" {
-		resolved, reason, used, err := validateAdvisoryPRForHandoff(ctx, github, config, candidate, agentPRURL)
+		resolved, reason, used, err := validateAdvisoryPRForHandoff(githubCtx, github, config, candidate, agentPRURL)
 		if err != nil {
 			return "", err
 		}
@@ -279,19 +297,19 @@ func executeRunnerPRHandoff(config runnerConfig, candidate *issue, workspace, ag
 			return resolved, nil
 		}
 	}
-	details, err := resolveHandoffPRByBranch(ctx, github, candidate)
+	details, err := resolveHandoffPRByBranch(githubCtx, github, candidate)
 	if err != nil {
 		if !strings.Contains(err.Error(), "no open PR found") {
 			return "", err
 		}
 		title, body := handoffPRTitleBody(candidate)
-		details, err = github.CreatePullRequest(ctx, title, body, branch, base)
+		details, err = github.CreatePullRequest(githubCtx, title, body, branch, base)
 		if err != nil {
 			return "", err
 		}
 	} else {
 		title, body := handoffPRTitleBody(candidate)
-		updated, updateErr := github.UpdatePullRequest(ctx, details.Number, title, body, base)
+		updated, updateErr := github.UpdatePullRequest(githubCtx, details.Number, title, body, base)
 		if updateErr != nil {
 			return "", updateErr
 		}
@@ -390,8 +408,23 @@ func (p prHandoffPendingPayload) HandoffCompletion(client linearClient, config r
 }
 
 func writePRHandoffPendingState(config runnerConfig, input prHandoffInput) error {
+	return writePRHandoffPendingStateContext(context.Background(), config, input)
+}
+
+func writePRHandoffPendingStateContext(ctx context.Context, config runnerConfig, input prHandoffInput) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	payload := prHandoffPendingPayloadFromInput(input)
-	return writePRHandoffPendingPayloadState(config, payload)
+	if err := writePRHandoffPendingPayloadState(config, payload); err != nil {
+		return err
+	}
+	if path, err := prHandoffPendingPayloadPath(config.WorkspaceRoot, payload.IssueIdentifier); err == nil {
+		if err := recordPRHandoffPendingPayloadRefContext(ctx, input.StateStore, payload, path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writePRHandoffPendingPayloadState(config runnerConfig, payload prHandoffPendingPayload) error {
@@ -444,6 +477,10 @@ func readPRHandoffPendingPayload(workspaceRoot, issueIdentifier string) (prHando
 	if err != nil {
 		return prHandoffPendingPayload{}, err
 	}
+	return readPRHandoffPendingPayloadFromPath(path)
+}
+
+func readPRHandoffPendingPayloadFromPath(path string) (prHandoffPendingPayload, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return prHandoffPendingPayload{}, err

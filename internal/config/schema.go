@@ -60,7 +60,6 @@ type HooksConfig struct {
 
 type AgentConfig struct {
 	MaxConcurrentAgents int
-	MaxTurns            int
 	MaxRetryBackoff     time.Duration
 	MaxRetryBackoffText string
 	RuntimeProvider     string
@@ -144,7 +143,6 @@ func ParseConfig(yaml string) (Config, error) {
 		},
 		Agent: AgentConfig{
 			MaxConcurrentAgents: intFromYAML(agentYAML, "max_concurrent_agents", 1),
-			MaxTurns:            AgentMaxTurnsFromWorkflow(yaml),
 			RuntimeProvider:     runtimeProvider,
 		},
 		Runtime: RuntimeConfig{
@@ -216,17 +214,6 @@ func defaultRuntimeCommand(provider string) string {
 		return defaultPiCommand
 	}
 	return defaultCodexCommand
-}
-
-// AgentMaxTurnsFromWorkflow returns the normalized agent.max_turns value used
-// by the current runtime boundary. Missing, malformed, zero, or negative values
-// preserve the historical single-attempt behavior by resolving to 1.
-func AgentMaxTurnsFromWorkflow(yaml string) int {
-	value := intFromYAML(Section(yaml, "agent"), "max_turns", 1)
-	if value < 1 {
-		return 1
-	}
-	return value
 }
 
 func durationMS(dst *time.Duration, text *string, yaml, key, path string, fallback time.Duration) error {

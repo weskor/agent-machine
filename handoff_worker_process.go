@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -14,80 +13,68 @@ import (
 type claimedHandoffPendingAttempt struct {
 	Payload     handoffPendingPayload
 	ReleaseLock func()
+	PayloadRef  *state.WorkerPayloadRef
 }
 
 type claimedPRHandoffPendingAttempt struct {
 	Payload     prHandoffPendingPayload
 	ReleaseLock func()
+	PayloadRef  *state.WorkerPayloadRef
 }
 
 func runHandoffPendingAttempt(client linearClient, config runnerConfig, stateStore *state.Store) (bool, error) {
+	return runHandoffPendingAttemptContext(context.Background(), client, config, stateStore)
+}
+
+func runHandoffPendingAttemptContext(ctx context.Context, client linearClient, config runnerConfig, stateStore *state.Store) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	if stateStore == nil {
 		return false, fmt.Errorf("SQLite state store unavailable for handoff worker at %s", state.DefaultDBPath(config.WorkspaceRoot))
 	}
-	if removed, err := cleanupStaleRunLocksWithState(stateStore, config.WorkspaceRoot, time.Now()); err != nil {
+	if removed, err := cleanupStaleRunLocksWithStateContext(ctx, stateStore, config.WorkspaceRoot, time.Now()); err != nil {
 		return false, err
 	} else if removed > 0 {
 		log("removed %d stale/dead run lock(s) before handoff selection", removed)
 	}
-	prClaim, didWork, err := claimNextPRHandoffPendingAttempt(config, stateStore)
+	prClaim, didWork, err := claimNextPRHandoffPendingAttemptContext(ctx, config, stateStore)
 	if err != nil || prClaim != nil {
 		if prClaim == nil {
 			return didWork, err
 		}
-		return executePRHandoffPendingAttempt(context.Background(), client, config, stateStore, *prClaim)
+		return executePRHandoffPendingAttempt(ctx, client, config, stateStore, *prClaim)
 	}
-	claim, didWork, err := claimNextHandoffPendingAttempt(config, stateStore)
+	claim, didWork, err := claimNextHandoffPendingAttemptContext(ctx, config, stateStore)
 	if err != nil || claim == nil {
 		return didWork, err
 	}
-	return executeHandoffPendingAttempt(context.Background(), client, config, stateStore, *claim)
+	return executeHandoffPendingAttempt(ctx, client, config, stateStore, *claim)
 }
 
 func claimNextPRHandoffPendingAttempt(config runnerConfig, stateStore *state.Store) (*claimedPRHandoffPendingAttempt, bool, error) {
-	root := runProgressRoot(config.WorkspaceRoot)
-	if strings.TrimSpace(root) == "" {
+	return claimNextPRHandoffPendingAttemptContext(context.Background(), config, stateStore)
+}
+
+func claimNextPRHandoffPendingAttemptContext(ctx context.Context, config runnerConfig, stateStore *state.Store) (*claimedPRHandoffPendingAttempt, bool, error) {
+	if stateStore == nil {
 		return nil, false, nil
 	}
-	entries, err := os.ReadDir(root)
+	refs, err := stateStore.PendingWorkerPayloadRefs(ctx, handoffWorkerRole, runProgressPhasePRHandoffPending)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, false, nil
-		}
 		return nil, false, err
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		identifier := entry.Name()
-		snapshot, err := readRunProgress(config.WorkspaceRoot, identifier)
+	for _, ref := range refs {
+		payload, err := readPRHandoffPendingPayloadFromPath(ref.PayloadPath)
 		if err != nil {
 			return nil, true, err
 		}
-		if snapshot.Phase != runProgressPhasePRHandoffPending {
-			continue
-		}
-		payload, err := readPRHandoffPendingPayload(config.WorkspaceRoot, identifier)
-		if err != nil {
-			return nil, true, err
-		}
-		normalizePRHandoffPendingPayload(&payload, snapshot)
-		if strings.TrimSpace(payload.Workspace) == "" {
-			workspace, err := safeWorkspacePath(config.WorkspaceRoot, identifier)
-			if err != nil {
-				return nil, true, err
-			}
-			payload.Workspace = workspace
-		}
-		if strings.TrimSpace(payload.Branch) == "" {
-			payload.Branch = expectedWorkspaceBranch(identifier)
-		}
+		normalizePRHandoffPendingPayloadFromRef(&payload, ref)
 		candidate := payload.Issue()
 		if strings.TrimSpace(candidate.Identifier) == "" {
-			return nil, true, fmt.Errorf("PR handoff pending payload for %s has no issue identifier", identifier)
+			return nil, true, fmt.Errorf("PR handoff pending payload for %s has no issue identifier", ref.IssueKey)
 		}
-		lock, releaseLock, err := acquireRunLockWithState(stateStore, payload.Workspace, candidate, payload.Branch, time.Now())
+		lock, releaseLock, err := acquireRunLockWithStateContext(ctx, stateStore, payload.Workspace, candidate, payload.Branch, time.Now())
 		if err != nil {
 			if errors.Is(err, errRunLocked) {
 				log("%v", err)
@@ -96,58 +83,66 @@ func claimNextPRHandoffPendingAttempt(config runnerConfig, stateStore *state.Sto
 			return nil, true, err
 		}
 		payload.Branch = lock.Branch
-		return &claimedPRHandoffPendingAttempt{Payload: payload, ReleaseLock: releaseLock}, true, nil
+		refCopy := ref
+		return &claimedPRHandoffPendingAttempt{Payload: payload, ReleaseLock: releaseLock, PayloadRef: &refCopy}, true, nil
 	}
 	return nil, false, nil
 }
 
-func normalizePRHandoffPendingPayload(payload *prHandoffPendingPayload, snapshot runProgressSnapshot) {
+func normalizePRHandoffPendingPayloadFromRef(payload *prHandoffPendingPayload, ref state.WorkerPayloadRef) {
 	if payload == nil {
 		return
 	}
-	if strings.TrimSpace(payload.IssueIdentifier) == "" {
-		payload.IssueIdentifier = snapshot.IssueIdentifier
+	if strings.TrimSpace(payload.IssueID) == "" {
+		payload.IssueID = ref.IssueID
 	}
-	if strings.TrimSpace(payload.IssueTitle) == "" {
-		payload.IssueTitle = snapshot.IssueTitle
+	if strings.TrimSpace(payload.IssueIdentifier) == "" {
+		payload.IssueIdentifier = ref.IssueKey
 	}
 	if strings.TrimSpace(payload.Workspace) == "" {
-		payload.Workspace = snapshot.Workspace
+		payload.Workspace = ref.WorkspacePath
 	}
 	if strings.TrimSpace(payload.Branch) == "" {
-		payload.Branch = snapshot.Branch
+		payload.Branch = ref.BranchName
 	}
 	if strings.TrimSpace(payload.AgentPRURL) == "" {
-		payload.AgentPRURL = snapshot.PRURL
-	}
-	if payload.ProgressStarted.IsZero() {
-		payload.ProgressStarted = snapshot.StartedAt
-	}
-	if payload.StartedAt.IsZero() {
-		payload.StartedAt = snapshot.StartedAt
+		payload.AgentPRURL = ref.PRURL
 	}
 }
 
-func executePRHandoffPendingAttempt(ctx context.Context, client linearClient, config runnerConfig, stateStore *state.Store, claimed claimedPRHandoffPendingAttempt) (bool, error) {
+func executePRHandoffPendingAttempt(ctx context.Context, client linearClient, config runnerConfig, stateStore *state.Store, claimed claimedPRHandoffPendingAttempt) (didWork bool, err error) {
 	if claimed.ReleaseLock != nil {
 		defer claimed.ReleaseLock()
 	}
 	payload := claimed.Payload
+	prURL := ""
+	defer func() {
+		intentErr := completePRHandoffIntent(ctx, stateStore, payload, prURL, err)
+		markErr := completeWorkerPayloadRef(ctx, stateStore, claimed.PayloadRef, err)
+		if intentErr != nil || markErr != nil {
+			err = errors.Join(err, intentErr, markErr)
+		}
+	}()
+	if claimed.PayloadRef != nil {
+		if recordErr := recordPRHandoffPendingPayloadRefContext(ctx, stateStore, payload, claimed.PayloadRef.PayloadPath); recordErr != nil {
+			return true, recordErr
+		}
+	}
 	githubEnv, githubAuth, err := githubAppEnvFromEnvironmentForHandoffWorker()
 	if err != nil {
 		now := time.Now()
 		candidate := payload.Issue()
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseHandoff, PRURL: payload.AgentPRURL, Error: err.Error()})
-		writeRunRecordWithCommandState(stateStore, payload.Workspace, runRecordFor(candidate, payload.Workspace, configuredRuntimeCommand(config), "github_app_error", payload.AttemptStartedAt, now, payload.RuntimeUsage, nil, payload.AgentPRURL, decision.Status, err.Error(), config.Budget.Active(), ""))
+		writeRunRecordWithCommandStateContext(ctx, stateStore, payload.Workspace, runRecordFor(candidate, payload.Workspace, configuredRuntimeCommand(config), "github_app_error", payload.AttemptStartedAt, now, payload.RuntimeUsage, nil, payload.AgentPRURL, decision.Status, err.Error(), config.Budget.Active(), ""))
 		return true, err
 	}
 	payload.GitHubAuth = githubAuth
-	prURL, err := executePRHandoffPendingPayload(config, payload, githubEnv)
+	prURL, err = executePRHandoffPendingPayloadContext(ctx, config, payload, githubEnv)
 	if err != nil {
 		now := time.Now()
 		candidate := payload.Issue()
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseHandoff, PRURL: payload.AgentPRURL, Error: err.Error()})
-		writeRunRecordWithCommandState(stateStore, payload.Workspace, runRecordFor(candidate, payload.Workspace, configuredRuntimeCommand(config), githubAuth, payload.AttemptStartedAt, now, payload.RuntimeUsage, nil, payload.AgentPRURL, decision.Status, err.Error(), config.Budget.Active(), ""))
+		writeRunRecordWithCommandStateContext(ctx, stateStore, payload.Workspace, runRecordFor(candidate, payload.Workspace, configuredRuntimeCommand(config), githubAuth, payload.AttemptStartedAt, now, payload.RuntimeUsage, nil, payload.AgentPRURL, decision.Status, err.Error(), config.Budget.Active(), ""))
 		return true, err
 	}
 	payload.AgentPRURL = prURL
@@ -159,59 +154,38 @@ func executePRHandoffPendingAttempt(ctx context.Context, client linearClient, co
 		review := payload.ReviewWorker(client, config, stateStore, githubEnv)
 		review.prURL = prURL
 		review.githubAuth = githubAuth
-		if err := writeReviewPendingState(review); err != nil {
+		if err := writeReviewPendingStateContext(ctx, review); err != nil {
 			return true, err
 		}
 		return true, nil
 	}
-	writeHandoffPendingState(payload.HandoffCompletion(client, config, stateStore, nil, prURL, githubAuth))
+	writeHandoffPendingStateContext(ctx, payload.HandoffCompletion(client, config, stateStore, nil, prURL, githubAuth))
 	return true, nil
 }
 
 func claimNextHandoffPendingAttempt(config runnerConfig, stateStore *state.Store) (*claimedHandoffPendingAttempt, bool, error) {
-	root := runProgressRoot(config.WorkspaceRoot)
-	if strings.TrimSpace(root) == "" {
+	return claimNextHandoffPendingAttemptContext(context.Background(), config, stateStore)
+}
+
+func claimNextHandoffPendingAttemptContext(ctx context.Context, config runnerConfig, stateStore *state.Store) (*claimedHandoffPendingAttempt, bool, error) {
+	if stateStore == nil {
 		return nil, false, nil
 	}
-	entries, err := os.ReadDir(root)
+	refs, err := stateStore.PendingWorkerPayloadRefs(ctx, handoffWorkerRole, runProgressPhaseHandoffPending)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, false, nil
-		}
 		return nil, false, err
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		identifier := entry.Name()
-		snapshot, err := readRunProgress(config.WorkspaceRoot, identifier)
+	for _, ref := range refs {
+		payload, err := readHandoffPendingPayloadFromPath(ref.PayloadPath)
 		if err != nil {
 			return nil, true, err
 		}
-		if snapshot.Phase != runProgressPhaseHandoffPending {
-			continue
-		}
-		payload, err := readHandoffPendingPayload(config.WorkspaceRoot, identifier)
-		if err != nil {
-			return nil, true, err
-		}
-		normalizeHandoffPendingPayload(&payload, snapshot)
-		if strings.TrimSpace(payload.Workspace) == "" {
-			workspace, err := safeWorkspacePath(config.WorkspaceRoot, identifier)
-			if err != nil {
-				return nil, true, err
-			}
-			payload.Workspace = workspace
-		}
-		if strings.TrimSpace(payload.Branch) == "" {
-			payload.Branch = expectedWorkspaceBranch(identifier)
-		}
+		normalizeHandoffPendingPayloadFromRef(&payload, ref)
 		completion := payload.Completion(linearClient{}, config, stateStore, nil)
 		if strings.TrimSpace(completion.prURL) == "" {
-			return nil, true, fmt.Errorf("handoff pending payload for %s has no PR URL", identifier)
+			return nil, true, fmt.Errorf("handoff pending payload for %s has no PR URL", ref.IssueKey)
 		}
-		lock, releaseLock, err := acquireRunLockWithState(stateStore, completion.workspace, completion.candidate, completion.branch, time.Now())
+		lock, releaseLock, err := acquireRunLockWithStateContext(ctx, stateStore, completion.workspace, completion.candidate, completion.branch, time.Now())
 		if err != nil {
 			if errors.Is(err, errRunLocked) {
 				log("%v", err)
@@ -220,43 +194,42 @@ func claimNextHandoffPendingAttempt(config runnerConfig, stateStore *state.Store
 			return nil, true, err
 		}
 		payload.Branch = lock.Branch
-		return &claimedHandoffPendingAttempt{Payload: payload, ReleaseLock: releaseLock}, true, nil
+		refCopy := ref
+		return &claimedHandoffPendingAttempt{Payload: payload, ReleaseLock: releaseLock, PayloadRef: &refCopy}, true, nil
 	}
-	log("no handoff-pending issues")
 	return nil, false, nil
 }
 
-func normalizeHandoffPendingPayload(payload *handoffPendingPayload, snapshot runProgressSnapshot) {
+func normalizeHandoffPendingPayloadFromRef(payload *handoffPendingPayload, ref state.WorkerPayloadRef) {
 	if payload == nil {
 		return
 	}
-	if strings.TrimSpace(payload.IssueIdentifier) == "" {
-		payload.IssueIdentifier = snapshot.IssueIdentifier
+	if strings.TrimSpace(payload.IssueID) == "" {
+		payload.IssueID = ref.IssueID
 	}
-	if strings.TrimSpace(payload.IssueTitle) == "" {
-		payload.IssueTitle = snapshot.IssueTitle
+	if strings.TrimSpace(payload.IssueIdentifier) == "" {
+		payload.IssueIdentifier = ref.IssueKey
 	}
 	if strings.TrimSpace(payload.Workspace) == "" {
-		payload.Workspace = snapshot.Workspace
+		payload.Workspace = ref.WorkspacePath
 	}
 	if strings.TrimSpace(payload.Branch) == "" {
-		payload.Branch = snapshot.Branch
+		payload.Branch = ref.BranchName
 	}
 	if strings.TrimSpace(payload.PRURL) == "" {
-		payload.PRURL = snapshot.PRURL
-	}
-	if payload.ProgressStarted.IsZero() {
-		payload.ProgressStarted = snapshot.StartedAt
-	}
-	if payload.StartedAt.IsZero() {
-		payload.StartedAt = snapshot.StartedAt
+		payload.PRURL = ref.PRURL
 	}
 }
 
-func executeHandoffPendingAttempt(ctx context.Context, client linearClient, config runnerConfig, stateStore *state.Store, claimed claimedHandoffPendingAttempt) (bool, error) {
+func executeHandoffPendingAttempt(ctx context.Context, client linearClient, config runnerConfig, stateStore *state.Store, claimed claimedHandoffPendingAttempt) (didWork bool, err error) {
 	if claimed.ReleaseLock != nil {
 		defer claimed.ReleaseLock()
 	}
+	defer func() {
+		if markErr := completeWorkerPayloadRef(ctx, stateStore, claimed.PayloadRef, err); err == nil && markErr != nil {
+			err = markErr
+		}
+	}()
 	payload := claimed.Payload
 	var states []workflowState
 	if strings.TrimSpace(config.HandoffState) != "" {
@@ -264,7 +237,7 @@ func executeHandoffPendingAttempt(ctx context.Context, client linearClient, conf
 			return true, fmt.Errorf("handoff pending payload for %s has no team ID", payload.IssueIdentifier)
 		}
 		var err error
-		states, err = client.workflowStates(payload.TeamID)
+		states, err = client.workflowStatesContext(ctx, payload.TeamID)
 		if err != nil {
 			return true, err
 		}

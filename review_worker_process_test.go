@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -32,6 +32,7 @@ func TestRunReviewPendingAttemptConsumesPayloadAndQueuesHandoff(t *testing.T) {
 	prURL := "https://github.com/acme/repo/pull/178"
 	input := reviewWorker{
 		config:          runnerConfig{WorkspaceRoot: root, PiCommand: "pi run", ReviewCommand: "pi review"},
+		stateStore:      store,
 		candidate:       candidate,
 		workspace:       workspace,
 		branch:          expectedWorkspaceBranch(candidate.Identifier),
@@ -50,13 +51,13 @@ func TestRunReviewPendingAttemptConsumesPayloadAndQueuesHandoff(t *testing.T) {
 		return map[string]string{"GITHUB_TOKEN": "token"}, "github_app_installation", nil
 	}
 	t.Cleanup(func() { githubAppEnvFromEnvironmentForReviewWorker = githubAppEnvFromEnvironment })
-	collectReviewEvidenceForWorker = func(config runnerConfig, gotCandidate *issue, gotWorkspace, gotPRURL string, scopeResult scopeGuardResult, validation []string) (reviewEvidence, error) {
+	collectReviewEvidenceForWorker = func(ctx context.Context, config runnerConfig, gotCandidate *issue, gotWorkspace, gotPRURL string, scopeResult scopeGuardResult, validation []string) (reviewEvidence, error) {
 		if gotCandidate.Identifier != candidate.Identifier || gotWorkspace != workspace || gotPRURL != prURL || len(validation) != 1 {
 			t.Fatalf("unexpected review evidence input candidate=%+v workspace=%q pr=%q validation=%#v", gotCandidate, gotWorkspace, gotPRURL, validation)
 		}
 		return reviewEvidence{ChecksStatus: "success", ChecksSummary: "go-ci=COMPLETED/SUCCESS"}, nil
 	}
-	runReviewForWorker = func(provider, command, gotWorkspace string, gotCandidate *issue, gotPRURL string, env map[string]string, timeout time.Duration, evidence *reviewEvidence) (*reviewResult, error) {
+	runReviewForWorker = func(ctx context.Context, provider, command, gotWorkspace string, gotCandidate *issue, gotPRURL string, env map[string]string, timeout time.Duration, evidence *reviewEvidence) (*reviewResult, error) {
 		if provider != "" || command != "pi review" || gotWorkspace != workspace || gotCandidate.Identifier != candidate.Identifier || gotPRURL != prURL || env["GITHUB_TOKEN"] != "token" {
 			t.Fatalf("unexpected review command input provider=%q command=%q workspace=%q candidate=%+v pr=%q env=%+v", provider, command, gotWorkspace, gotCandidate, gotPRURL, env)
 		}
@@ -93,6 +94,99 @@ func TestRunReviewPendingAttemptConsumesPayloadAndQueuesHandoff(t *testing.T) {
 	}
 }
 
+func TestWriteReviewPendingStateContextHonorsCanceledContextBeforeExports(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-178")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	candidate := &issue{ID: "issue-178", Identifier: "CAG-178", Title: "Pending review"}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err = writeReviewPendingStateContext(ctx, reviewWorker{
+		config:          runnerConfig{WorkspaceRoot: root, PiCommand: "pi run", ReviewCommand: "pi review"},
+		stateStore:      store,
+		candidate:       candidate,
+		workspace:       workspace,
+		branch:          expectedWorkspaceBranch(candidate.Identifier),
+		progressStarted: time.Now().Add(-2 * time.Minute),
+		startedAt:       time.Now().Add(-time.Minute),
+		prURL:           "https://github.com/acme/repo/pull/178",
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("writeReviewPendingStateContext() error = %v, want canceled", err)
+	}
+	path, err := reviewPendingPayloadPath(root, candidate.Identifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("review pending payload stat err=%v, want missing", err)
+	}
+	refs, err := store.PendingWorkerPayloadRefs(context.Background(), reviewWorkerRole, runProgressPhaseReviewPending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) != 0 {
+		t.Fatalf("review pending refs = %+v, want none", refs)
+	}
+}
+
+func TestClaimNextReviewPendingAttemptUsesSQLitePayloadRefWithoutProgressSnapshot(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-184")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	candidate := &issue{ID: "issue-184", Identifier: "CAG-184", Title: "State pending review"}
+	candidate.Team.ID = "team-184"
+	payload := reviewPendingPayloadFromWorker(reviewWorker{
+		config:          runnerConfig{WorkspaceRoot: root, PiCommand: "pi run", ReviewCommand: "pi review"},
+		candidate:       candidate,
+		workspace:       workspace,
+		branch:          expectedWorkspaceBranch(candidate.Identifier),
+		progressStarted: time.Now().Add(-time.Minute),
+		startedAt:       time.Now().Add(-time.Minute),
+		prURL:           "https://github.com/acme/repo/pull/184",
+	})
+	if err := writeReviewPendingPayload(root, payload); err != nil {
+		t.Fatal(err)
+	}
+	payloadPath, err := reviewPendingPayloadPath(root, candidate.Identifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := recordReviewPendingPayloadRef(store, payload, payloadPath); err != nil {
+		t.Fatal(err)
+	}
+
+	claim, didWork, err := claimNextReviewPendingAttempt(runnerConfig{WorkspaceRoot: root, PiCommand: "pi run", ReviewCommand: "pi review"}, store)
+	if err != nil {
+		t.Fatalf("claimNextReviewPendingAttempt() error = %v", err)
+	}
+	if !didWork || claim == nil {
+		t.Fatalf("claim = %+v didWork=%t; want SQLite pending review claim", claim, didWork)
+	}
+	defer claim.ReleaseLock()
+	if claim.Payload.PRURL != payload.PRURL || claim.Payload.IssueIdentifier != candidate.Identifier || claim.PayloadRef == nil {
+		t.Fatalf("claim = %+v; want payload from SQLite ref", claim)
+	}
+	if _, err := readRunProgress(root, candidate.Identifier); err == nil {
+		t.Fatal("readRunProgress() succeeded; test should not create a progress snapshot for discovery")
+	}
+}
+
 func TestRunReviewPendingAttemptSkipsPendingProgressWithActiveRunLock(t *testing.T) {
 	t.Cleanup(resetReviewWorkerHooks)
 	root := t.TempDir()
@@ -110,6 +204,7 @@ func TestRunReviewPendingAttemptSkipsPendingProgressWithActiveRunLock(t *testing
 	branch := expectedWorkspaceBranch(candidate.Identifier)
 	if err := writeReviewPendingState(reviewWorker{
 		config:          runnerConfig{WorkspaceRoot: root, PiCommand: "pi run", ReviewCommand: "pi review"},
+		stateStore:      store,
 		candidate:       candidate,
 		workspace:       workspace,
 		branch:          branch,
@@ -124,7 +219,7 @@ func TestRunReviewPendingAttemptSkipsPendingProgressWithActiveRunLock(t *testing
 		t.Fatal(err)
 	}
 	defer releaseLock()
-	collectReviewEvidenceForWorker = func(runnerConfig, *issue, string, string, scopeGuardResult, []string) (reviewEvidence, error) {
+	collectReviewEvidenceForWorker = func(context.Context, runnerConfig, *issue, string, string, scopeGuardResult, []string) (reviewEvidence, error) {
 		t.Fatal("review worker should not consume a pending review with an active run lock")
 		return reviewEvidence{}, nil
 	}
@@ -154,8 +249,11 @@ func TestClaimNextReviewReadyAttemptClaimsOnlyReviewNotReadySuccess(t *testing.T
 		MergeStateStatus:  "CLEAN",
 		StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}},
 	}
-	writeRunRecordFixture(t, root, reviewCandidate.Identifier, fmt.Sprintf(`{"status":%q,"pr_url":%q}`, runAttemptStatusReviewNotReady, pr.URL))
-	writeRunProgress(root, runProgressSnapshot{IssueIdentifier: reviewCandidate.Identifier, Phase: "review_not_ready", PRURL: pr.URL, StartedAt: time.Now().Add(-time.Minute)})
+	workspace := filepath.Join(root, reviewCandidate.Identifier)
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	upsertReviewNotReadyAttempt(t, store, reviewCandidate, workspace, pr.URL)
 	original := openPRsByIssueForSelection
 	openPRsByIssueForSelection = func(runnerConfig) (map[string]*pullRequestSummary, error) {
 		return map[string]*pullRequestSummary{reviewCandidate.Identifier: &pr}, nil
@@ -167,7 +265,7 @@ func TestClaimNextReviewReadyAttemptClaimsOnlyReviewNotReadySuccess(t *testing.T
 	config.BaseBranch = "develop"
 	config.PiCommand = "true"
 	config.ReviewCommand = "true"
-	wf := workflow{YAML: "agent:\n  max_turns: 1\n"}
+	wf := workflow{}
 
 	claim, didWork, err := claimNextReviewReadyAttempt(client, wf, config, store)
 	if err != nil {
@@ -196,6 +294,181 @@ func TestClaimNextReviewReadyAttemptClaimsOnlyReviewNotReadySuccess(t *testing.T
 	}
 }
 
+func TestClaimNextReviewReadyAttemptUsesSQLiteReviewNotReadyWithoutProgressSnapshot(t *testing.T) {
+	root := t.TempDir()
+	store := openCandidateTestStateStore(t)
+	reviewCandidate := testIssue("CAG-187", "In Progress")
+	workspace := filepath.Join(root, reviewCandidate.Identifier)
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pr := pullRequestSummary{
+		Number:            187,
+		URL:               "https://github.com/weskor/pi-symphony/pull/187",
+		BaseRefName:       "develop",
+		HeadRefName:       expectedWorkspaceBranch(reviewCandidate.Identifier),
+		Author:            prAuthor{Login: githubAppPRAuthorLogin},
+		ReviewDecision:    "COMMENTED",
+		Mergeable:         "MERGEABLE",
+		MergeStateStatus:  "CLEAN",
+		StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}},
+	}
+	upsertReviewNotReadyAttempt(t, store, reviewCandidate, workspace, pr.URL)
+	original := openPRsByIssueForSelection
+	openPRsByIssueForSelection = func(runnerConfig) (map[string]*pullRequestSummary, error) {
+		return map[string]*pullRequestSummary{reviewCandidate.Identifier: &pr}, nil
+	}
+	t.Cleanup(func() { openPRsByIssueForSelection = original })
+
+	client := linearClientWithCandidates(t, []issue{reviewCandidate})
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	config.PiCommand = "true"
+	config.ReviewCommand = "true"
+	if _, err := readRunProgress(root, reviewCandidate.Identifier); err == nil {
+		t.Fatal("readRunProgress() succeeded before claim; test should not create a progress snapshot for resume discovery")
+	}
+
+	claim, didWork, err := claimNextReviewReadyAttempt(client, workflow{}, config, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didWork || claim == nil {
+		t.Fatalf("claim = %#v didWork=%t; want SQLite review-ready claim", claim, didWork)
+	}
+	defer claim.ReleaseLock()
+	if claim.Candidate.Identifier != reviewCandidate.Identifier || claim.SelectedPR == nil || claim.SelectedPR.URL != pr.URL {
+		t.Fatalf("claim = %#v; want review-ready resume from SQLite facts", claim)
+	}
+}
+
+func TestClaimNextReviewReadyAttemptContextHonorsCanceledContext(t *testing.T) {
+	root := t.TempDir()
+	store := openCandidateTestStateStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	claim, didWork, err := claimNextReviewReadyAttemptContext(ctx, linearClient{}, workflow{}, testRunnerConfig(root), store)
+	if !errors.Is(err, context.Canceled) || didWork || claim != nil {
+		t.Fatalf("claimNextReviewReadyAttemptContext() = (%#v, %t, %v), want canceled no work", claim, didWork, err)
+	}
+}
+
+func TestScheduleReviewReadyWorkerTasksEnqueuesSQLiteReviewResumeWithoutProgressSnapshot(t *testing.T) {
+	root := t.TempDir()
+	store := openCandidateTestStateStore(t)
+	reviewCandidate := testIssue("CAG-188", "In Progress")
+	workspace := filepath.Join(root, reviewCandidate.Identifier)
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pr := pullRequestSummary{
+		Number:            188,
+		URL:               "https://github.com/weskor/pi-symphony/pull/188",
+		BaseRefName:       "develop",
+		HeadRefName:       expectedWorkspaceBranch(reviewCandidate.Identifier),
+		Author:            prAuthor{Login: githubAppPRAuthorLogin},
+		ReviewDecision:    "COMMENTED",
+		Mergeable:         "MERGEABLE",
+		MergeStateStatus:  "CLEAN",
+		StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}},
+	}
+	upsertReviewNotReadyAttempt(t, store, reviewCandidate, workspace, pr.URL)
+	original := openPRsByIssueForSelection
+	openPRsByIssueForSelection = func(runnerConfig) (map[string]*pullRequestSummary, error) {
+		return map[string]*pullRequestSummary{reviewCandidate.Identifier: &pr}, nil
+	}
+	t.Cleanup(func() { openPRsByIssueForSelection = original })
+	client := linearClientWithCandidates(t, []issue{reviewCandidate})
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	config.ReviewCommand = "true"
+	if _, err := readRunProgress(root, reviewCandidate.Identifier); err == nil {
+		t.Fatal("readRunProgress() succeeded before scheduling; test should not create progress")
+	}
+
+	didWork, err := scheduleReviewReadyWorkerTasks(context.Background(), client, config, store, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didWork {
+		t.Fatal("didWork=false; want review resume task enqueued")
+	}
+	tasks, err := store.WorkerTasks(context.Background(), reviewWorkerRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].TaskKey != reviewReadyWorkerTaskKey(reviewCandidate.Identifier, 1) || tasks[0].Status != "queued" {
+		t.Fatalf("review tasks = %+v; want queued review resume task", tasks)
+	}
+	if hasRunLock(workspace) {
+		t.Fatal("scheduler should not acquire review run lock")
+	}
+}
+
+func TestClaimNextQueuedReviewReadyAttemptClaimsQueuedTaskWithoutCandidateDiscovery(t *testing.T) {
+	root := t.TempDir()
+	store := openCandidateTestStateStore(t)
+	reviewCandidate := testIssue("CAG-189", "In Progress")
+	workspace := filepath.Join(root, reviewCandidate.Identifier)
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pr := pullRequestSummary{
+		Number:            189,
+		URL:               "https://github.com/weskor/pi-symphony/pull/189",
+		BaseRefName:       "develop",
+		HeadRefName:       expectedWorkspaceBranch(reviewCandidate.Identifier),
+		Author:            prAuthor{Login: githubAppPRAuthorLogin},
+		ReviewDecision:    "COMMENTED",
+		Mergeable:         "MERGEABLE",
+		MergeStateStatus:  "CLEAN",
+		StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}},
+	}
+	upsertReviewNotReadyAttempt(t, store, reviewCandidate, workspace, pr.URL)
+	taskKey := reviewReadyWorkerTaskKey(reviewCandidate.Identifier, 1)
+	if _, enqueued, err := enqueueReviewReadyWorkerTask(context.Background(), store, reviewCandidate, pr, workspace, time.Now().UTC()); err != nil || !enqueued {
+		t.Fatalf("enqueueReviewReadyWorkerTask() enqueued=%v err=%v", enqueued, err)
+	}
+	original := openPRsByIssueForSelection
+	openPRsByIssueForSelection = func(runnerConfig) (map[string]*pullRequestSummary, error) {
+		return map[string]*pullRequestSummary{reviewCandidate.Identifier: &pr}, nil
+	}
+	t.Cleanup(func() { openPRsByIssueForSelection = original })
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Variables map[string]any `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if _, ok := request.Variables["projectSlug"]; ok {
+			t.Fatal("queued review task should not rediscover candidates")
+		}
+		if request.Variables["id"] != reviewCandidate.Identifier {
+			t.Fatalf("issue lookup id = %#v, want %s", request.Variables["id"], reviewCandidate.Identifier)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issue": reviewCandidate}})
+	}))
+	t.Cleanup(server.Close)
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	config.PiCommand = "true"
+	config.ReviewCommand = "true"
+
+	claim, didWork, err := claimNextQueuedReviewReadyAttempt(linearClient{apiKey: "test-key", endpoint: server.URL}, workflow{}, config, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didWork || claim == nil || claim.Candidate.Identifier != reviewCandidate.Identifier {
+		t.Fatalf("claim = %#v didWork=%t; want queued review task claim", claim, didWork)
+	}
+	defer claim.ReleaseLock()
+	if claim.ReviewWorkerTaskKey != taskKey {
+		t.Fatalf("review task key = %q, want %q", claim.ReviewWorkerTaskKey, taskKey)
+	}
+}
+
 func linearClientWithWorkflowStates(t *testing.T, states []workflowState) linearClient {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -212,4 +485,22 @@ func linearClientWithWorkflowStates(t *testing.T, states []workflowState) linear
 	}))
 	t.Cleanup(server.Close)
 	return linearClient{apiKey: "test-key", endpoint: server.URL}
+}
+
+func upsertReviewNotReadyAttempt(t *testing.T, store *state.Store, candidate issue, workspace, prURL string) {
+	t.Helper()
+	if err := store.UpsertAttemptResult(context.Background(), state.AttemptResult{
+		IssueKey:      candidate.Identifier,
+		IssueID:       candidate.ID,
+		Attempt:       1,
+		WorkspacePath: workspace,
+		BranchName:    expectedWorkspaceBranch(candidate.Identifier),
+		BaseBranch:    "develop",
+		Status:        runAttemptStatusReviewNotReady,
+		Repository:    "weskor/pi-symphony",
+		PRURL:         prURL,
+		UpdatedAt:     time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("UpsertAttemptResult(review_not_ready) error = %v", err)
+	}
 }

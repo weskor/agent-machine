@@ -115,6 +115,22 @@ func TestWriteRunRecordMirrorsSQLiteStateIdempotently(t *testing.T) {
 	}
 }
 
+func TestCompatibilityArtifactReadersRejectUnsupportedSchemaVersion(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(`{"schema_version":99,"issue_identifier":"CAG-201","status":"success"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if record, ok := readRunArtifact(workspace); ok {
+		t.Fatalf("readRunArtifact() = %+v, true; want unsupported schema rejected", record)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, evaluationArtifactName), []byte(`{"schema_version":99,"issue_identifier":"CAG-201","outcome":"handoff_ready"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if evaluation, ok := readEvaluationArtifact(workspace); ok {
+		t.Fatalf("readEvaluationArtifact() = %+v, true; want unsupported schema rejected", evaluation)
+	}
+}
+
 func TestWriteRunRecordWithoutWorkspaceRootSkipsSQLiteMirror(t *testing.T) {
 	workspace := t.TempDir()
 	record := runRecord{IssueIdentifier: "CAG-legacy", Workspace: workspace, Status: "success", StartedAt: time.Now(), EndedAt: time.Now()}

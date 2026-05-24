@@ -49,6 +49,8 @@ must not be used as architecture names for the runner itself.
 `pi_cli` is an Adapter choice, not Pi Symphony's architecture. Adding another
 provider must not move issue claiming, branch/PR validation, lifecycle state,
 handoff comments, merge gates, or cleanup policy into provider-specific prompts.
+Local one-shot CLI providers should share the same shell Adapter implementation
+and differ only by provider name, command shape, and parser hooks.
 
 ### Runtime preflight contract
 
@@ -94,23 +96,13 @@ Runtime providers declare capabilities instead of relying on caller guesses:
 | `review_run` | Can perform a semantic review attempt. |
 | `usage_cost_reporting` | Can report token, cost, or other usage telemetry. |
 | `timeout_cancellation` | Can enforce timeout and/or cancellation signals. |
-| `max_turns` | Can enforce turn/iteration limits inside one attempt. |
 | `structured_output` | Can emit typed outcomes/events without text scraping. |
 | `raw_debug_capture` | Can expose raw streams for capped debug artifacts. |
 | `deterministic_handoff_support` | Can provide machine-readable PR/handoff hints, while the runner still validates and owns handoff. |
 
-Unsupported capabilities must be explicit. A future `max_turns` implementation
-must check the provider capability first; it must not assume that `pi_cli` can
-enforce internal turn limits just because the workflow field exists.
-
-Current shell CLI semantics for `agent.max_turns` are intentionally narrow:
-missing, invalid, zero, or `1` resolves to the historical single implementation
-attempt for `codex_cli` and `pi_cli`, and any normalized value greater than `1`
-is a runtime configuration preflight failure before claim, lease acquisition,
-workspace mutation, or Linear state movement. The actionable failure must tell
-the operator to use `agent.max_turns: 1` or a future provider with a proven
-multi-turn contract. The runner must not emulate multi-turn behavior by
-repeatedly shelling out to a one-shot CLI runtime.
+Unsupported capabilities must be explicit. If future runtime providers need
+turn or iteration limits, that behavior needs a concrete provider contract and
+must not be approximated by repeatedly shelling out to a one-shot CLI runtime.
 
 ### Deterministic handoff boundary
 
@@ -139,11 +131,25 @@ example `cancel` on a runtime that has no cancellation primitive).
 
 - `AttemptContext`: identifies a single logical attempt.
 - `AttemptTimeouts`: wall-clock / command / review timeout budgets.
-- `AttemptResult`: terminal outcome, PR URL, usage telemetry, error text, and
-  timing.
+- `AttemptResult`: terminal outcome, PR URL, usage telemetry, structured
+  outcome envelope, error text, and timing.
 - `AttemptUsage`: parsed token/cost telemetry for cost governance.
 - `ReviewResult`: optional review status/classification/findings/output usage.
 - `RuntimeEvent`: stable event stream with typed event names and payload.
+
+Shell-style runtime adapters accept an explicit structured outcome marker in
+stdout:
+
+```text
+PI_SYMPHONY_OUTCOME: {"runtime_outcome":"needs_info","needs_info_questions":["Which tenant?"],"validation":["go test ./..."],"pr_url":"https://github.com/owner/repo/pull/123"}
+```
+
+When this line is present, the adapter parses it as `AttemptOutcomeEnvelope` and
+the runner prefers its typed fields over legacy text scraping. Missing marker
+lines preserve compatibility with existing plain-text output. Malformed marker
+JSON is a runtime execution failure, not a silent fallback, because the Agent
+attempted to provide typed orchestration evidence and produced an invalid
+contract.
 
 ### Error contract
 

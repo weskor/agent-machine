@@ -28,9 +28,11 @@ type handoffWorkerResult struct {
 }
 
 func (w handoffWorker) Execute(ctx context.Context) (handoffWorkerResult, error) {
-	_ = ctx
 	if w.prURL == "" {
 		return handoffWorkerResult{}, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return handoffWorkerResult{Terminal: true}, err
 	}
 
 	logHandoffRunSummary(w.candidate.Identifier, w.prURL, w.review, w.validation)
@@ -51,15 +53,21 @@ func (w handoffWorker) Execute(ctx context.Context) (handoffWorkerResult, error)
 	if err := postOrUpdatePRHandoffCommentForWorker(summary); err != nil {
 		log("failed to post GitHub handoff comment for %s: %v", w.prURL, err)
 	}
+	if err := ctx.Err(); err != nil {
+		return handoffWorkerResult{Summary: &summary, Terminal: true}, err
+	}
 	linearStatus := linearStatusWorker{client: w.client, candidate: w.candidate, states: w.states}
 	if stateID(w.states, w.config.HandoffState) != "" {
-		if _, err := linearStatus.MoveTo(w.config.HandoffState); err != nil {
-			writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, w.review, w.prURL, runAttemptStatusFailed, err.Error(), w.config.Budget.Active(), ""))
+		if _, err := linearStatus.MoveToContext(ctx, w.config.HandoffState); err != nil {
+			writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, w.review, w.prURL, runAttemptStatusFailed, err.Error(), w.config.Budget.Active(), ""))
 			return handoffWorkerResult{Summary: &summary, Terminal: true}, err
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return handoffWorkerResult{Summary: &summary, Terminal: true}, err
+	}
 	comment := renderLinearHandoffComment(summary)
-	if err := linearStatus.Comment(comment); err != nil {
+	if err := linearStatus.CommentContext(ctx, comment); err != nil {
 		log("failed to comment on %s: %v", w.candidate.Identifier, err)
 	}
 	return handoffWorkerResult{Summary: &summary}, nil

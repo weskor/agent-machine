@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	artifactio "github.com/weskor/pi-symphony/internal/artifacts"
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 const repairReviewFindingsNextAction = "repair_review_findings_before_handoff"
@@ -75,6 +77,10 @@ func repairableReviewFailedPR(config runnerConfig, candidate issue, pr *pullRequ
 		if strings.TrimSpace(decision.DBFacts.PRURL) != "" && decision.DBFacts.PRURL != pr.URL {
 			return false
 		}
+		if decision.DBFacts.Status == runAttemptStatusReviewFailed {
+			return decision.DBFacts.ReviewStatus != "passed" && decision.DBFacts.ReviewClassification == reviewClassificationBehaviorSpecBlocker
+		}
+		return false
 	}
 	workspace := filepath.Join(config.WorkspaceRoot, candidate.Identifier)
 	record, ok := readRunArtifact(workspace)
@@ -105,6 +111,9 @@ func readEvaluationArtifact(workspace string) (evaluationArtifact, bool) {
 	if err != nil {
 		return evaluationArtifact{}, false
 	}
+	if _, _, err := artifactio.ValidateArtifactSchema(data, evaluationArtifactName); err != nil {
+		return evaluationArtifact{}, false
+	}
 	var evaluation evaluationArtifact
 	if err := json.Unmarshal(data, &evaluation); err != nil {
 		return evaluationArtifact{}, false
@@ -112,21 +121,38 @@ func readEvaluationArtifact(workspace string) (evaluationArtifact, bool) {
 	return evaluation, true
 }
 
-func repairReviewFailedPromptFeedback(workspace, existingFeedback string) string {
+type reviewPromptStateReader interface {
+	ReconciliationFacts(context.Context, string) (state.ReconciliationFacts, bool, error)
+}
+
+func repairReviewFailedPromptFeedback(reader reviewPromptStateReader, issueKey, existingFeedback string) string {
 	if strings.TrimSpace(existingFeedback) != "" {
 		return existingFeedback
 	}
-	record, ok := readRunArtifact(workspace)
-	if !ok || record.Status != runAttemptStatusReviewFailed || strings.TrimSpace(record.ReviewFindings) == "" {
+	if reader == nil {
+		return existingFeedback
+	}
+	facts, ok, err := reader.ReconciliationFacts(context.Background(), issueKey)
+	if err != nil || !ok || facts.Status != runAttemptStatusReviewFailed {
 		return existingFeedback
 	}
 	var builder strings.Builder
-	fmt.Fprintln(&builder, "# Prior review findings")
+	fmt.Fprintln(&builder, "# Prior review state")
 	fmt.Fprintln(&builder)
-	if strings.TrimSpace(record.ReviewClassification) != "" {
-		fmt.Fprintf(&builder, "Review classification: %s\n\n", record.ReviewClassification)
+	if strings.TrimSpace(facts.ReviewStatus) != "" {
+		fmt.Fprintf(&builder, "Review status: %s\n", facts.ReviewStatus)
 	}
-	fmt.Fprintln(&builder, strings.TrimSpace(record.ReviewFindings))
+	if strings.TrimSpace(facts.ReviewClassification) != "" {
+		fmt.Fprintf(&builder, "Review classification: %s\n", facts.ReviewClassification)
+	}
+	if strings.TrimSpace(facts.ReviewOutputRef) != "" {
+		fmt.Fprintf(&builder, "Review output ref: %s\n", facts.ReviewOutputRef)
+	}
+	if strings.TrimSpace(facts.ReviewOutputHash) != "" {
+		fmt.Fprintf(&builder, "Review output hash: %s\n", facts.ReviewOutputHash)
+	}
+	fmt.Fprintln(&builder)
+	fmt.Fprintln(&builder, "The prior semantic review failed. Repair the failed behavior/spec findings before handoff.")
 	return builder.String()
 }
 

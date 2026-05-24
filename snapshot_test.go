@@ -129,7 +129,7 @@ func TestOrchestrationSnapshotIncludesActiveLaneData(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err := store.UpsertDaemonHeartbeat(context.Background(), state.DaemonHeartbeat{ProcessID: "pid-1", LaneName: "work", WorkflowPath: "WORKFLOW.md", CycleNumber: 7, LastSuccessAt: now, UpdatedAt: now}); err != nil {
+	if err := store.UpsertDaemonHeartbeat(context.Background(), state.DaemonHeartbeat{ProcessID: "pid-1", LaneName: "work", WorkflowPath: "WORKFLOW.md", CycleNumber: 7, LastSuccessAt: now, ActiveTaskKey: "continuous:work", ActiveTaskRole: "implementation", ActiveLeaseName: "lane:work", ActiveTaskStartedAt: now.Add(-time.Minute), UpdatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 	snap, err := buildOrchestrationSnapshot(context.Background(), runnerConfig{WorkspaceRoot: root}, now)
@@ -138,6 +138,12 @@ func TestOrchestrationSnapshotIncludesActiveLaneData(t *testing.T) {
 	}
 	if len(snap.ActiveLanes) != 1 || snap.ActiveLanes[0].Name != "work" || snap.ActiveLanes[0].CycleNumber != 7 || snap.ActiveLanes[0].Source != "sqlite" {
 		t.Fatalf("missing lane data: %+v", snap.ActiveLanes)
+	}
+	lines := strings.Join(summarizeActiveLanes(snap.ActiveLanes), "\n")
+	for _, expected := range []string{"SQLite active lanes: total=1", "lane=work", "active_task=continuous:work", "active_role=implementation", "active_lease=lane:work"} {
+		if !strings.Contains(lines, expected) {
+			t.Fatalf("expected %q in %q", expected, lines)
+		}
 	}
 }
 
@@ -169,6 +175,37 @@ func TestOrchestrationSnapshotIncludesWorkerTasks(t *testing.T) {
 	}
 	lines := strings.Join(summarizeWorkerTasks(snap.WorkerTasks), "\n")
 	for _, expected := range []string{"SQLite worker tasks: total=2 implementation:queued=1 review:completed=1", "task=review:CAG-151:1", "task=implementation:CAG-152:1"} {
+		if !strings.Contains(lines, expected) {
+			t.Fatalf("expected %q in %q", expected, lines)
+		}
+	}
+}
+
+func TestOrchestrationSnapshotIncludesWorkerResults(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	now := time.Date(2026, 5, 24, 11, 0, 0, 0, time.UTC)
+	store, err := state.Open(ctx, state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertWorkerTask(ctx, state.WorkerTask{TaskKey: "continuous:implementation", Role: "implementation", Status: "claimed", AvailableAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertWorkerResult(ctx, state.WorkerResult{TaskKey: "continuous:implementation", Role: "implementation", LaneName: "implementation", Status: "failed", Reason: "worker_error", Error: "runtime unavailable", StartedAt: now, FinishedAt: now.Add(time.Second), UpdatedAt: now.Add(time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := buildOrchestrationSnapshot(ctx, runnerConfig{WorkspaceRoot: root}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.WorkerResults) != 1 || snap.WorkerResults[0].Status != "failed" || snap.WorkerResults[0].Reason != "worker_error" {
+		t.Fatalf("worker results = %+v; want failed implementation result", snap.WorkerResults)
+	}
+	lines := strings.Join(summarizeWorkerResults(snap.WorkerResults), "\n")
+	for _, expected := range []string{"SQLite worker results: total=1 implementation:failed=1", "task=continuous:implementation role=implementation lane=implementation status=failed did_work=false reason=worker_error"} {
 		if !strings.Contains(lines, expected) {
 			t.Fatalf("expected %q in %q", expected, lines)
 		}

@@ -1,9 +1,13 @@
 package main
 
 import (
-	"fmt"
+	"context"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 func TestRenderPRFeedbackIncludesChangeRequestsAndComments(t *testing.T) {
@@ -44,15 +48,35 @@ func TestRenderPRFeedbackIncludesChangeRequestsAndComments(t *testing.T) {
 	}
 }
 
-func TestRepairReviewFailedPromptFeedbackIncludesPriorFindings(t *testing.T) {
+func TestRepairReviewFailedPromptFeedbackUsesSQLiteReviewState(t *testing.T) {
 	root := t.TempDir()
-	workspace := root + "/CAG-141"
-	writeRunRecordFixture(t, root, "CAG-141", fmt.Sprintf(`{"status":"review_failed","review_status":"failed","review_classification":"%s","review_findings":"REVIEW_FAIL\n- Fix behavior contract evidence","pr_url":"https://github.com/weskor/pi-symphony/pull/93"}`, reviewClassificationBehaviorSpecBlocker))
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertAttemptResult(context.Background(), state.AttemptResult{
+		IssueKey:             "CAG-141",
+		Attempt:              1,
+		WorkspacePath:        filepath.Join(root, "CAG-141"),
+		BranchName:           expectedWorkspaceBranch("CAG-141"),
+		Status:               runAttemptStatusReviewFailed,
+		PRURL:                "https://github.com/weskor/pi-symphony/pull/93",
+		ReviewStatus:         "failed",
+		ReviewClassification: reviewClassificationBehaviorSpecBlocker,
+		ReviewOutputRef:      "/tmp/review-output.txt",
+		ReviewOutputHash:     "review-output-hash",
+		UpdatedAt:            time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
 
-	feedback := repairReviewFailedPromptFeedback(workspace, "")
+	feedback := repairReviewFailedPromptFeedback(store, "CAG-141", "")
 
-	if !strings.Contains(feedback, "Prior review findings") || !strings.Contains(feedback, reviewClassificationBehaviorSpecBlocker) || !strings.Contains(feedback, "Fix behavior contract evidence") {
-		t.Fatalf("repair feedback did not include prior findings: %q", feedback)
+	for _, expected := range []string{"Prior review state", "Review status: failed", reviewClassificationBehaviorSpecBlocker, "/tmp/review-output.txt", "review-output-hash", "prior semantic review failed"} {
+		if !strings.Contains(feedback, expected) {
+			t.Fatalf("repair feedback missing %q: %q", expected, feedback)
+		}
 	}
 }
 

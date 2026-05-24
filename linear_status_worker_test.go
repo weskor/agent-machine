@@ -1,12 +1,16 @@
 package main
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"testing"
+)
 
 func TestLinearStatusWorkerMovesIssueToNamedState(t *testing.T) {
 	t.Cleanup(resetLinearStatusWorkerHooks)
 	candidate := &issue{ID: "issue-163", Identifier: "CAG-163"}
 	var updatedIssueID, updatedStateID string
-	updateIssueStateForLinearStatusWorker = func(client linearClient, issueID, stateID string) error {
+	updateIssueStateForLinearStatusWorker = func(ctx context.Context, client linearClient, issueID, stateID string) error {
 		updatedIssueID = issueID
 		updatedStateID = stateID
 		return nil
@@ -28,7 +32,7 @@ func TestLinearStatusWorkerMovesIssueToNamedState(t *testing.T) {
 func TestLinearStatusWorkerMissingStateIsNoop(t *testing.T) {
 	t.Cleanup(resetLinearStatusWorkerHooks)
 	called := false
-	updateIssueStateForLinearStatusWorker = func(linearClient, string, string) error {
+	updateIssueStateForLinearStatusWorker = func(context.Context, linearClient, string, string) error {
 		called = true
 		return nil
 	}
@@ -50,7 +54,7 @@ func TestLinearStatusWorkerCreatesComment(t *testing.T) {
 	t.Cleanup(resetLinearStatusWorkerHooks)
 	candidate := &issue{ID: "issue-163", Identifier: "CAG-163"}
 	var commentIssueID, commentBody string
-	createCommentForLinearStatusWorker = func(client linearClient, issueID, body string) error {
+	createCommentForLinearStatusWorker = func(ctx context.Context, client linearClient, issueID, body string) error {
 		commentIssueID = issueID
 		commentBody = body
 		return nil
@@ -61,5 +65,29 @@ func TestLinearStatusWorkerCreatesComment(t *testing.T) {
 	}
 	if commentIssueID != candidate.ID || commentBody != "runner comment" {
 		t.Fatalf("comment issue=%q body=%q; want issue/body", commentIssueID, commentBody)
+	}
+}
+
+func TestLinearStatusWorkerHonorsCanceledContextBeforeMutation(t *testing.T) {
+	t.Cleanup(resetLinearStatusWorkerHooks)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	called := false
+	updateIssueStateForLinearStatusWorker = func(context.Context, linearClient, string, string) error {
+		called = true
+		return nil
+	}
+
+	moved, err := (linearStatusWorker{
+		client:    linearClient{},
+		candidate: &issue{ID: "issue-164", Identifier: "CAG-164"},
+		states:    []workflowState{{ID: "running-id", Name: "In Progress"}},
+	}).MoveToContext(ctx, "In Progress")
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("MoveToContext() error = %v; want context.Canceled", err)
+	}
+	if moved || called {
+		t.Fatalf("moved=%t called=%t; want canceled mutation skipped", moved, called)
 	}
 }

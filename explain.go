@@ -208,7 +208,8 @@ func explainCleanup(workspaceRoot string, doneIssues map[string]bool) ([]explain
 	}
 	out := []explainCleanupDecision{}
 	for _, decision := range decisions {
-		out = append(out, explainCleanupDecision{Issue: decision.IssueIdentifier, Eligible: decision.Delete, Category: decision.Category, Reason: decision.Reason})
+		gate := cleanupGateResult(decision)
+		out = append(out, explainCleanupDecision{Issue: decision.IssueIdentifier, Eligible: gate.Passed(), Category: decision.Category, Reason: gate.Reason()})
 	}
 	return out, nil
 }

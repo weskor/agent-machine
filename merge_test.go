@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	sh "github.com/weskor/pi-symphony/internal/shell"
 	"github.com/weskor/pi-symphony/internal/state"
@@ -256,99 +257,6 @@ func TestMergeGateBlockReason(t *testing.T) {
 	}
 }
 
-func TestEvaluateMergeGateBlockers(t *testing.T) {
-	greenChecks := []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS", Name: "build"}}
-	basePR := pullRequestSummary{
-		Number:            470,
-		URL:               "https://github.com/weskor/pi-symphony/pull/470",
-		BaseRefName:       "main",
-		HeadRefName:       "symphony/CAG-70-workspace",
-		Author:            prAuthor{Login: "app/compound-symphony-bot"},
-		Mergeable:         "MERGEABLE",
-		MergeStateStatus:  "CLEAN",
-		ReviewDecision:    "APPROVED",
-		StatusCheckRollup: greenChecks,
-	}
-	tests := []struct {
-		name       string
-		mutatePR   func(*pullRequestSummary)
-		artifact   runRecord
-		wantCode   string
-		wantReason string
-		wantOK     bool
-	}{
-		{name: "eligible", wantOK: true},
-		{name: "author invariant", mutatePR: func(pr *pullRequestSummary) { pr.Author.Login = "octocat" }, wantCode: "pr_invariant", wantReason: "PR author"},
-		{name: "check failure", mutatePR: func(pr *pullRequestSummary) {
-			pr.StatusCheckRollup = []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "FAILURE", Name: "build"}}
-		}, wantCode: "status_checks", wantReason: `check run "build"`},
-		{name: "merge conflicts", mutatePR: func(pr *pullRequestSummary) { pr.Mergeable = "CONFLICTING"; pr.MergeStateStatus = "DIRTY" }, wantCode: "merge_conflict", wantReason: "has conflicts with the base branch"},
-		{name: "branch mapping", mutatePR: func(pr *pullRequestSummary) { pr.HeadRefName = "symphony/CAG-71-workspace" }, wantCode: "pr_invariant", wantReason: "PR head branch"},
-		{name: "review decision", mutatePR: func(pr *pullRequestSummary) { pr.ReviewDecision = "REVIEW_REQUIRED" }, wantCode: "review_decision", wantReason: "reviewDecision=REVIEW_REQUIRED"},
-		{name: "artifact gate", artifact: func() runRecord {
-			r := testRunRecord("review_failed", basePR.URL)
-			r.IssueIdentifier = "CAG-70"
-			r.ReviewStatus = "failed"
-			return r
-		}(), wantCode: "run_artifact", wantReason: "run status is review_failed"},
-		{name: "approved missing evidence only artifact", artifact: func() runRecord {
-			r := testRunRecord("success", basePR.URL)
-			r.IssueIdentifier = "CAG-70"
-			r.ReviewStatus = "failed"
-			r.ReviewClassification = reviewClassificationMissingEvidenceOnly
-			return r
-		}(), wantOK: true},
-		{name: "behavior review failure remains blocked", artifact: func() runRecord {
-			r := testRunRecord("success", basePR.URL)
-			r.IssueIdentifier = "CAG-70"
-			r.ReviewStatus = "failed"
-			r.ReviewClassification = reviewClassificationBehaviorSpecBlocker
-			return r
-		}(), wantCode: "run_artifact", wantReason: "review status is failed"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			root := t.TempDir()
-			workspace := filepath.Join(root, "CAG-70")
-			if err := os.MkdirAll(workspace, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := sh.Run("git init && git config user.email test@example.com && git config user.name Test", workspace); err != nil {
-				t.Fatal(err)
-			}
-			pr := basePR
-			if tt.mutatePR != nil {
-				tt.mutatePR(&pr)
-			}
-			record := tt.artifact
-			if record.Status == "" {
-				record = testRunRecord("success", pr.URL)
-				record.IssueIdentifier = "CAG-70"
-				record.ReviewStatus = "passed"
-			}
-			data, err := json.Marshal(record)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), data, 0o600); err != nil {
-				t.Fatal(err)
-			}
-
-			decision := evaluateMergeGate(runnerConfig{WorkspaceRoot: root, BaseBranch: "main", GitHubAppSlug: "compound-symphony-bot"}, testIssue("CAG-70", "Human Review"), pr)
-			if decision.Eligible != tt.wantOK {
-				t.Fatalf("Eligible=%t, want %t; blockers=%v", decision.Eligible, tt.wantOK, decision.Blockers)
-			}
-			if tt.wantCode != "" && !hasString(decision.Codes(), tt.wantCode) {
-				t.Fatalf("Codes()=%v, want %q", decision.Codes(), tt.wantCode)
-			}
-			if tt.wantReason != "" && !strings.Contains(decision.Reason(), tt.wantReason) {
-				t.Fatalf("Reason()=%q, want to contain %q", decision.Reason(), tt.wantReason)
-			}
-		})
-	}
-}
-
 func TestMergeApprovedPRsMovesConflictingPRBackToReady(t *testing.T) {
 	root := t.TempDir()
 	merged := map[int]bool{}
@@ -546,6 +454,132 @@ func TestMergeApprovedPRsEmitsBlockedEvent(t *testing.T) {
 	}
 }
 
+func TestScheduleMergeWorkerTasksEnqueuesHandoffPRWithoutClaiming(t *testing.T) {
+	root := t.TempDir()
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	merged := map[int]bool{}
+	pr := pullRequestSummary{
+		Number:            190,
+		URL:               "https://github.com/pennywise-investments/compound-web/pull/190",
+		BaseRefName:       "develop",
+		HeadRefName:       expectedWorkspaceBranch("CAG-190"),
+		Author:            prAuthor{Login: "app/compound-symphony-bot"},
+		Mergeable:         "MERGEABLE",
+		MergeStateStatus:  "CLEAN",
+		ReviewDecision:    "APPROVED",
+		StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}},
+	}
+	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{pr}, mergedPRs: merged})
+	var updatedStates []string
+	var comments []string
+	client := mergeTestLinearClient(t, "CAG-190", &updatedStates, &comments)
+	config := testRunnerConfig(root)
+	config.HandoffState = "Human Review"
+
+	didWork, err := scheduleMergeWorkerTasks(context.Background(), client, config, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didWork {
+		t.Fatal("didWork=false; want merge task enqueued")
+	}
+	tasks, err := store.WorkerTasks(context.Background(), mergeWorkerRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].TaskKey != mergeWorkerTaskKey("CAG-190", 190) || tasks[0].Status != "queued" {
+		t.Fatalf("merge tasks = %+v; want queued PR task", tasks)
+	}
+	if merged[190] || len(updatedStates) != 0 || len(comments) != 0 {
+		t.Fatalf("scheduler should not merge or mutate Linear, merged=%v states=%#v comments=%#v", merged, updatedStates, comments)
+	}
+}
+
+func TestRunQueuedMergeWorkerTaskClaimsTaskAndRefreshesOpenPR(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-191")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := sh.Run("git init -q", workspace); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	pr := pullRequestSummary{
+		Number:            191,
+		URL:               "https://github.com/pennywise-investments/compound-web/pull/191",
+		BaseRefName:       "develop",
+		HeadRefName:       expectedWorkspaceBranch("CAG-191"),
+		Author:            prAuthor{Login: "app/compound-symphony-bot"},
+		Mergeable:         "MERGEABLE",
+		MergeStateStatus:  "CLEAN",
+		ReviewDecision:    "APPROVED",
+		StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}},
+	}
+	if err := store.UpsertAttemptResult(context.Background(), state.AttemptResult{
+		IssueKey:      "CAG-191",
+		IssueID:       "issue-id",
+		Attempt:       1,
+		WorkspacePath: workspace,
+		BranchName:    expectedWorkspaceBranch("CAG-191"),
+		BaseBranch:    "develop",
+		Status:        runAttemptStatusSuccess,
+		Repository:    "pennywise-investments/compound-web",
+		PRNumber:      pr.Number,
+		PRURL:         pr.URL,
+		ReviewStatus:  "passed",
+		ReviewPassed:  true,
+		MergeEligible: true,
+		UpdatedAt:     time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	candidate := testIssue("CAG-191", "Human Review")
+	if _, enqueued, err := enqueueMergeWorkerTask(context.Background(), store, candidate, pr, time.Now().UTC()); err != nil || !enqueued {
+		t.Fatalf("enqueueMergeWorkerTask() enqueued=%v err=%v", enqueued, err)
+	}
+	merged := map[int]bool{}
+	deleted := map[string]bool{}
+	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{pr}, mergedPRs: merged, deletedBranches: deleted})
+	var updatedStates []string
+	var comments []string
+	client := mergeTestLinearClient(t, "CAG-191", &updatedStates, &comments)
+	config := testRunnerConfig(root)
+	config.HandoffState = "Human Review"
+	config.DoneState = "Done"
+	config.BaseBranch = "develop"
+
+	didWork, err := runQueuedMergeWorkerTask(client, config, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didWork || !merged[191] || !deleted[expectedWorkspaceBranch("CAG-191")] {
+		t.Fatalf("didWork=%v merged=%v deleted=%v; want queued merge handled", didWork, merged, deleted)
+	}
+	tasks, err := store.WorkerTasks(context.Background(), mergeWorkerRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].Status != "completed" {
+		t.Fatalf("merge tasks = %+v; want completed queued task", tasks)
+	}
+	results, err := store.WorkerResults(context.Background(), mergeWorkerRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Reason != "merge_task_processed" {
+		t.Fatalf("merge results = %+v; want merge_task_processed result", results)
+	}
+}
+
 func TestMergeWorkerRoutesChangesRequestedBackToReady(t *testing.T) {
 	root := t.TempDir()
 	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
@@ -686,6 +720,30 @@ func writeMergeableRunArtifact(t *testing.T, workspace, prURL string) {
 	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	repo, prNumber := parseGitHubPR(prURL)
+	store, err := state.Open(context.Background(), state.DefaultDBPath(filepath.Dir(workspace)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertAttemptResult(context.Background(), state.AttemptResult{
+		IssueKey:      filepath.Base(workspace),
+		IssueID:       "issue-id",
+		Attempt:       1,
+		WorkspacePath: workspace,
+		BranchName:    expectedWorkspaceBranch(filepath.Base(workspace)),
+		BaseBranch:    "develop",
+		Status:        runAttemptStatusSuccess,
+		Repository:    repo,
+		PRNumber:      prNumber,
+		PRURL:         prURL,
+		ReviewStatus:  "passed",
+		ReviewPassed:  true,
+		MergeEligible: true,
+		UpdatedAt:     time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestRenderPRConflictFeedbackIncludesRepairInstructions(t *testing.T) {
@@ -699,33 +757,34 @@ func TestRenderPRConflictFeedbackIncludesRepairInstructions(t *testing.T) {
 }
 
 func TestFeedbackAlreadyAddressedWhenRunPassedReview(t *testing.T) {
-	root := t.TempDir()
-	workspace := filepath.Join(root, "CAG-30")
-	feedback := "# PR #429 review feedback\n\n## Review: CHANGES_REQUESTED by reviewer\n\nTest should be unit test.\n"
-	if err := os.MkdirAll(workspace, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-feedback.md"), []byte(feedback), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	record := runRecord{Status: "success", ReviewStatus: "passed", PRURL: "https://github.com/pennywise-investments/compound-web/pull/429", FeedbackHash: feedbackHash(feedback)}
-	encoded, err := json.Marshal(record)
+	store, err := state.Open(context.Background(), state.DefaultDBPath(t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), encoded, 0o600); err != nil {
+	defer store.Close()
+	feedback := "# PR #429 review feedback\n\n## Review: CHANGES_REQUESTED by reviewer\n\nTest should be unit test.\n"
+	prURL := "https://github.com/pennywise-investments/compound-web/pull/429"
+	if err := store.UpsertAttemptResult(context.Background(), state.AttemptResult{
+		IssueKey:     "CAG-30",
+		Attempt:      1,
+		Status:       runAttemptStatusSuccess,
+		PRURL:        prURL,
+		ReviewStatus: "passed",
+		FeedbackHash: feedbackHash(feedback),
+		UpdatedAt:    time.Now().UTC(),
+	}); err != nil {
 		t.Fatal(err)
 	}
 
-	if !feedbackAlreadyAddressed(workspace, record.PRURL, feedback) {
+	if !feedbackAlreadyAddressed(store, "CAG-30", prURL, feedback) {
 		t.Fatal("expected addressed feedback to avoid another retry")
 	}
-	if feedbackAlreadyAddressed(workspace, record.PRURL, feedback+"\nNew comment") {
+	if feedbackAlreadyAddressed(store, "CAG-30", prURL, feedback+"\nNew comment") {
 		t.Fatal("new feedback should remain actionable")
 	}
 }
 
-func TestFeedbackAlreadyAddressedFallsBackToFeedbackFileForOldArtifacts(t *testing.T) {
+func TestFeedbackAlreadyAddressedDoesNotFallbackToArtifacts(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "CAG-30")
 	feedback := "# PR #429 review feedback\n\n## Review: CHANGES_REQUESTED by reviewer\n\nTest should be unit test.\n"
@@ -744,7 +803,7 @@ func TestFeedbackAlreadyAddressedFallsBackToFeedbackFileForOldArtifacts(t *testi
 		t.Fatal(err)
 	}
 
-	if !feedbackAlreadyAddressed(workspace, record.PRURL, feedback) {
-		t.Fatal("expected old artifact plus matching feedback file to avoid another retry")
+	if feedbackAlreadyAddressed(nil, "CAG-30", record.PRURL, feedback) {
+		t.Fatal("artifact-only feedback should not drive merge retry suppression")
 	}
 }

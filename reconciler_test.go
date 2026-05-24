@@ -61,6 +61,92 @@ func TestReconcileIssueFailClosedWhenStateReaderFails(t *testing.T) {
 	}
 }
 
+func TestReconcileIssueContextHonorsCanceledContext(t *testing.T) {
+	root := t.TempDir()
+	store := openTestStateStore(t, root)
+	defer store.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	decision := newReconciliationModule(store).ReconcileIssueContext(ctx, testRunnerConfig(root), testIssue("CAG-36", "Ready for Agent"), nil)
+
+	if decision.CanRun || !decision.ReconciliationNeeded || !errors.Is(decision.StateStoreError, context.Canceled) || decision.NextAction != "retry_when_worker_context_active" {
+		t.Fatalf("expected canceled context to fail closed, got %#v", decision)
+	}
+}
+
+func TestReconcileIssueBlocksPRWithoutSQLiteAttemptState(t *testing.T) {
+	root := t.TempDir()
+	store := openTestStateStore(t, root)
+	defer store.Close()
+	config := testRunnerConfig(root)
+	config.HandoffState = "Human Review"
+	config.BaseBranch = "develop"
+	pr := pullRequestSummary{
+		Number:            434,
+		URL:               "https://github.com/pennywise-investments/compound-web/pull/434",
+		BaseRefName:       "develop",
+		HeadRefName:       expectedWorkspaceBranch("CAG-34"),
+		Author:            prAuthor{Login: githubAppPRAuthorLogin},
+		ReviewDecision:    "APPROVED",
+		Mergeable:         "MERGEABLE",
+		StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS", Name: "build"}},
+	}
+
+	decision := newReconciliationModule(store).ReconcileIssue(config, testIssue("CAG-34", "Human Review"), &pr)
+
+	if decision.CanMerge || !decision.ReconciliationNeeded || decision.NextAction != "repair_sqlite_state_store" || !strings.Contains(strings.Join(decision.Blockers, "; "), "SQLite has no attempt state") {
+		t.Fatalf("expected missing SQLite attempt state to block PR decision, got %#v", decision)
+	}
+}
+
+func TestReconcileIssueDoesNotFallbackToArtifactWhenSQLiteStatusMissing(t *testing.T) {
+	root := t.TempDir()
+	store := openTestStateStore(t, root)
+	defer store.Close()
+	config := testRunnerConfig(root)
+	config.HandoffState = "Human Review"
+	config.BaseBranch = "develop"
+	workspace := filepath.Join(root, "CAG-37")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := sh.Run("git init -q", workspace); err != nil {
+		t.Fatal(err)
+	}
+	writeRunRecordFixture(t, root, "CAG-37", `{"status":"success","review_status":"passed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/437"}`)
+	if err := store.UpsertAttemptResult(context.Background(), state.AttemptResult{
+		IssueKey:      "CAG-37",
+		IssueID:       "issue-id",
+		Attempt:       1,
+		WorkspacePath: workspace,
+		BranchName:    expectedWorkspaceBranch("CAG-37"),
+		BaseBranch:    "develop",
+		PRURL:         "https://github.com/pennywise-investments/compound-web/pull/437",
+		ReviewStatus:  "passed",
+		ReviewPassed:  true,
+		UpdatedAt:     time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pr := pullRequestSummary{
+		Number:            437,
+		URL:               "https://github.com/pennywise-investments/compound-web/pull/437",
+		BaseRefName:       "develop",
+		HeadRefName:       expectedWorkspaceBranch("CAG-37"),
+		Author:            prAuthor{Login: githubAppPRAuthorLogin},
+		ReviewDecision:    "APPROVED",
+		Mergeable:         "MERGEABLE",
+		StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS", Name: "build"}},
+	}
+
+	decision := newReconciliationModule(store).ReconcileIssue(config, testIssue("CAG-37", "Human Review"), &pr)
+
+	if decision.CanMerge || !decision.ReconciliationNeeded || decision.NextAction != "repair_sqlite_state_store" || !strings.Contains(strings.Join(decision.Blockers, "; "), "SQLite attempt status is missing") {
+		t.Fatalf("expected missing SQLite status to block merge without artifact fallback, got %#v", decision)
+	}
+}
+
 func TestReconcileIssueAllowsChangesRequestedToSupersedeReviewFailedArtifact(t *testing.T) {
 	root := t.TempDir()
 	writeRunRecordFixture(t, root, "CAG-35", `{"status":"review_failed","review_status":"failed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/440"}`)
@@ -79,14 +165,12 @@ func TestReconcileIssueAllowsReviewReadinessRetryAfterChecksSucceed(t *testing.T
 	root := t.TempDir()
 	config := testRunnerConfig(root)
 	config.BaseBranch = "develop"
-	snapshot := runProgressSnapshot{IssueIdentifier: "CAG-122", Phase: "review_not_ready", PRURL: "https://github.com/pennywise-investments/compound-web/pull/522", ChecksStatus: "unavailable", NextAction: "resolve_merge_gate_blocker"}
-	if err := writeRunProgressResult(root, snapshot); err != nil {
-		t.Fatalf("writeRunProgressResult() error = %v", err)
-	}
-	writeRunRecordFixture(t, root, "CAG-122", `{"status":"review_not_ready","pr_url":"https://github.com/pennywise-investments/compound-web/pull/522","error":"review not ready: GitHub checks unavailable"}`)
-	pr := pullRequestSummary{Number: 522, URL: snapshot.PRURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-122"), Author: prAuthor{Login: githubAppPRAuthorLogin}, StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS", Name: "build"}}}
+	store := openTestStateStore(t, root)
+	prURL := "https://github.com/pennywise-investments/compound-web/pull/522"
+	upsertReviewNotReadyAttempt(t, store, testIssue("CAG-122", "In Progress"), filepath.Join(root, "CAG-122"), prURL)
+	pr := pullRequestSummary{Number: 522, URL: prURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-122"), Author: prAuthor{Login: githubAppPRAuthorLogin}, StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS", Name: "build"}}}
 
-	decision := reconcileIssue(config, testIssue("CAG-122", "In Progress"), &pr)
+	decision := newReconciliationModule(store).ReconcileIssue(config, testIssue("CAG-122", "In Progress"), &pr)
 
 	if !decision.CanRun || !decision.ShouldRetry || decision.NextAction != "run_semantic_review_after_checks_ready" {
 		t.Fatalf("expected review readiness retry, got %#v", decision)
@@ -97,13 +181,12 @@ func TestReconcileIssueKeepsFailedChecksBlockedBeforeReview(t *testing.T) {
 	root := t.TempDir()
 	config := testRunnerConfig(root)
 	config.BaseBranch = "develop"
-	snapshot := runProgressSnapshot{IssueIdentifier: "CAG-122", Phase: "review_not_ready", PRURL: "https://github.com/pennywise-investments/compound-web/pull/522", ChecksStatus: "failed", NextAction: "fix_failing_github_checks_before_review"}
-	if err := writeRunProgressResult(root, snapshot); err != nil {
-		t.Fatalf("writeRunProgressResult() error = %v", err)
-	}
-	pr := pullRequestSummary{Number: 522, URL: snapshot.PRURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-122"), Author: prAuthor{Login: githubAppPRAuthorLogin}, StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "FAILURE", Name: "build"}}}
+	store := openTestStateStore(t, root)
+	prURL := "https://github.com/pennywise-investments/compound-web/pull/522"
+	upsertReviewNotReadyAttempt(t, store, testIssue("CAG-122", "In Progress"), filepath.Join(root, "CAG-122"), prURL)
+	pr := pullRequestSummary{Number: 522, URL: prURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-122"), Author: prAuthor{Login: githubAppPRAuthorLogin}, StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "FAILURE", Name: "build"}}}
 
-	decision := reconcileIssue(config, testIssue("CAG-122", "In Progress"), &pr)
+	decision := newReconciliationModule(store).ReconcileIssue(config, testIssue("CAG-122", "In Progress"), &pr)
 
 	if decision.CanRun || decision.NextAction == "run_semantic_review_after_checks_ready" {
 		t.Fatalf("expected failed checks to remain blocked, got %#v", decision)
@@ -121,6 +204,42 @@ func TestReconcileIssueIgnoresStaleFailedArtifactWhenCurrentPRIsRetryable(t *tes
 
 	if !decision.CanRun || !decision.ShouldRetry || decision.Lifecycle != lifecycleFeedbackRetry {
 		t.Fatalf("expected current PR review facts to supersede stale failed artifact, got %#v", decision)
+	}
+}
+
+func TestReconcileIssueIgnoresReviewFailedArtifactWhenStateBacked(t *testing.T) {
+	root := t.TempDir()
+	writeRunRecordFixture(t, root, "CAG-115", `{"status":"review_failed","pr_url":"https://github.com/weskor/pi-symphony/pull/115"}`)
+	store := openTestStateStore(t, root)
+	defer store.Close()
+
+	decision := newReconciliationModule(store).ReconcileIssue(testRunnerConfig(root), testIssue("CAG-115", "Ready for Agent"), nil)
+
+	if !decision.CanRun || decision.ReconciliationNeeded || decision.NextAction != "run_agent" {
+		t.Fatalf("expected state-backed reconciliation to ignore review_failed artifact, got %#v", decision)
+	}
+}
+
+func TestReconcileIssueBlocksReviewFailedSQLiteStateWithoutPR(t *testing.T) {
+	root := t.TempDir()
+	store := openTestStateStore(t, root)
+	defer store.Close()
+	if err := store.UpsertAttemptResult(context.Background(), state.AttemptResult{
+		IssueKey:             "CAG-116",
+		Attempt:              1,
+		BranchName:           expectedWorkspaceBranch("CAG-116"),
+		Status:               runAttemptStatusReviewFailed,
+		ReviewStatus:         "failed",
+		ReviewClassification: reviewClassificationBehaviorSpecBlocker,
+		UpdatedAt:            time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	decision := newReconciliationModule(store).ReconcileIssue(testRunnerConfig(root), testIssue("CAG-116", "Ready for Agent"), nil)
+
+	if decision.CanRun || decision.Lifecycle != lifecycleReviewFailed || decision.NextAction != "repair_review_findings_before_retry" {
+		t.Fatalf("expected SQLite review_failed state to block retry without PR, got %#v", decision)
 	}
 }
 
@@ -220,7 +339,31 @@ func TestRunReconciliationScanRecordsReconciliationNeededEvent(t *testing.T) {
 	}
 }
 
-func TestReconcileIssueTerminalSQLiteOutcomeBlocksStaleArtifact(t *testing.T) {
+func TestRunReconciliationScanContextHonorsCanceledContext(t *testing.T) {
+	root := t.TempDir()
+	store := openTestStateStore(t, root)
+	defer store.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	called := false
+	oldCandidates := candidatesForReconciliationWorker
+	t.Cleanup(func() { candidatesForReconciliationWorker = oldCandidates })
+	candidatesForReconciliationWorker = func(client linearClient, config runnerConfig) ([]issue, error) {
+		called = true
+		return nil, nil
+	}
+
+	didWork, err := runReconciliationScanContext(ctx, linearClient{}, testRunnerConfig(root), store)
+	if !errors.Is(err, context.Canceled) || didWork {
+		t.Fatalf("runReconciliationScanContext() = (%t, %v), want canceled no work", didWork, err)
+	}
+	if called {
+		t.Fatal("reconciliation scan fetched candidates after context cancellation")
+	}
+}
+
+func TestReconcileIssueTerminalSQLiteOutcomeIgnoresImplicitStaleArtifact(t *testing.T) {
 	root := t.TempDir()
 	writeRunRecordFixture(t, root, "CAG-114", `{"status":"review_failed"}`)
 	store := openTestStateStore(t, root)
@@ -231,8 +374,24 @@ func TestReconcileIssueTerminalSQLiteOutcomeBlocksStaleArtifact(t *testing.T) {
 
 	decision := newReconciliationModule(store).ReconcileIssue(testRunnerConfig(root), testIssue("CAG-114", "Ready for Agent"), nil)
 
-	if decision.Lifecycle != lifecycleDone || !decision.ReconciliationNeeded {
-		t.Fatalf("expected SQLite terminal outcome to supersede stale artifact, got %#v", decision)
+	if decision.Lifecycle != lifecycleDone || decision.NextAction != "cleanup_workspace" || decision.ReconciliationNeeded {
+		t.Fatalf("expected implicit stale artifact to be ignored by state-backed decision, got %#v", decision)
+	}
+}
+
+func TestReconcileIssueWithArtifactReportsExplicitStaleArtifactConflict(t *testing.T) {
+	root := t.TempDir()
+	store := openTestStateStore(t, root)
+	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: "CAG-114", Attempt: 1, BranchName: expectedWorkspaceBranch("CAG-114"), Status: "merged", TerminalOutcome: "merged"}); err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	artifact := artifactSummary{Issue: "CAG-114", HasArtifact: true, Status: "review_failed"}
+	decision := newReconciliationModule(store).ReconcileIssueWithArtifact(testRunnerConfig(root), testIssue("CAG-114", "Ready for Agent"), nil, &artifact)
+
+	if decision.Lifecycle != lifecycleBlocked || decision.NextAction != "repair_artifact_or_sqlite_state" || !decision.ReconciliationNeeded {
+		t.Fatalf("expected explicit stale artifact conflict to require repair, got %#v", decision)
 	}
 }
 

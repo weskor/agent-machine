@@ -89,14 +89,19 @@ eligibility blockers.
 
 It must not silently rerun implementation. If checks are pending, missing, or
 conflicting, it records waiting/reconciliation state for a later review task.
-Inline review writes `review_pending` progress plus a bounded review payload
-before semantic review side effects, then re-reads that payload for evidence
-collection and review execution. Review resume after `review_not_ready` uses the
-same payload execution boundary before handing the review result back to the
-caller. The selected `review` process first claims existing `review_pending`
-records through the run lease, executes the same review payload boundary, and
-queues `handoff_pending` output for the handoff worker when review is
-non-terminal.
+Inline review writes a durable `review_pending` worker payload ref plus a
+bounded review payload before semantic review side effects, then re-reads that
+payload for evidence collection and review execution. Progress output is a
+compatibility/export artifact for operators. Review resume after
+`review_not_ready` is discovered from SQLite attempt/PR state once current
+GitHub checks are successful, then uses the same payload execution boundary
+before handing the review result back to the caller. The selected `review`
+process first claims existing `review_pending` refs through SQLite and the run
+lease, then claims queued `review:<issue>:<attempt>:resume` worker tasks for
+SQLite-discovered review-not-ready resumes. Review-resume tasks refresh
+Linear/GitHub/reconciliation facts before acquiring the run lease and executing
+the same review payload boundary. A review worker that completes non-terminal
+review queues `handoff_pending` output for the handoff worker.
 
 ### Handoff worker
 
@@ -104,16 +109,20 @@ Owns commit/push/PR create-update, PR URL validation, deterministic PR and
 Linear handoff comments, and movement to Human Review or Needs Info.
 
 It must not run implementation or semantic review. It consumes durable attempt,
-validation, review, and PR facts. The inline runner writes `pr_handoff_pending`
-progress plus a bounded PR handoff payload before commit, push, PR create/update,
-and PR validation side effects, then re-reads that payload for PR handoff
-execution. After review, the inline runner writes `handoff_pending` progress plus
-a bounded handoff payload before final handoff side effects, then re-reads that
-payload for final handoff execution. The dedicated `handoff` worker claims
-`pr_handoff_pending` records before final `handoff_pending` records. After
-standalone PR handoff succeeds, it queues `review_pending` when review is
-configured, otherwise it queues final `handoff_pending`. Final handoff side
-effects still run from the same persisted handoff payload boundary.
+validation, review, and PR facts. The inline runner writes a durable
+PR handoff intent/result row, a `pr_handoff_pending` worker payload ref, and a
+bounded PR handoff payload before commit, push, PR create/update, and PR
+validation side effects, then re-reads that payload for PR handoff execution and
+completes the typed intent with the resulting PR URL or error. After review, the
+inline runner writes a durable `handoff_pending` worker payload ref plus a
+bounded handoff payload before final handoff side effects, then re-reads that
+payload for final handoff execution. Progress output remains
+compatibility/export evidence. The dedicated `handoff` worker claims
+`pr_handoff_pending` refs before final `handoff_pending` refs and completes the
+same typed PR handoff intent/result row. After standalone PR handoff succeeds,
+it queues `review_pending` when review is configured, otherwise it queues final
+`handoff_pending`. Final handoff side effects still run from the same persisted
+handoff payload boundary.
 
 ### Merge worker
 
@@ -127,6 +136,18 @@ state.
 The selected `merge` process must run merge-domain work through its
 process-owned SQLite store. It must not run the cleanup worker's Done-issue
 refresh or workspace cleanup prepass.
+
+Continuous merge dispatch is task-backed: the scheduler creates stable
+`merge:<issue>:<pr>` worker tasks from fresh open Symphony PR metadata and the
+current Linear handoff state. The merge lane claims one queued merge task,
+refreshes open GitHub PR metadata plus Linear/SQLite reconciliation facts before
+acting, and records a worker result for the claimed task. A missing closed PR is
+completed as processed stale work rather than merged from stale scheduler input.
+
+Merge-gate evaluation emits the shared deterministic gate-result shape: domain,
+subject, status, blocker codes, reason text, next action, and bounded metadata.
+Worker events and read models should preserve that shape so status and explain do
+not derive separate blocker vocabularies.
 
 ### Linear status worker
 
@@ -155,6 +176,15 @@ Owns workspace and branch cleanup after terminal evidence proves cleanup is
 safe. It must respect active leases, open PRs, non-terminal attempts, missing DB
 rows, and reconciliation blockers.
 
+Continuous cleanup dispatch is task-backed: the scheduler creates stable
+`cleanup:<workspace>` worker tasks from current workspace directories without
+deciding deletion. The cleanup lane claims one queued cleanup task, refreshes
+current Done issue identifiers, re-checks SQLite cleanup facts, workspace
+dirtiness, and safety paths, then records a worker result for the claimed task.
+Cleanup decisions are projected into the same deterministic gate-result shape so
+delete, keep, and reconciliation-needed outcomes share one status/blocker
+vocabulary with merge and future deterministic gates.
+
 ## Worker task model
 
 A durable worker task is the unit of work that lets workers run independently.
@@ -167,7 +197,8 @@ Each task should include:
 - `role`, using the worker role vocabulary above;
 - optional Linear issue key/ID and attempt number;
 - task `status`, at minimum `queued`, `claimed`, `completed`, `failed`, or
-  `canceled`;
+  `canceled`; a stale claimed task that cannot be proven safe to continue is
+  moved to `reconciliation_needed` instead of being silently re-queued;
 - priority and `available_at` for backoff and scheduling;
 - lease name required before mutation;
 - compact JSON payload with deterministic, non-secret parameters;
@@ -175,6 +206,89 @@ Each task should include:
 
 Payloads must not include secrets, raw command output, full review transcripts,
 large diffs, or environment values. Use artifact pointers and hashes instead.
+
+When a worker task is claimed, the worker must acquire the task lease before
+mutating local or external state, record an active-task heartbeat that names the
+task key, role, and lease name, and renew the lease while the task is running.
+Each renewal also refreshes the claimed task timestamp so stale recovery can
+distinguish active long-running work from abandoned claims. When the task
+finishes, the active-task heartbeat is cleared by a later lane/process heartbeat.
+If lease renewal or task supervision fails while work is running, the worker
+cancels the task-scoped execution context, records a failed worker result with a
+supervision reason, and fails closed instead of continuing under uncertain
+ownership.
+Worker-domain entry points must accept and honor that task-scoped context for
+claiming queued tasks, GitHub/Linear calls with runner timeouts, AgentRuntime
+preflight/execution, workspace setup hooks, scope-guard git reads, semantic
+review evidence polling, semantic review execution, PR handoff git/GitHub
+commands, merge cleanup, and final handoff completion.
+When the scheduler requeues a previously failed worker task, it must apply the
+role-specific retry backoff to `available_at` from the latest failed worker
+result. Failed implementation/work tasks back off longer than review, handoff,
+merge, cleanup, scheduler, status, plan, Linear status, and reconciliation tasks.
+
+Each worker task also writes a durable worker result row when it reaches a
+terminal task status. The result row is the latest typed read model for worker
+status and includes task key, role, lane name, issue/attempt identity when
+known, terminal status, `did_work`, reason code, error text when present,
+started/finished timestamps, and bounded non-secret payload. Status, explain,
+and scheduler diagnostics should read this row before reconstructing latest
+worker state from event logs, stdout, or progress files. Orchestration events
+remain the append-only evidence trail.
+
+Implementation, review, and handoff paths must persist typed attempt results
+directly into SQLite before exporting run/evaluation artifacts. The attempt
+result row owns current status, PR mapping, review state, retry decision, and
+terminal outcome. Artifact mirroring remains a compatibility/readback path and
+may add artifact references, but workers and the scheduler should not require a
+JSON artifact read to know the latest attempt decision.
+
+Review-resume and implementation dispatch write issue-specific durable worker
+tasks before acquiring the run lease or mutating the workspace. The scheduler
+lane may enqueue `review:<issue>:<attempt>:resume` tasks for SQLite
+`review_not_ready` attempts whose current GitHub checks are successful. The selected
+implementation worker first claims queued `implementation:<issue>:<attempt>`
+tasks from SQLite and refreshes Linear/GitHub/reconciliation facts before taking
+the run lease. When no queued implementation task exists during the scheduler
+transition, the implementation lane may select the next runnable candidate and
+enqueue that task, then immediately claim it. A currently claimed task blocks
+duplicate implementation dispatch for that issue; completed or failed task rows
+may be re-queued only after the candidate/retry/reconciliation policy selects
+the issue again from current SQLite and external facts.
+
+The scheduler performs a stale-claim recovery pass before enqueueing new
+cleanup, merge, review-resume, or implementation work. Claimed worker tasks
+whose update timestamp is past the stale threshold and whose lease is missing,
+released, or expired without a fresh owner heartbeat are marked
+`reconciliation_needed`. The transition writes a worker result row and a
+`reconciliation_needed` event with the task key, role, prior status, reason, and
+lease name when present. A `reconciliation_needed` worker task blocks duplicate
+dispatch until an operator or repair flow resolves it; normal enqueue logic must
+not overwrite it.
+
+Merge dispatch follows the same durable-task shape for externally visible merge
+work: the scheduler may enqueue `merge:<issue>:<pr>` tasks only from current
+GitHub open PR metadata and current Linear handoff state, and the merge worker
+must re-read current GitHub/Linear/SQLite facts before merge, branch deletion,
+Linear Done transition, or conflict feedback side effects.
+
+Cleanup dispatch uses durable `cleanup:<workspace>` tasks so filesystem
+discovery does not also authorize deletion. The cleanup worker must refresh Done
+issue identifiers and re-run the cleanup decision against current SQLite and
+workspace facts before deleting, keeping, or reporting reconciliation-needed.
+
+Implementation-lane candidate selection, repair retries, and merge gates read
+durable SQLite attempt, PR, review classification, retry, and lease facts. When
+SQLite is available, terminal run artifacts and evaluation files may create
+reconciliation-needed evidence, but they do not directly select, skip, retry, or
+merge work.
+
+Pending cross-role continuations use durable worker payload refs. A payload ref
+names the worker role, pending phase, issue/attempt identity, workspace, branch,
+PR URL when known, payload path, and status. Workers discover pending
+`review_pending`, `pr_handoff_pending`, and `handoff_pending` continuations from
+these refs. The payload file remains the bounded execution input, but SQLite is
+the queue and progress files are operator-visible evidence.
 
 ## Process boundary
 
@@ -201,19 +315,20 @@ The `reconciliation` process refreshes Linear candidates, open Symphony PRs,
 workspace artifacts, and SQLite facts, then records reconciliation-needed or
 quarantine evidence as SQLite events without repairing or mutating external
 systems. Continuous mode runs cleanup and merge as separate lanes: cleanup
-refreshes Done issues and applies workspace cleanup, while merge runs
-merge-approved processing through the shared continuous SQLite store without a
-cleanup prepass. The `review` process only
-claims existing `review_pending` payloads before falling back to review-not-ready
+claims queued workspace cleanup tasks and refreshes Done issues before applying
+cleanup, while merge claims queued merge tasks and runs merge-approved
+processing through the shared continuous SQLite store without a cleanup prepass.
+The `review` process only claims existing SQLite
+`review_pending` payload refs before resuming SQLite `review_not_ready`
 attempts whose current GitHub checks are successful. The `implementation`
 process claims fresh runnable attempts and skips review-ready resumes owned by
-`review`; the compatibility `work` process is constrained to the same
-implementation-domain batch execution and does not run review, handoff, merge,
-cleanup, or Linear status work. The `handoff` process claims
-`pr_handoff_pending` progress before `handoff_pending` progress through the run
-lease, executes PR handoff from the persisted PR handoff payload, and completes
-final handoff side effects from the persisted handoff payload. The
-`linear-status` process claims queued Linear
+`review`; the
+compatibility `work` process is constrained to the same implementation-domain
+batch execution and does not run review, handoff, merge, cleanup, or Linear
+status work. The `handoff` process claims SQLite `pr_handoff_pending` refs
+before `handoff_pending` refs through the run lease, executes PR handoff from
+the persisted PR handoff payload, and completes final handoff side effects from
+the persisted handoff payload. The `linear-status` process claims queued Linear
 transition intents and applies workflow moves after refreshing workflow states.
 Mutating roles use existing worker modules and lane behavior after their
 fresh-fact, lease, and fail-closed contracts are covered by focused tests.

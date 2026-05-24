@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,7 @@ func TestRunHandoffPendingAttemptConsumesPRHandoffPayloadAndQueuesReview(t *test
 		t.Fatal(err)
 	}
 	defer store.Close()
-	payload := prHandoffPendingPayloadFromInput(prHandoffInput{
+	input := prHandoffInput{
 		Candidate:        candidate,
 		Workspace:        workspace,
 		AgentPRURL:       "",
@@ -39,8 +40,9 @@ func TestRunHandoffPendingAttemptConsumesPRHandoffPayloadAndQueuesReview(t *test
 		ScopeResult:      scopeGuardResult{Checked: true},
 		Validation:       []string{"go test ./..."},
 		GitHubAuth:       "github_app_installation",
-	})
-	if err := writePRHandoffPendingPayloadState(runnerConfig{WorkspaceRoot: root, PiCommand: "pi run"}, payload); err != nil {
+		StateStore:       store,
+	}
+	if err := writePRHandoffPendingState(runnerConfig{WorkspaceRoot: root, PiCommand: "pi run"}, input); err != nil {
 		t.Fatal(err)
 	}
 	githubAppEnvFromEnvironmentForHandoffWorker = func() (map[string]string, string, error) {
@@ -79,6 +81,96 @@ func TestRunHandoffPendingAttemptConsumesPRHandoffPayloadAndQueuesReview(t *test
 	}
 }
 
+func TestWritePRHandoffPendingStateContextHonorsCanceledContextBeforeExports(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-180")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	candidate := &issue{ID: "issue-180", Identifier: "CAG-180", Title: "Pending PR handoff"}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err = writePRHandoffPendingStateContext(ctx, runnerConfig{WorkspaceRoot: root, PiCommand: "pi run"}, prHandoffInput{
+		Candidate:        candidate,
+		Workspace:        workspace,
+		ProgressStarted:  time.Now().Add(-2 * time.Minute),
+		AttemptStartedAt: time.Now().Add(-time.Minute),
+		StateStore:       store,
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("writePRHandoffPendingStateContext() error = %v, want canceled", err)
+	}
+	path, err := prHandoffPendingPayloadPath(root, candidate.Identifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("PR handoff pending payload stat err=%v, want missing", err)
+	}
+	refs, err := store.PendingWorkerPayloadRefs(context.Background(), handoffWorkerRole, runProgressPhasePRHandoffPending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) != 0 {
+		t.Fatalf("PR handoff pending refs = %+v, want none", refs)
+	}
+}
+
+func TestClaimNextPRHandoffPendingAttemptUsesSQLitePayloadRefWithoutProgressSnapshot(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-185")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	candidate := &issue{ID: "issue-185", Identifier: "CAG-185", Title: "State PR handoff"}
+	branch := expectedWorkspaceBranch(candidate.Identifier)
+	payload := prHandoffPendingPayloadFromInput(prHandoffInput{Candidate: candidate, Workspace: workspace, ProgressStarted: time.Now().Add(-time.Minute), AttemptStartedAt: time.Now().Add(-time.Minute)})
+	payload.Branch = branch
+	if err := writePRHandoffPendingPayload(root, payload); err != nil {
+		t.Fatal(err)
+	}
+	payloadPath, err := prHandoffPendingPayloadPath(root, candidate.Identifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := recordPRHandoffPendingPayloadRef(store, payload, payloadPath); err != nil {
+		t.Fatal(err)
+	}
+	intent, ok, err := store.PRHandoffIntent(context.Background(), candidate.Identifier, 1)
+	if err != nil || !ok {
+		t.Fatalf("PRHandoffIntent() ok=%t err=%v", ok, err)
+	}
+	if intent.Status != state.PRHandoffIntentStatusPending || intent.PayloadPath != payloadPath {
+		t.Fatalf("intent = %+v; want pending PR handoff intent", intent)
+	}
+
+	claim, didWork, err := claimNextPRHandoffPendingAttempt(runnerConfig{WorkspaceRoot: root, PiCommand: "pi run"}, store)
+	if err != nil {
+		t.Fatalf("claimNextPRHandoffPendingAttempt() error = %v", err)
+	}
+	if !didWork || claim == nil {
+		t.Fatalf("claim = %+v didWork=%t; want SQLite PR handoff claim", claim, didWork)
+	}
+	defer claim.ReleaseLock()
+	if claim.Payload.IssueIdentifier != candidate.Identifier || claim.Payload.Workspace != workspace || claim.PayloadRef == nil {
+		t.Fatalf("claim = %+v; want PR handoff payload from SQLite ref", claim)
+	}
+	if _, err := readRunProgress(root, candidate.Identifier); err == nil {
+		t.Fatal("readRunProgress() succeeded; test should not create a progress snapshot for discovery")
+	}
+}
+
 func TestRunHandoffPendingAttemptSkipsPRHandoffWithActiveRunLock(t *testing.T) {
 	t.Cleanup(resetHandoffWorkerHooks)
 	root := t.TempDir()
@@ -93,8 +185,7 @@ func TestRunHandoffPendingAttemptSkipsPRHandoffWithActiveRunLock(t *testing.T) {
 	defer store.Close()
 	candidate := &issue{ID: "issue-181", Identifier: "CAG-181", Title: "Active PR handoff"}
 	branch := expectedWorkspaceBranch(candidate.Identifier)
-	payload := prHandoffPendingPayloadFromInput(prHandoffInput{Candidate: candidate, Workspace: workspace, ProgressStarted: time.Now().Add(-time.Minute), AttemptStartedAt: time.Now().Add(-time.Minute)})
-	if err := writePRHandoffPendingPayloadState(runnerConfig{WorkspaceRoot: root, PiCommand: "pi run"}, payload); err != nil {
+	if err := writePRHandoffPendingState(runnerConfig{WorkspaceRoot: root, PiCommand: "pi run"}, prHandoffInput{Candidate: candidate, Workspace: workspace, ProgressStarted: time.Now().Add(-time.Minute), AttemptStartedAt: time.Now().Add(-time.Minute), StateStore: store}); err != nil {
 		t.Fatal(err)
 	}
 	_, releaseLock, err := acquireRunLockWithState(store, workspace, candidate, branch, time.Now())
@@ -117,6 +208,96 @@ func TestRunHandoffPendingAttemptSkipsPRHandoffWithActiveRunLock(t *testing.T) {
 	}
 }
 
+func TestClaimNextHandoffPendingAttemptUsesSQLitePayloadRefWithoutProgressSnapshot(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-186")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	candidate := &issue{ID: "issue-186", Identifier: "CAG-186", Title: "State final handoff"}
+	payload := handoffPendingPayloadFromCompletion(handoffCompletion{
+		config:          runnerConfig{WorkspaceRoot: root, PiCommand: "pi run"},
+		candidate:       candidate,
+		workspace:       workspace,
+		branch:          expectedWorkspaceBranch(candidate.Identifier),
+		progressStarted: time.Now().Add(-time.Minute),
+		startedAt:       time.Now().Add(-time.Minute),
+		review:          &reviewResult{Status: "passed"},
+		prURL:           "https://github.com/acme/repo/pull/186",
+	})
+	if err := writeHandoffPendingPayload(root, payload); err != nil {
+		t.Fatal(err)
+	}
+	payloadPath, err := handoffPendingPayloadPath(root, candidate.Identifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := recordHandoffPendingPayloadRef(store, payload, payloadPath); err != nil {
+		t.Fatal(err)
+	}
+
+	claim, didWork, err := claimNextHandoffPendingAttempt(runnerConfig{WorkspaceRoot: root, PiCommand: "pi run"}, store)
+	if err != nil {
+		t.Fatalf("claimNextHandoffPendingAttempt() error = %v", err)
+	}
+	if !didWork || claim == nil {
+		t.Fatalf("claim = %+v didWork=%t; want SQLite handoff claim", claim, didWork)
+	}
+	defer claim.ReleaseLock()
+	if claim.Payload.PRURL != payload.PRURL || claim.Payload.IssueIdentifier != candidate.Identifier || claim.PayloadRef == nil {
+		t.Fatalf("claim = %+v; want handoff payload from SQLite ref", claim)
+	}
+	if _, err := readRunProgress(root, candidate.Identifier); err == nil {
+		t.Fatal("readRunProgress() succeeded; test should not create a progress snapshot for discovery")
+	}
+}
+
+func TestWriteHandoffPendingStateContextHonorsCanceledContextBeforeExports(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-171")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	candidate := &issue{ID: "issue-171", Identifier: "CAG-171", Title: "Pending handoff"}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	writeHandoffPendingStateContext(ctx, handoffCompletion{
+		config:          runnerConfig{WorkspaceRoot: root, PiCommand: "pi run"},
+		stateStore:      store,
+		candidate:       candidate,
+		workspace:       workspace,
+		branch:          expectedWorkspaceBranch(candidate.Identifier),
+		progressStarted: time.Now().Add(-2 * time.Minute),
+		startedAt:       time.Now().Add(-time.Minute),
+		prURL:           "https://github.com/acme/repo/pull/171",
+	})
+	path, err := handoffPendingPayloadPath(root, candidate.Identifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("handoff pending payload stat err=%v, want missing", err)
+	}
+	refs, err := store.PendingWorkerPayloadRefs(context.Background(), handoffWorkerRole, runProgressPhaseHandoffPending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) != 0 {
+		t.Fatalf("handoff pending refs = %+v, want none", refs)
+	}
+}
+
 func TestRunHandoffPendingAttemptConsumesPayloadAndCompletesHandoff(t *testing.T) {
 	t.Cleanup(resetHandoffWorkerHooks)
 	root := t.TempDir()
@@ -134,6 +315,7 @@ func TestRunHandoffPendingAttemptConsumesPayloadAndCompletesHandoff(t *testing.T
 	prURL := "https://github.com/acme/repo/pull/171"
 	input := handoffCompletion{
 		config:          runnerConfig{WorkspaceRoot: root, PiCommand: "pi run"},
+		stateStore:      store,
 		candidate:       candidate,
 		workspace:       workspace,
 		branch:          expectedWorkspaceBranch(candidate.Identifier),
@@ -153,12 +335,12 @@ func TestRunHandoffPendingAttemptConsumesPayloadAndCompletesHandoff(t *testing.T
 		postedSummary = summary
 		return nil
 	}
-	createCommentForLinearStatusWorker = func(client linearClient, issueID, body string) error {
+	createCommentForLinearStatusWorker = func(ctx context.Context, client linearClient, issueID, body string) error {
 		commentIssueID = issueID
 		commentBody = body
 		return nil
 	}
-	updateIssueStateForLinearStatusWorker = func(linearClient, string, string) error {
+	updateIssueStateForLinearStatusWorker = func(context.Context, linearClient, string, string) error {
 		t.Fatal("handoff worker should not move Linear state when handoff state is not configured")
 		return nil
 	}
@@ -237,6 +419,7 @@ func TestRunHandoffPendingAttemptSkipsPendingProgressWithActiveRunLock(t *testin
 	branch := expectedWorkspaceBranch(candidate.Identifier)
 	writeHandoffPendingState(handoffCompletion{
 		config:          runnerConfig{WorkspaceRoot: root, PiCommand: "pi run"},
+		stateStore:      store,
 		candidate:       candidate,
 		workspace:       workspace,
 		branch:          branch,

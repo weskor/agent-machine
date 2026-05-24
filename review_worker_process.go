@@ -4,95 +4,87 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/weskor/pi-symphony/internal/agentruntime"
-	cfg "github.com/weskor/pi-symphony/internal/config"
 	"github.com/weskor/pi-symphony/internal/state"
 )
 
 type claimedReviewPendingAttempt struct {
 	Payload     reviewPendingPayload
 	ReleaseLock func()
+	PayloadRef  *state.WorkerPayloadRef
 }
 
 func runReviewReadyAttempt(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (bool, error) {
+	return runReviewReadyAttemptContext(context.Background(), client, wf, config, stateStore)
+}
+
+func runReviewReadyAttemptContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	if stateStore == nil {
 		return false, fmt.Errorf("SQLite state store unavailable for review worker at %s", state.DefaultDBPath(config.WorkspaceRoot))
 	}
-	if didWork, err := runReviewPendingAttempt(client, config, stateStore); err != nil || didWork {
+	if didWork, err := runReviewPendingAttemptContext(ctx, client, config, stateStore); err != nil || didWork {
 		return didWork, err
 	}
-	claim, didWork, err := claimNextReviewReadyAttempt(client, wf, config, stateStore)
+	claim, didWork, err := claimNextQueuedReviewReadyAttemptContext(ctx, client, wf, config, stateStore)
 	if err != nil || claim == nil {
 		return didWork, err
 	}
-	return executeReviewReadyAttempt(client, config, stateStore, *claim)
+	return executeReviewReadyAttemptContext(ctx, client, config, stateStore, *claim)
 }
 
 func runReviewPendingAttempt(client linearClient, config runnerConfig, stateStore *state.Store) (bool, error) {
+	return runReviewPendingAttemptContext(context.Background(), client, config, stateStore)
+}
+
+func runReviewPendingAttemptContext(ctx context.Context, client linearClient, config runnerConfig, stateStore *state.Store) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	if strings.TrimSpace(config.ReviewCommand) == "" {
 		log("review worker idle: review command is not configured")
 		return false, nil
 	}
-	if removed, err := cleanupStaleRunLocksWithState(stateStore, config.WorkspaceRoot, time.Now()); err != nil {
+	if removed, err := cleanupStaleRunLocksWithStateContext(ctx, stateStore, config.WorkspaceRoot, time.Now()); err != nil {
 		return false, err
 	} else if removed > 0 {
 		log("removed %d stale/dead run lock(s) before pending review selection", removed)
 	}
-	claim, didWork, err := claimNextReviewPendingAttempt(config, stateStore)
+	claim, didWork, err := claimNextReviewPendingAttemptContext(ctx, config, stateStore)
 	if err != nil || claim == nil {
 		return didWork, err
 	}
-	return executeReviewPendingAttempt(context.Background(), client, config, stateStore, *claim)
+	return executeReviewPendingAttempt(ctx, client, config, stateStore, *claim)
 }
 
 func claimNextReviewPendingAttempt(config runnerConfig, stateStore *state.Store) (*claimedReviewPendingAttempt, bool, error) {
-	root := runProgressRoot(config.WorkspaceRoot)
-	if strings.TrimSpace(root) == "" {
+	return claimNextReviewPendingAttemptContext(context.Background(), config, stateStore)
+}
+
+func claimNextReviewPendingAttemptContext(ctx context.Context, config runnerConfig, stateStore *state.Store) (*claimedReviewPendingAttempt, bool, error) {
+	if stateStore == nil {
 		return nil, false, nil
 	}
-	entries, err := os.ReadDir(root)
+	refs, err := stateStore.PendingWorkerPayloadRefs(ctx, reviewWorkerRole, runProgressPhaseReviewPending)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, false, nil
-		}
 		return nil, false, err
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		identifier := entry.Name()
-		snapshot, err := readRunProgress(config.WorkspaceRoot, identifier)
+	for _, ref := range refs {
+		payload, err := readReviewPendingPayloadFromPath(ref.PayloadPath)
 		if err != nil {
 			return nil, true, err
 		}
-		if snapshot.Phase != runProgressPhaseReviewPending {
-			continue
-		}
-		payload, err := readReviewPendingPayload(config.WorkspaceRoot, identifier)
-		if err != nil {
-			return nil, true, err
-		}
-		normalizeReviewPendingPayload(&payload, snapshot)
-		if strings.TrimSpace(payload.Workspace) == "" {
-			workspace, err := safeWorkspacePath(config.WorkspaceRoot, identifier)
-			if err != nil {
-				return nil, true, err
-			}
-			payload.Workspace = workspace
-		}
-		if strings.TrimSpace(payload.Branch) == "" {
-			payload.Branch = expectedWorkspaceBranch(identifier)
-		}
+		normalizeReviewPendingPayloadFromRef(&payload, ref)
 		worker := payload.Worker(linearClient{}, config, stateStore, nil, nil)
 		if strings.TrimSpace(worker.prURL) == "" {
-			return nil, true, fmt.Errorf("review pending payload for %s has no PR URL", identifier)
+			return nil, true, fmt.Errorf("review pending payload for %s has no PR URL", ref.IssueKey)
 		}
-		lock, releaseLock, err := acquireRunLockWithState(stateStore, worker.workspace, worker.candidate, worker.branch, time.Now())
+		lock, releaseLock, err := acquireRunLockWithStateContext(ctx, stateStore, worker.workspace, worker.candidate, worker.branch, time.Now())
 		if err != nil {
 			if errors.Is(err, errRunLocked) {
 				log("%v", err)
@@ -101,47 +93,47 @@ func claimNextReviewPendingAttempt(config runnerConfig, stateStore *state.Store)
 			return nil, true, err
 		}
 		payload.Branch = lock.Branch
-		return &claimedReviewPendingAttempt{Payload: payload, ReleaseLock: releaseLock}, true, nil
+		refCopy := ref
+		return &claimedReviewPendingAttempt{Payload: payload, ReleaseLock: releaseLock, PayloadRef: &refCopy}, true, nil
 	}
 	return nil, false, nil
 }
 
-func normalizeReviewPendingPayload(payload *reviewPendingPayload, snapshot runProgressSnapshot) {
+func normalizeReviewPendingPayloadFromRef(payload *reviewPendingPayload, ref state.WorkerPayloadRef) {
 	if payload == nil {
 		return
 	}
-	if strings.TrimSpace(payload.IssueIdentifier) == "" {
-		payload.IssueIdentifier = snapshot.IssueIdentifier
+	if strings.TrimSpace(payload.IssueID) == "" {
+		payload.IssueID = ref.IssueID
 	}
-	if strings.TrimSpace(payload.IssueTitle) == "" {
-		payload.IssueTitle = snapshot.IssueTitle
+	if strings.TrimSpace(payload.IssueIdentifier) == "" {
+		payload.IssueIdentifier = ref.IssueKey
 	}
 	if strings.TrimSpace(payload.Workspace) == "" {
-		payload.Workspace = snapshot.Workspace
+		payload.Workspace = ref.WorkspacePath
 	}
 	if strings.TrimSpace(payload.Branch) == "" {
-		payload.Branch = snapshot.Branch
+		payload.Branch = ref.BranchName
 	}
 	if strings.TrimSpace(payload.PRURL) == "" {
-		payload.PRURL = snapshot.PRURL
-	}
-	if payload.ProgressStarted.IsZero() {
-		payload.ProgressStarted = snapshot.StartedAt
-	}
-	if payload.StartedAt.IsZero() {
-		payload.StartedAt = snapshot.StartedAt
+		payload.PRURL = ref.PRURL
 	}
 }
 
-func executeReviewPendingAttempt(ctx context.Context, client linearClient, config runnerConfig, stateStore *state.Store, claimed claimedReviewPendingAttempt) (bool, error) {
+func executeReviewPendingAttempt(ctx context.Context, client linearClient, config runnerConfig, stateStore *state.Store, claimed claimedReviewPendingAttempt) (didWork bool, err error) {
 	if claimed.ReleaseLock != nil {
 		defer claimed.ReleaseLock()
 	}
+	defer func() {
+		if markErr := completeWorkerPayloadRef(ctx, stateStore, claimed.PayloadRef, err); err == nil && markErr != nil {
+			err = markErr
+		}
+	}()
 	payload := claimed.Payload
 	if strings.TrimSpace(payload.TeamID) == "" {
 		return true, fmt.Errorf("review pending payload for %s has no team ID", payload.IssueIdentifier)
 	}
-	states, err := client.workflowStates(payload.TeamID)
+	states, err := client.workflowStatesContext(ctx, payload.TeamID)
 	if err != nil {
 		return true, err
 	}
@@ -149,7 +141,7 @@ func executeReviewPendingAttempt(ctx context.Context, client linearClient, confi
 	if err != nil {
 		now := time.Now()
 		worker := payload.Worker(client, config, stateStore, states, nil)
-		writeRunRecordWithCommandState(stateStore, worker.workspace, runRecordFor(worker.candidate, worker.workspace, configuredRuntimeCommand(config), "github_app_error", now, now, worker.runtimeUsage, nil, worker.prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
+		writeRunRecordWithCommandStateContext(ctx, stateStore, worker.workspace, runRecordFor(worker.candidate, worker.workspace, configuredRuntimeCommand(config), "github_app_error", now, now, worker.runtimeUsage, nil, worker.prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
 		return true, err
 	}
 	payload.GitHubAuth = githubAuth
@@ -157,7 +149,7 @@ func executeReviewPendingAttempt(ctx context.Context, client linearClient, confi
 	if err != nil || result.Terminal {
 		return true, err
 	}
-	writeHandoffPendingState(reviewPayloadHandoffCompletion(payload, client, config, stateStore, result.Review))
+	writeHandoffPendingStateContext(ctx, reviewPayloadHandoffCompletion(payload, client, config, stateStore, result.Review))
 	return true, nil
 }
 
@@ -180,17 +172,157 @@ func reviewPayloadHandoffCompletion(payload reviewPendingPayload, client linearC
 	}
 }
 
-func claimNextReviewReadyAttempt(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
+func claimNextQueuedReviewReadyAttempt(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
+	return claimNextQueuedReviewReadyAttemptContext(context.Background(), client, wf, config, stateStore)
+}
+
+func claimNextQueuedReviewReadyAttemptContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
 	if strings.TrimSpace(config.ReviewCommand) == "" {
 		log("review worker idle: review command is not configured")
 		return nil, false, nil
 	}
-	if removed, err := cleanupStaleRunLocksWithState(stateStore, config.WorkspaceRoot, time.Now()); err != nil {
+	task, ok, err := claimNextQueuedReviewReadyWorkerTask(ctx, stateStore, time.Now().UTC())
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	return prepareClaimedReviewReadyWorkerTask(ctx, client, wf, config, stateStore, task)
+}
+
+func scheduleReviewReadyWorkerTasks(ctx context.Context, client linearClient, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
+	if stateStore == nil {
+		return false, fmt.Errorf("SQLite state store unavailable for review scheduler at %s", state.DefaultDBPath(config.WorkspaceRoot))
+	}
+	if strings.TrimSpace(config.ReviewCommand) == "" {
+		return false, nil
+	}
+	if capacity < 1 {
+		capacity = 1
+	}
+	if removed, err := cleanupStaleRunLocksWithStateContext(ctx, stateStore, config.WorkspaceRoot, time.Now()); err != nil {
+		return false, err
+	} else if removed > 0 {
+		log("removed %d stale/dead run lock(s) before review task scheduling", removed)
+	}
+	candidates, err := client.candidatesContext(ctx, config.ProjectSlug, config.ActiveStates)
+	if err != nil || len(candidates) == 0 {
+		return false, err
+	}
+	prsByIssue, err := openPRsByIssueForSelection(config)
+	if err != nil {
+		return false, err
+	}
+	didWork := false
+	for _, candidate := range orderCandidates(candidates, config.ReadyState) {
+		if capacity <= 0 {
+			break
+		}
+		if active, err := hasActiveWorkerTask(ctx, stateStore, reviewWorkerRole, candidate.Identifier); err != nil {
+			return didWork, err
+		} else if active {
+			continue
+		}
+		pr := prsByIssue[candidate.Identifier]
+		if pr == nil {
+			continue
+		}
+		decision := reconcileCandidateForSelectionContext(ctx, config, candidate, pr, stateStore)
+		if !decision.CanRun || decision.NextAction != "run_semantic_review_after_checks_ready" {
+			continue
+		}
+		workspace, err := safeWorkspacePath(config.WorkspaceRoot, candidate.Identifier)
+		if err != nil {
+			return didWork, err
+		}
+		if _, enqueued, err := enqueueReviewReadyWorkerTask(ctx, stateStore, candidate, *pr, workspace, time.Now().UTC()); err != nil {
+			return didWork, err
+		} else if enqueued {
+			didWork = true
+			capacity--
+		}
+	}
+	return didWork, nil
+}
+
+func prepareClaimedReviewReadyWorkerTask(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, task state.WorkerTask) (*claimedRunAttempt, bool, error) {
+	started := time.Now().UTC()
+	failTask := func(reason string, err error) (*claimedRunAttempt, bool, error) {
+		errorText := ""
+		if err != nil {
+			errorText = err.Error()
+		}
+		completeErr := completeClaimedReviewReadyWorkerTask(ctx, stateStore, task, "failed", false, reason, errorText, started, time.Now().UTC())
+		return nil, true, errors.Join(err, completeErr)
+	}
+	if task.IssueKey == "" {
+		return failTask("missing_issue_key", fmt.Errorf("review worker task %s has no issue key", task.TaskKey))
+	}
+	candidate, err := client.issueByIdentifierContext(ctx, task.IssueKey)
+	if err != nil {
+		return failTask("linear_issue_lookup_failed", err)
+	}
+	if candidate == nil {
+		return failTask("linear_issue_missing", fmt.Errorf("Linear issue %s was not found", task.IssueKey))
+	}
+	prsByIssue, err := openPRsByIssueForSelection(config)
+	if err != nil {
+		return failTask("github_pr_lookup_failed", err)
+	}
+	pr := prsByIssue[candidate.Identifier]
+	if pr == nil {
+		completeErr := completeClaimedReviewReadyWorkerTask(ctx, stateStore, task, "completed", false, "missing_open_pr", "", started, time.Now().UTC())
+		return nil, true, completeErr
+	}
+	decision := reconcileCandidateForSelectionContext(ctx, config, *candidate, pr, stateStore)
+	if !decision.CanRun || decision.NextAction != "run_semantic_review_after_checks_ready" {
+		log("skipping review resume for %s: lifecycle=%s blockers=%s next=%s", candidate.Identifier, decision.Lifecycle, strings.Join(decision.Blockers, "; "), decision.NextAction)
+		completeErr := completeClaimedReviewReadyWorkerTask(ctx, stateStore, task, "completed", false, "not_review_ready", "", started, time.Now().UTC())
+		return nil, true, completeErr
+	}
+	workspace, err := safeWorkspacePath(config.WorkspaceRoot, candidate.Identifier)
+	if err != nil {
+		return failTask("workspace_path_invalid", err)
+	}
+	progressStarted := time.Now().UTC()
+	writeRunProgress(config.WorkspaceRoot, runProgressForIssue(candidate, workspace, "review_resume_selected", progressStarted))
+	runtime, err := newAgentRuntime(config.RuntimeProvider)
+	if err != nil {
+		snapshot := runProgressForIssue(candidate, workspace, "failed", progressStarted)
+		snapshot.Error = err.Error()
+		writeRunProgress(config.WorkspaceRoot, snapshot)
+		return failTask("runtime_preflight_failed", err)
+	}
+	if _, err := runtime.Preflight(ctx, agentruntime.PreflightInput{ImplementationCommand: configuredRuntimeCommand(config), ReviewCommand: config.ReviewCommand}); err != nil {
+		snapshot := runProgressForIssue(candidate, workspace, "failed", progressStarted)
+		snapshot.Error = err.Error()
+		writeRunProgress(config.WorkspaceRoot, snapshot)
+		return failTask("runtime_preflight_failed", err)
+	}
+	branch, _ := currentGitBranch(workspace)
+	lock, releaseLock, err := acquireRunLockWithStateContext(ctx, stateStore, workspace, candidate, branch, time.Now())
+	if err != nil {
+		return failTask("run_lock_unavailable", err)
+	}
+	return &claimedRunAttempt{Candidate: candidate, SelectedPR: pr, Workspace: workspace, Branch: lock.Branch, ProgressStarted: progressStarted, ReviewWorkerTaskKey: task.TaskKey, ReleaseLock: releaseLock}, true, nil
+}
+
+func claimNextReviewReadyAttempt(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
+	return claimNextReviewReadyAttemptContext(context.Background(), client, wf, config, stateStore)
+}
+
+func claimNextReviewReadyAttemptContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	if strings.TrimSpace(config.ReviewCommand) == "" {
+		log("review worker idle: review command is not configured")
+		return nil, false, nil
+	}
+	if removed, err := cleanupStaleRunLocksWithStateContext(ctx, stateStore, config.WorkspaceRoot, time.Now()); err != nil {
 		return nil, false, err
 	} else if removed > 0 {
 		log("removed %d stale/dead run lock(s) before review selection", removed)
 	}
-	candidates, err := client.candidates(config.ProjectSlug, config.ActiveStates)
+	candidates, err := client.candidatesContext(ctx, config.ProjectSlug, config.ActiveStates)
 	if err != nil || len(candidates) == 0 {
 		return nil, false, err
 	}
@@ -198,13 +330,12 @@ func claimNextReviewReadyAttempt(client linearClient, wf workflow, config runner
 	if err != nil {
 		return nil, false, err
 	}
-	readiness := newReviewReadinessModule(config.WorkspaceRoot)
 	for _, candidate := range orderCandidates(candidates, config.ReadyState) {
 		pr := prsByIssue[candidate.Identifier]
-		if pr == nil || !readiness.ShouldResume(candidate.Identifier, *pr) {
+		if pr == nil {
 			continue
 		}
-		decision := reconcileCandidateForSelection(config, candidate, pr, stateStore)
+		decision := reconcileCandidateForSelectionContext(ctx, config, candidate, pr, stateStore)
 		if !decision.CanRun || decision.NextAction != "run_semantic_review_after_checks_ready" {
 			log("skipping review resume for %s: lifecycle=%s blockers=%s next=%s", candidate.Identifier, decision.Lifecycle, strings.Join(decision.Blockers, "; "), decision.NextAction)
 			continue
@@ -222,14 +353,14 @@ func claimNextReviewReadyAttempt(client linearClient, wf workflow, config runner
 			writeRunProgress(config.WorkspaceRoot, snapshot)
 			return nil, true, err
 		}
-		if _, err := runtime.Preflight(context.Background(), agentruntime.PreflightInput{ImplementationCommand: configuredRuntimeCommand(config), ReviewCommand: config.ReviewCommand, MaxTurns: cfg.AgentMaxTurnsFromWorkflow(wf.YAML)}); err != nil {
+		if _, err := runtime.Preflight(ctx, agentruntime.PreflightInput{ImplementationCommand: configuredRuntimeCommand(config), ReviewCommand: config.ReviewCommand}); err != nil {
 			snapshot := runProgressForIssue(&candidate, workspace, "failed", progressStarted)
 			snapshot.Error = err.Error()
 			writeRunProgress(config.WorkspaceRoot, snapshot)
 			return nil, true, err
 		}
 		branch, _ := currentGitBranch(workspace)
-		lock, releaseLock, err := acquireRunLockWithState(stateStore, workspace, &candidate, branch, time.Now())
+		lock, releaseLock, err := acquireRunLockWithStateContext(ctx, stateStore, workspace, &candidate, branch, time.Now())
 		if err != nil {
 			if errors.Is(err, errRunLocked) {
 				log("%v", err)
@@ -243,7 +374,29 @@ func claimNextReviewReadyAttempt(client linearClient, wf workflow, config runner
 	return nil, false, nil
 }
 
-func executeReviewReadyAttempt(client linearClient, config runnerConfig, stateStore *state.Store, claimed claimedRunAttempt) (bool, error) {
+func executeReviewReadyAttempt(client linearClient, config runnerConfig, stateStore *state.Store, claimed claimedRunAttempt) (didWork bool, err error) {
+	return executeReviewReadyAttemptContext(context.Background(), client, config, stateStore, claimed)
+}
+
+func executeReviewReadyAttemptContext(ctx context.Context, client linearClient, config runnerConfig, stateStore *state.Store, claimed claimedRunAttempt) (didWork bool, err error) {
+	started := time.Now().UTC()
+	if claimed.ReviewWorkerTaskKey != "" && claimed.Candidate != nil {
+		defer func() {
+			status := "completed"
+			reason := "review_resume_completed"
+			errorText := ""
+			if err != nil {
+				status = "failed"
+				reason = "review_resume_failed"
+				errorText = err.Error()
+			}
+			task := state.WorkerTask{TaskKey: claimed.ReviewWorkerTaskKey, Role: reviewWorkerRole, IssueKey: claimed.Candidate.Identifier, IssueID: claimed.Candidate.ID, Attempt: 1}
+			completeErr := completeClaimedReviewReadyWorkerTask(ctx, stateStore, task, status, didWork, reason, errorText, started, time.Now().UTC())
+			if err == nil && completeErr != nil {
+				err = completeErr
+			}
+		}()
+	}
 	if claimed.ReleaseLock != nil {
 		defer claimed.ReleaseLock()
 	}
@@ -251,17 +404,17 @@ func executeReviewReadyAttempt(client linearClient, config runnerConfig, stateSt
 	if candidate == nil || claimed.SelectedPR == nil {
 		return false, nil
 	}
-	states, err := client.workflowStates(candidate.Team.ID)
+	states, err := client.workflowStatesContext(ctx, candidate.Team.ID)
 	if err != nil {
 		return true, err
 	}
 	githubEnv, githubAuth, err := githubAppEnvFromEnvironment()
 	if err != nil {
 		now := time.Now()
-		writeRunRecordWithCommandState(stateStore, claimed.Workspace, runRecordFor(candidate, claimed.Workspace, configuredRuntimeCommand(config), "github_app_error", now, now, nil, nil, claimed.SelectedPR.URL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
+		writeRunRecordWithCommandStateContext(ctx, stateStore, claimed.Workspace, runRecordFor(candidate, claimed.Workspace, configuredRuntimeCommand(config), "github_app_error", now, now, nil, nil, claimed.SelectedPR.URL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
 		return true, err
 	}
-	return resumeReviewReadyRun(client, stateStore, config, candidate, states, claimed.Workspace, claimed.Branch, githubEnv, githubAuth, claimed.ProgressStarted, time.Now(), claimed.SelectedPR)
+	return resumeReviewReadyRunContext(ctx, client, stateStore, config, candidate, states, claimed.Workspace, claimed.Branch, githubEnv, githubAuth, claimed.ProgressStarted, time.Now(), claimed.SelectedPR)
 }
 
 var githubAppEnvFromEnvironmentForReviewWorker = githubAppEnvFromEnvironment

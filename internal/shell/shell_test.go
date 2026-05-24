@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -27,6 +28,26 @@ func TestShellCaptureTimeout(t *testing.T) {
 	_, err := CaptureEnvWithOutputTimeout("sleep 1", "", nil, false, 10*time.Millisecond)
 	if !errors.Is(err, ErrCommandTimeout) {
 		t.Fatalf("expected timeout error, got %v", err)
+	}
+}
+
+func TestShellRunHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := RunWithContextTimeout(ctx, "sleep 1", "", time.Second)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled error, got %v", err)
+	}
+}
+
+func TestShellCaptureHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := CaptureEnvWithOutputContextTimeout(ctx, "sleep 1", "", nil, false, time.Second)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled error, got %v", err)
 	}
 }
 

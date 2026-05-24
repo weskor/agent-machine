@@ -21,10 +21,17 @@ func closeInvalidPR(prURL, reason string) error {
 }
 
 func ensureIsolatedWorkspace(workspaceRoot, workspace, identifier string) error {
+	return ensureIsolatedWorkspaceContext(context.Background(), workspaceRoot, workspace, identifier)
+}
+
+func ensureIsolatedWorkspaceContext(ctx context.Context, workspaceRoot, workspace, identifier string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := assertSafeDeletePath(workspaceRoot, workspace); err != nil {
 		return err
 	}
-	topLevel, err := sh.CaptureQuiet("git rev-parse --show-toplevel", workspace)
+	topLevel, err := sh.CaptureQuietContext(ctx, "git rev-parse --show-toplevel", workspace)
 	if err != nil {
 		return fmt.Errorf("workspace %s is not a git checkout: %w", workspace, err)
 	}
@@ -40,7 +47,7 @@ func ensureIsolatedWorkspace(workspaceRoot, workspace, identifier string) error 
 		return fmt.Errorf("refusing shared git checkout: top-level %s does not match workspace %s", strings.TrimSpace(topLevel), workspace)
 	}
 	branch := expectedWorkspaceBranch(identifier)
-	current, err := currentGitBranch(workspace)
+	current, err := currentGitBranchContext(ctx, workspace)
 	if err != nil {
 		return err
 	}
@@ -50,7 +57,7 @@ func ensureIsolatedWorkspace(workspaceRoot, workspace, identifier string) error 
 	if current != "" && strings.HasPrefix(current, "symphony/") {
 		return fmt.Errorf("workspace %s is on unexpected Symphony branch %q; expected %q", workspace, current, branch)
 	}
-	if err := sh.Run("git switch -C "+sh.Quote(branch), workspace); err != nil {
+	if err := sh.RunWithContext(ctx, "git switch -C "+sh.Quote(branch), workspace); err != nil {
 		return err
 	}
 	return nil
@@ -61,16 +68,31 @@ func writeRunRecord(workspace string, record runRecord) {
 }
 
 func writeRunRecordWithState(store *state.Store, workspace string, record runRecord) error {
-	return writeRunRecordWithStateFallback(store, true, workspace, record)
+	return writeRunRecordWithStateContext(context.Background(), store, workspace, record)
 }
 
 func writeRunRecordWithCommandState(store *state.Store, workspace string, record runRecord) error {
-	return writeRunRecordWithStateFallback(store, false, workspace, record)
+	return writeRunRecordWithCommandStateContext(context.Background(), store, workspace, record)
 }
 
 func writeRunRecordWithStateFallback(store *state.Store, fallbackOpen bool, workspace string, record runRecord) error {
+	return writeRunRecordWithStateFallbackContext(context.Background(), store, fallbackOpen, workspace, record)
+}
+
+func writeRunRecordWithStateContext(ctx context.Context, store *state.Store, workspace string, record runRecord) error {
+	return writeRunRecordWithStateFallbackContext(ctx, store, true, workspace, record)
+}
+
+func writeRunRecordWithCommandStateContext(ctx context.Context, store *state.Store, workspace string, record runRecord) error {
+	return writeRunRecordWithStateFallbackContext(ctx, store, false, workspace, record)
+}
+
+func writeRunRecordWithStateFallbackContext(ctx context.Context, store *state.Store, fallbackOpen bool, workspace string, record runRecord) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	evaluation := evaluationForRun(workspace, record)
-	stateStore, dbPath, closeStore, err := stateStoreForRunRecordExport(store, fallbackOpen, record.WorkspaceRoot)
+	stateStore, dbPath, closeStore, err := stateStoreForRunRecordExportContext(ctx, store, fallbackOpen, record.WorkspaceRoot)
 	if err != nil {
 		if dbPath != "" {
 			log("failed to persist run record into SQLite state at %s before artifact export: %v", dbPath, err)
@@ -83,7 +105,7 @@ func writeRunRecordWithStateFallback(store *state.Store, fallbackOpen bool, work
 		defer closeStore()
 	}
 	if stateStore != nil {
-		if err := stateStore.UpsertRunArtifact(context.Background(), stateProjection{}.RunArtifact(workspace, record, evaluation)); err != nil {
+		if err := stateStore.UpsertAttemptResult(ctx, stateProjection{}.AttemptResult(workspace, record, evaluation)); err != nil {
 			log("failed to persist run record into SQLite state before artifact export: %v", err)
 			return err
 		}
@@ -91,13 +113,13 @@ func writeRunRecordWithStateFallback(store *state.Store, fallbackOpen bool, work
 	path, err := artifactManager().WriteRunRecord(workspace, record)
 	if err != nil {
 		log("failed to write run record: %v", err)
-		recordArtifactExportFailure(stateStore, record, "run_record", err)
+		recordArtifactExportFailureContext(ctx, stateStore, record, "run_record", err)
 		return err
 	}
 	log("wrote run record: %s", path)
 	evaluationPath, evaluation, err := writeEvaluationArtifactResult(workspace, record)
 	if err != nil {
-		recordArtifactExportFailure(stateStore, record, "evaluation", err)
+		recordArtifactExportFailureContext(ctx, stateStore, record, "evaluation", err)
 		return err
 	}
 	logRunArtifactSummary(path, evaluationPath, record, evaluation)
@@ -105,6 +127,10 @@ func writeRunRecordWithStateFallback(store *state.Store, fallbackOpen bool, work
 	return nil
 }
 func stateStoreForRunRecordExport(store *state.Store, fallbackOpen bool, workspaceRoot string) (*state.Store, string, func(), error) {
+	return stateStoreForRunRecordExportContext(context.Background(), store, fallbackOpen, workspaceRoot)
+}
+
+func stateStoreForRunRecordExportContext(ctx context.Context, store *state.Store, fallbackOpen bool, workspaceRoot string) (*state.Store, string, func(), error) {
 	if store != nil {
 		return store, "", nil, nil
 	}
@@ -114,7 +140,7 @@ func stateStoreForRunRecordExport(store *state.Store, fallbackOpen bool, workspa
 	if strings.TrimSpace(workspaceRoot) == "" {
 		return nil, "", nil, nil
 	}
-	opened, dbPath, err := openStateProjectionStore(context.Background(), workspaceRoot)
+	opened, dbPath, err := openStateProjectionStore(ctx, workspaceRoot)
 	if err != nil {
 		return nil, dbPath, nil, err
 	}
@@ -122,10 +148,14 @@ func stateStoreForRunRecordExport(store *state.Store, fallbackOpen bool, workspa
 }
 
 func recordArtifactExportFailure(store *state.Store, record runRecord, artifact string, exportErr error) {
+	recordArtifactExportFailureContext(context.Background(), store, record, artifact, exportErr)
+}
+
+func recordArtifactExportFailureContext(ctx context.Context, store *state.Store, record runRecord, artifact string, exportErr error) {
 	if store == nil || exportErr == nil {
 		return
 	}
-	if err := store.RecordArtifactExportFailure(context.Background(), record.IssueIdentifier, 1, artifact, exportErr.Error(), time.Now().UTC()); err != nil {
+	if err := store.RecordArtifactExportFailure(ctx, record.IssueIdentifier, 1, artifact, exportErr.Error(), time.Now().UTC()); err != nil {
 		log("failed to record artifact export failure in SQLite state: %v", err)
 	}
 }
@@ -143,14 +173,18 @@ func logRunArtifactSummary(runRecordPath, evaluationPath string, record runRecor
 }
 
 func mirrorRunRecordToState(store *state.Store, workspace string, record runRecord) {
+	mirrorRunRecordToStateContext(context.Background(), store, workspace, record)
+}
+
+func mirrorRunRecordToStateContext(ctx context.Context, store *state.Store, workspace string, record runRecord) {
 	if store != nil {
 		evaluation := evaluationForRun(workspace, record)
-		if err := store.UpsertRunArtifact(context.Background(), stateProjection{}.RunArtifact(workspace, record, evaluation)); err != nil {
+		if err := store.UpsertRunArtifact(ctx, stateProjection{}.RunArtifact(workspace, record, evaluation)); err != nil {
 			log("failed to mirror run record into SQLite state: %v", err)
 		}
 		return
 	}
-	store, dbPath, err := openStateProjectionStore(context.Background(), record.WorkspaceRoot)
+	store, dbPath, err := openStateProjectionStore(ctx, record.WorkspaceRoot)
 	if err != nil {
 		if dbPath != "" {
 			log("failed to mirror run record into SQLite state at %s: %v", dbPath, err)
@@ -159,7 +193,7 @@ func mirrorRunRecordToState(store *state.Store, workspace string, record runReco
 	}
 	defer store.Close()
 	evaluation := evaluationForRun(workspace, record)
-	if err := store.UpsertRunArtifact(context.Background(), stateProjection{}.RunArtifact(workspace, record, evaluation)); err != nil {
+	if err := store.UpsertRunArtifact(ctx, stateProjection{}.RunArtifact(workspace, record, evaluation)); err != nil {
 		log("failed to mirror run record into SQLite state at %s: %v", dbPath, err)
 	}
 }

@@ -3,8 +3,6 @@ package agentruntime
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -27,25 +25,6 @@ func TestCodexCLIAdapterPreflightReportsProviderAndMissingCommand(t *testing.T) 
 	}
 	if !strings.Contains(err.Error(), "codex_cli") || !strings.Contains(err.Error(), "definitely-missing-codex-test-binary") {
 		t.Fatalf("error did not mention provider and command: %v", err)
-	}
-}
-
-func TestCodexCLIAdapterPreflightRejectsUnsupportedMaxTurns(t *testing.T) {
-	dir := t.TempDir()
-	impl := filepath.Join(dir, "codex-ok")
-	if err := os.WriteFile(impl, []byte("#!/bin/sh\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	runtime := CodexCLIAdapter{}
-	result, err := runtime.Preflight(context.Background(), PreflightInput{ImplementationCommand: impl, MaxTurns: 2})
-	if err == nil {
-		t.Fatal("expected max_turns preflight error")
-	}
-	if len(result.Checks) == 0 || result.Checks[0].Name != "max_turns" || result.Checks[0].OK {
-		t.Fatalf("max_turns check was not first actionable failure: %+v", result)
-	}
-	if !strings.Contains(err.Error(), "agent.max_turns=2") || !strings.Contains(err.Error(), "proven multi-turn contract") || !strings.Contains(err.Error(), "agent.max_turns: 1") {
-		t.Fatalf("error was not actionable: %v", err)
 	}
 }
 

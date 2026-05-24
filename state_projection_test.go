@@ -40,6 +40,11 @@ func TestStateProjectionRunArtifactMatchesMirroringContract(t *testing.T) {
 	if snapshot.RunArtifactRef != filepath.Join(workspace, ".pi-symphony-run.json") || snapshot.EvaluationRef != filepath.Join(workspace, evaluationArtifactName) {
 		t.Fatalf("unexpected artifact refs: %+v", snapshot)
 	}
+
+	result := stateProjection{}.AttemptResult(workspace, record, evaluation)
+	if result.IssueKey != snapshot.IssueKey || result.PRURL != snapshot.PRURL || result.TerminalOutcome != snapshot.TerminalOutcome || result.RetryCount != snapshot.RetryCount {
+		t.Fatalf("attempt result diverged from artifact projection: result=%+v snapshot=%+v", result, snapshot)
+	}
 }
 
 func TestRunArtifactProjectionPersistsFinishedEventWithAttemptState(t *testing.T) {
@@ -82,8 +87,8 @@ func TestStateProjectionCleanupLeaseAndHeartbeat(t *testing.T) {
 		t.Fatalf("unexpected lease projection: %+v", lease)
 	}
 
-	heartbeat := projection.DaemonHeartbeat("host:123", runnerConfig{WorkflowPath: "/repo/WORKFLOW.md"}, continuousHeartbeat{LaneName: "merge", CycleNumber: 3, Err: errors.New("boom"), At: now})
-	if heartbeat.ProcessID != "host:123" || heartbeat.LaneName != "merge" || !heartbeat.RecoveryRequired || heartbeat.LastError != "boom" || heartbeat.UpdatedAt != now {
+	heartbeat := projection.DaemonHeartbeat("host:123", runnerConfig{WorkflowPath: "/repo/WORKFLOW.md"}, continuousHeartbeat{LaneName: "merge", CycleNumber: 3, Err: errors.New("boom"), ActiveTaskKey: "continuous:merge", ActiveTaskRole: "merge", ActiveLeaseName: "lane:merge", ActiveTaskStartedAt: now.Add(-time.Minute), At: now})
+	if heartbeat.ProcessID != "host:123" || heartbeat.LaneName != "merge" || !heartbeat.RecoveryRequired || heartbeat.LastError != "boom" || heartbeat.UpdatedAt != now || heartbeat.ActiveTaskKey != "continuous:merge" || heartbeat.ActiveLeaseName != "lane:merge" {
 		t.Fatalf("unexpected heartbeat projection: %+v", heartbeat)
 	}
 }

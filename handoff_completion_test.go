@@ -43,8 +43,8 @@ func TestCompleteAttemptHandoffWritesPendingProgressBeforeSideEffects(t *testing
 		sawPending = true
 		return nil
 	}
-	updateIssueStateForLinearStatusWorker = func(linearClient, string, string) error { return nil }
-	createCommentForLinearStatusWorker = func(linearClient, string, string) error { return nil }
+	updateIssueStateForLinearStatusWorker = func(context.Context, linearClient, string, string) error { return nil }
+	createCommentForLinearStatusWorker = func(context.Context, linearClient, string, string) error { return nil }
 
 	didWork, err := completeAttemptHandoff(context.Background(), handoffCompletion{
 		client:          linearClient{},
@@ -103,8 +103,8 @@ func TestCompleteAttemptHandoffExecutesPersistedPayloadBoundary(t *testing.T) {
 		postedSummary = summary
 		return nil
 	}
-	updateIssueStateForLinearStatusWorker = func(linearClient, string, string) error { return nil }
-	createCommentForLinearStatusWorker = func(linearClient, string, string) error { return nil }
+	updateIssueStateForLinearStatusWorker = func(context.Context, linearClient, string, string) error { return nil }
+	createCommentForLinearStatusWorker = func(context.Context, linearClient, string, string) error { return nil }
 
 	didWork, err := completeAttemptHandoff(context.Background(), handoffCompletion{
 		client:          linearClient{},
@@ -176,13 +176,13 @@ func TestResumeReviewReadyRunUsesPendingProgressBeforeHandoff(t *testing.T) {
 	defer store.Close()
 	candidate := &issue{ID: "issue-170", Identifier: "CAG-170", Title: "Resume handoff pending", URL: "https://linear.app/acme/issue/CAG-170"}
 	pr := &pullRequestSummary{Number: 170, URL: "https://github.com/acme/repo/pull/170"}
-	checkScopeGuardForReviewResume = func(string, string, string) (scopeGuardResult, error) {
+	checkScopeGuardForReviewResume = func(context.Context, string, string, string) (scopeGuardResult, error) {
 		return scopeGuardResult{Checked: true}, nil
 	}
-	collectReviewEvidenceForWorker = func(runnerConfig, *issue, string, string, scopeGuardResult, []string) (reviewEvidence, error) {
+	collectReviewEvidenceForWorker = func(context.Context, runnerConfig, *issue, string, string, scopeGuardResult, []string) (reviewEvidence, error) {
 		return reviewEvidence{ChecksStatus: "success", ChecksSummary: "go-ci=success"}, nil
 	}
-	runReviewForWorker = func(string, string, string, *issue, string, map[string]string, time.Duration, *reviewEvidence) (*reviewResult, error) {
+	runReviewForWorker = func(context.Context, string, string, string, *issue, string, map[string]string, time.Duration, *reviewEvidence) (*reviewResult, error) {
 		return &reviewResult{Status: "passed"}, nil
 	}
 	postOrUpdatePRHandoffCommentForWorker = func(handoffSummary) error {
@@ -195,8 +195,8 @@ func TestResumeReviewReadyRunUsesPendingProgressBeforeHandoff(t *testing.T) {
 		}
 		return nil
 	}
-	updateIssueStateForLinearStatusWorker = func(linearClient, string, string) error { return nil }
-	createCommentForLinearStatusWorker = func(linearClient, string, string) error { return nil }
+	updateIssueStateForLinearStatusWorker = func(context.Context, linearClient, string, string) error { return nil }
+	createCommentForLinearStatusWorker = func(context.Context, linearClient, string, string) error { return nil }
 
 	didWork, err := resumeReviewReadyRun(linearClient{}, store, runnerConfig{WorkspaceRoot: root, PiCommand: "pi run", ReviewCommand: "pi review", HandoffState: "Human Review"}, candidate, []workflowState{{ID: "handoff-id", Name: "Human Review"}}, workspace, expectedWorkspaceBranch(candidate.Identifier), map[string]string{"GITHUB_TOKEN": "token"}, "github_app_installation", time.Now().Add(-time.Minute), time.Now().Add(-2*time.Minute), pr)
 	if err != nil || !didWork {

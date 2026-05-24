@@ -51,8 +51,8 @@ go run . --run-status=CAG-123 WORKFLOW.md
 go run . --explain WORKFLOW.md
 go run . --continuous WORKFLOW.md
 go run . --status /path/to/target/WORKFLOW.md
-go run . --once /path/to/target/WORKFLOW.md
 go run . --continuous /path/to/target/WORKFLOW.md
+go run . --worker=implementation /path/to/target/WORKFLOW.md
 go run . --merge-approved /path/to/target/WORKFLOW.md
 go run . --dry-run /path/to/target/WORKFLOW.md
 go run . --cleanup-workspaces --apply /path/to/target/WORKFLOW.md
@@ -138,7 +138,7 @@ Use small, reviewable Linear tickets when evaluating the runner against itself o
 
 1. Write each ticket with the standard `Goal`, `Scope`, `Requirements`, `Acceptance Criteria`, and `Validation` sections.
 2. Move exactly one ticket into `Ready for Agent` when it is safe for the runner to start it. Keep future dogfood tickets out of active states until the current PR is reviewed.
-3. Run one issue with `go run . --once WORKFLOW.md` or the target workflow path. The runner treats `Ready for Agent` and `In Progress` as active states by default; it moves claimed work to the configured running state and hands completed implementation PRs to `Human Review`.
+3. Run the production loop with `go run . --continuous WORKFLOW.md`, or run one implementation worker process with `go run . --worker=implementation WORKFLOW.md` when doing a controlled dogfood pass. The runner treats `Ready for Agent` and `In Progress` as active states by default; it moves claimed work to the configured running state and hands completed implementation PRs to `Human Review`.
 4. Review the PR before activating the next ticket. Objective review signals are: scoped diff, no secrets, required validation recorded, `make ci`/tests green, `git diff --check` clean, review pass or clear blocker notes, and a PR from the expected `symphony/<issue>-workspace` branch into the configured base branch.
 5. Only after the PR is accepted or the ticket is moved to a non-active lane should the next dogfood ticket be moved into `Ready for Agent`.
 

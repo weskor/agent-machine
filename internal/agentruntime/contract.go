@@ -118,7 +118,6 @@ type RuntimeCapabilities struct {
 type PreflightInput struct {
 	ImplementationCommand string
 	ReviewCommand         string
-	MaxTurns              int
 }
 
 // PreflightCheck captures one prerequisite checked by a runtime provider.

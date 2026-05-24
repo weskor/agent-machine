@@ -17,21 +17,35 @@ func Run(command, cwd string) error {
 }
 
 func RunWithTimeout(command, cwd string, timeout time.Duration) error {
+	return RunWithContextTimeout(context.Background(), command, cwd, timeout)
+}
+
+func RunWithContext(ctx context.Context, command, cwd string) error {
+	return RunWithContextTimeout(ctx, command, cwd, 0)
+}
+
+func RunWithContextTimeout(ctx context.Context, command, cwd string, timeout time.Duration) error {
 	log(command)
-	ctx := context.Background()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var cancel context.CancelFunc
+	commandCtx := ctx
 	if timeout > 0 {
-		ctx, cancel = context.WithTimeout(ctx, timeout)
+		commandCtx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	cmd := exec.CommandContext(ctx, "sh", "-lc", command)
+	cmd := exec.CommandContext(commandCtx, "sh", "-lc", command)
 	cmd.Dir = cwd
 	cmd.Env = CommandEnv(nil)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	err := cmd.Run()
-	if ctx.Err() == context.DeadlineExceeded {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if commandCtx.Err() == context.DeadlineExceeded {
 		return fmt.Errorf("%w after %s", ErrCommandTimeout, timeout)
 	}
 	return err
@@ -54,14 +68,25 @@ func CaptureEnvWithOutput(command, cwd string, env map[string]string, printOutpu
 }
 
 func CaptureEnvWithOutputTimeout(command, cwd string, env map[string]string, printOutput bool, timeout time.Duration) (string, error) {
+	return CaptureEnvWithOutputContextTimeout(context.Background(), command, cwd, env, printOutput, timeout)
+}
+
+func CaptureQuietContext(ctx context.Context, command, cwd string) (string, error) {
+	return CaptureEnvWithOutputContextTimeout(ctx, command, cwd, nil, false, 0)
+}
+
+func CaptureEnvWithOutputContextTimeout(ctx context.Context, command, cwd string, env map[string]string, printOutput bool, timeout time.Duration) (string, error) {
 	log(command)
-	ctx := context.Background()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var cancel context.CancelFunc
+	commandCtx := ctx
 	if timeout > 0 {
-		ctx, cancel = context.WithTimeout(ctx, timeout)
+		commandCtx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	cmd := exec.CommandContext(ctx, "sh", "-lc", command)
+	cmd := exec.CommandContext(commandCtx, "sh", "-lc", command)
 	cmd.Dir = cwd
 	cmd.Env = CommandEnv(env)
 	output, err := cmd.CombinedOutput()
@@ -69,7 +94,10 @@ func CaptureEnvWithOutputTimeout(command, cwd string, env map[string]string, pri
 	if printOutput && text != "" {
 		fmt.Print(text)
 	}
-	if ctx.Err() == context.DeadlineExceeded {
+	if ctx.Err() != nil {
+		return text, ctx.Err()
+	}
+	if commandCtx.Err() == context.DeadlineExceeded {
 		return text, fmt.Errorf("%w after %s", ErrCommandTimeout, timeout)
 	}
 	return text, err

@@ -1,7 +1,9 @@
 package linear
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -55,6 +57,24 @@ func TestCandidatesPostsGraphQLRequestAndDecodesIssues(t *testing.T) {
 	}
 	if len(issue.Labels.Nodes) != 1 || issue.Labels.Nodes[0].Name != "runner" {
 		t.Fatalf("decoded labels = %#v", issue.Labels.Nodes)
+	}
+}
+
+func TestCandidatesContextHonorsCanceledContextBeforeRequest(t *testing.T) {
+	requested := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = true
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := NewClient("test-key", server.URL).CandidatesContext(ctx, "pi-symphony", []string{"Ready for Agent"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("CandidatesContext() error = %v; want context.Canceled", err)
+	}
+	if requested {
+		t.Fatal("CandidatesContext issued HTTP request after context cancellation")
 	}
 }
 

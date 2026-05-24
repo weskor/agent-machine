@@ -20,6 +20,7 @@ type SetupDependencies[Client any] struct {
 type ModeRunner[Client any, Config any] interface {
 	Backfill(string) (cli.BackfillSummary, error)
 	Repair(string) error
+	RepairWorkerTask(string, string) error
 	Cleanup(string, cli.CleanupOptions) error
 	Status(Client, Config) error
 	RunStatus(string, string) error
@@ -27,7 +28,6 @@ type ModeRunner[Client any, Config any] interface {
 	Merge(Client, Config) error
 	Continuous(Client, cfg.Workflow, Config, int) error
 	Worker(Client, cfg.Workflow, Config, string) error
-	RunOne(Client, cfg.Workflow, Config) (bool, error)
 }
 
 // ModeOperationFuncs adapts the existing root runner functions to ModeRunner.
@@ -36,6 +36,7 @@ type ModeRunner[Client any, Config any] interface {
 type ModeOperationFuncs[Client any, Config any] struct {
 	BackfillFunc   func(string) (cli.BackfillSummary, error)
 	RepairFunc     func(string) error
+	RepairTaskFunc func(string, string) error
 	CleanupFunc    func(string, cli.CleanupOptions) error
 	StatusFunc     func(Client, Config) error
 	RunStatusFunc  func(string, string) error
@@ -43,7 +44,6 @@ type ModeOperationFuncs[Client any, Config any] struct {
 	MergeFunc      func(Client, Config) error
 	ContinuousFunc func(Client, cfg.Workflow, Config, int) error
 	WorkerFunc     func(Client, cfg.Workflow, Config, string) error
-	RunOneFunc     func(Client, cfg.Workflow, Config) (bool, error)
 }
 
 func (m ModeOperationFuncs[Client, Config]) Backfill(root string) (cli.BackfillSummary, error) {
@@ -51,6 +51,10 @@ func (m ModeOperationFuncs[Client, Config]) Backfill(root string) (cli.BackfillS
 }
 
 func (m ModeOperationFuncs[Client, Config]) Repair(root string) error { return m.RepairFunc(root) }
+
+func (m ModeOperationFuncs[Client, Config]) RepairWorkerTask(root, taskKey string) error {
+	return m.RepairTaskFunc(root, taskKey)
+}
 
 func (m ModeOperationFuncs[Client, Config]) Cleanup(root string, options cli.CleanupOptions) error {
 	return m.CleanupFunc(root, options)
@@ -78,10 +82,6 @@ func (m ModeOperationFuncs[Client, Config]) Continuous(client Client, wf cfg.Wor
 
 func (m ModeOperationFuncs[Client, Config]) Worker(client Client, wf cfg.Workflow, config Config, role string) error {
 	return m.WorkerFunc(client, wf, config, role)
-}
-
-func (m ModeOperationFuncs[Client, Config]) RunOne(client Client, wf cfg.Workflow, config Config) (bool, error) {
-	return m.RunOneFunc(client, wf, config)
 }
 
 // Runner is the top-level orchestration facade. It composes extracted runner
@@ -112,6 +112,7 @@ func (r runner[Client, Config]) CLIDependencies() cli.Dependencies[Client] {
 		IssueIdentifiersByState:               r.setup.IssueIdentifiersByState,
 		BackfillStateFromArtifacts:            r.modes.Backfill,
 		RepairArtifacts:                       r.modes.Repair,
+		RepairWorkerTask:                      r.modes.RepairWorkerTask,
 		CleanupWorkspaces:                     r.modes.Cleanup,
 		PrintStatus: func(client Client, config cli.Config) error {
 			return r.modes.Status(client, r.fromCLIConfig(config))
@@ -128,10 +129,6 @@ func (r runner[Client, Config]) CLIDependencies() cli.Dependencies[Client] {
 		},
 		RunWorker: func(client Client, wf cfg.Workflow, config cli.Config, role string) error {
 			return r.modes.Worker(client, wf, r.fromCLIConfig(config), role)
-		},
-		RunOne: func(client Client, wf cfg.Workflow, config cli.Config) error {
-			_, err := r.modes.RunOne(client, wf, r.fromCLIConfig(config))
-			return err
 		},
 	}
 }

@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	CurrentSchemaVersion = 3
+	CurrentSchemaVersion = 7
 	busyTimeoutMS        = 5000
 )
 
@@ -38,14 +38,17 @@ type Health struct {
 }
 
 type Counts struct {
-	IssueAttempts    int
-	PRMappings       int
-	ReviewStates     int
-	TerminalOutcomes int
-	DaemonHeartbeats int
-	CleanupStates    int
-	Events           int
-	WorkerTasks      int
+	IssueAttempts     int
+	PRMappings        int
+	ReviewStates      int
+	TerminalOutcomes  int
+	DaemonHeartbeats  int
+	CleanupStates     int
+	Events            int
+	WorkerTasks       int
+	WorkerResults     int
+	WorkerPayloadRefs int
+	PRHandoffIntents  int
 }
 
 const (
@@ -78,7 +81,23 @@ const (
 	EventWorkerTaskClaimed             = "worker_task_claimed"
 	EventWorkerTaskCompleted           = "worker_task_completed"
 	EventWorkerTaskFailed              = "worker_task_failed"
+	EventWorkerTaskRepaired            = "worker_task_repaired"
 	EventErrorRecorded                 = "error_recorded"
+)
+
+const (
+	WorkerTaskStatusQueued               = "queued"
+	WorkerTaskStatusClaimed              = "claimed"
+	WorkerTaskStatusCompleted            = "completed"
+	WorkerTaskStatusFailed               = "failed"
+	WorkerTaskStatusCanceled             = "canceled"
+	WorkerTaskStatusReconciliationNeeded = "reconciliation_needed"
+)
+
+const (
+	PRHandoffIntentStatusPending   = "pending"
+	PRHandoffIntentStatusCompleted = "completed"
+	PRHandoffIntentStatusFailed    = "failed"
 )
 
 type Event struct {
@@ -115,14 +134,18 @@ type EventFilter struct {
 }
 
 type DaemonHeartbeat struct {
-	ProcessID        string
-	LaneName         string
-	WorkflowPath     string
-	CycleNumber      int
-	LastSuccessAt    time.Time
-	LastError        string
-	RecoveryRequired bool
-	UpdatedAt        time.Time
+	ProcessID           string
+	LaneName            string
+	WorkflowPath        string
+	CycleNumber         int
+	LastSuccessAt       time.Time
+	LastError           string
+	RecoveryRequired    bool
+	ActiveTaskKey       string
+	ActiveTaskRole      string
+	ActiveLeaseName     string
+	ActiveTaskStartedAt time.Time
+	UpdatedAt           time.Time
 }
 
 type WorkerTask struct {
@@ -138,6 +161,55 @@ type WorkerTask struct {
 	Payload     json.RawMessage
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+type WorkerResult struct {
+	TaskKey    string
+	Role       string
+	LaneName   string
+	IssueKey   string
+	IssueID    string
+	Attempt    int
+	Status     string
+	DidWork    bool
+	Reason     string
+	Error      string
+	Payload    json.RawMessage
+	StartedAt  time.Time
+	FinishedAt time.Time
+	UpdatedAt  time.Time
+}
+
+type WorkerPayloadRef struct {
+	Role          string
+	Phase         string
+	IssueKey      string
+	IssueID       string
+	Attempt       int
+	WorkspacePath string
+	BranchName    string
+	PRURL         string
+	PayloadPath   string
+	Status        string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type PRHandoffIntent struct {
+	IssueKey      string
+	IssueID       string
+	Attempt       int
+	WorkspacePath string
+	BranchName    string
+	AgentPRURL    string
+	PRURL         string
+	PayloadPath   string
+	Status        string
+	Result        string
+	Error         string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	FinishedAt    time.Time
 }
 
 type Lease struct {
@@ -179,22 +251,28 @@ type CleanupFacts struct {
 }
 
 type ReconciliationFacts struct {
-	IssueKey           string
-	Attempt            int
-	WorkspacePath      string
-	BranchName         string
-	Status             string
-	PRURL              string
-	RetryNextState     string
-	RetryReason        string
-	RetryCount         int
-	RetryDecidedAt     time.Time
-	TerminalOutcome    string
-	TerminalReason     string
-	CleanupDecision    string
-	CleanupResult      string
-	CleanupArtifactRef string
-	UpdatedAt          time.Time
+	IssueKey             string
+	Attempt              int
+	WorkspacePath        string
+	BranchName           string
+	Status               string
+	PRURL                string
+	ReviewStatus         string
+	ReviewClassification string
+	ReviewOutputRef      string
+	ReviewOutputHash     string
+	RetryNextState       string
+	RetryReason          string
+	RetryCount           int
+	RetryDecidedAt       time.Time
+	FeedbackHash         string
+	FeedbackNextAction   string
+	TerminalOutcome      string
+	TerminalReason       string
+	CleanupDecision      string
+	CleanupResult        string
+	CleanupArtifactRef   string
+	UpdatedAt            time.Time
 }
 
 type RunArtifactSnapshot struct {
@@ -232,6 +310,36 @@ type RunArtifactSnapshot struct {
 	EvaluationRef         string
 }
 
+type AttemptResult struct {
+	IssueKey             string
+	IssueID              string
+	Attempt              int
+	WorkspacePath        string
+	BranchName           string
+	BaseBranch           string
+	Status               string
+	StartedAt            time.Time
+	UpdatedAt            time.Time
+	Repository           string
+	PRNumber             int
+	PRURL                string
+	ReviewStatus         string
+	ReviewPassed         bool
+	ReviewClassification string
+	ReviewOutputRef      string
+	ReviewOutputHash     string
+	MergeEligible        bool
+	FeedbackHash         string
+	FeedbackNextAction   string
+	RetryCount           int
+	RetryBudgetState     string
+	RetryReason          string
+	RetryInputHash       string
+	RetryNextState       string
+	TerminalOutcome      string
+	TerminalReason       string
+}
+
 type SnapshotAttempt struct {
 	IssueKey         string
 	Attempt          int
@@ -248,14 +356,18 @@ type SnapshotAttempt struct {
 }
 
 type SnapshotHeartbeat struct {
-	ProcessID        string
-	LaneName         string
-	WorkflowPath     string
-	CycleNumber      int
-	LastSuccessAt    time.Time
-	LastError        string
-	RecoveryRequired bool
-	UpdatedAt        time.Time
+	ProcessID           string
+	LaneName            string
+	WorkflowPath        string
+	CycleNumber         int
+	LastSuccessAt       time.Time
+	LastError           string
+	RecoveryRequired    bool
+	ActiveTaskKey       string
+	ActiveTaskRole      string
+	ActiveLeaseName     string
+	ActiveTaskStartedAt time.Time
+	UpdatedAt           time.Time
 }
 
 func DefaultDBPath(workspaceRoot string) string {
@@ -526,12 +638,16 @@ func (s *Store) UpsertDaemonHeartbeat(ctx context.Context, heartbeat DaemonHeart
 	if !heartbeat.LastSuccessAt.IsZero() {
 		lastSuccessAt = heartbeat.LastSuccessAt.UTC().Format(time.RFC3339Nano)
 	}
+	activeTaskStartedAt := ""
+	if !heartbeat.ActiveTaskStartedAt.IsZero() {
+		activeTaskStartedAt = heartbeat.ActiveTaskStartedAt.UTC().Format(time.RFC3339Nano)
+	}
 	now := heartbeat.UpdatedAt.UTC().Format(time.RFC3339Nano)
 	recoveryRequired := 0
 	if heartbeat.RecoveryRequired {
 		recoveryRequired = 1
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE daemon_heartbeats SET workflow_path = ?, cycle_number = ?, last_success_at = COALESCE(NULLIF(?, ''), last_success_at), last_error = ?, recovery_required = ?, updated_at = ? WHERE process_id = ? AND lane_name = ?`, heartbeat.WorkflowPath, heartbeat.CycleNumber, lastSuccessAt, heartbeat.LastError, recoveryRequired, now, heartbeat.ProcessID, heartbeat.LaneName)
+	res, err := s.db.ExecContext(ctx, `UPDATE daemon_heartbeats SET workflow_path = ?, cycle_number = ?, last_success_at = COALESCE(NULLIF(?, ''), last_success_at), last_error = ?, recovery_required = ?, active_task_key = ?, active_task_role = ?, active_lease_name = ?, active_task_started_at = ?, updated_at = ? WHERE process_id = ? AND lane_name = ?`, heartbeat.WorkflowPath, heartbeat.CycleNumber, lastSuccessAt, heartbeat.LastError, recoveryRequired, heartbeat.ActiveTaskKey, heartbeat.ActiveTaskRole, heartbeat.ActiveLeaseName, activeTaskStartedAt, now, heartbeat.ProcessID, heartbeat.LaneName)
 	if err != nil {
 		return fmt.Errorf("update daemon heartbeat: %w", err)
 	}
@@ -540,7 +656,7 @@ func (s *Store) UpsertDaemonHeartbeat(ctx context.Context, heartbeat DaemonHeart
 	} else if rows > 0 {
 		return nil
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO daemon_heartbeats(process_id, lane_name, workflow_path, cycle_number, last_success_at, last_error, recovery_required, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, heartbeat.ProcessID, heartbeat.LaneName, heartbeat.WorkflowPath, heartbeat.CycleNumber, lastSuccessAt, heartbeat.LastError, recoveryRequired, now)
+	_, err = s.db.ExecContext(ctx, `INSERT INTO daemon_heartbeats(process_id, lane_name, workflow_path, cycle_number, last_success_at, last_error, recovery_required, active_task_key, active_task_role, active_lease_name, active_task_started_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, heartbeat.ProcessID, heartbeat.LaneName, heartbeat.WorkflowPath, heartbeat.CycleNumber, lastSuccessAt, heartbeat.LastError, recoveryRequired, heartbeat.ActiveTaskKey, heartbeat.ActiveTaskRole, heartbeat.ActiveLeaseName, activeTaskStartedAt, now)
 	if err != nil {
 		return fmt.Errorf("insert daemon heartbeat: %w", err)
 	}
@@ -626,7 +742,7 @@ func (s *Store) ClaimWorkerTask(ctx context.Context, taskKey string, now time.Ti
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE worker_tasks SET status = 'claimed', updated_at = ? WHERE task_key = ? AND status = 'queued' AND julianday(available_at) <= julianday(?)`, formatTime(now), taskKey, formatTime(now))
+	result, err := s.db.ExecContext(ctx, `UPDATE worker_tasks SET status = ?, updated_at = ? WHERE task_key = ? AND status = ? AND julianday(available_at) <= julianday(?)`, WorkerTaskStatusClaimed, formatTime(now), taskKey, WorkerTaskStatusQueued, formatTime(now))
 	if err != nil {
 		return WorkerTask{}, false, fmt.Errorf("claim worker task: %w", err)
 	}
@@ -634,6 +750,45 @@ func (s *Store) ClaimWorkerTask(ctx context.Context, taskKey string, now time.Ti
 		return WorkerTask{}, false, fmt.Errorf("claim worker task rows affected: %w", err)
 	} else if rows == 0 {
 		return WorkerTask{}, false, nil
+	}
+	task, ok, err := s.workerTask(ctx, taskKey)
+	if err != nil {
+		return WorkerTask{}, false, err
+	}
+	return task, ok, nil
+}
+
+func (s *Store) ClaimNextWorkerTask(ctx context.Context, role string, now time.Time) (WorkerTask, bool, error) {
+	if role == "" {
+		return WorkerTask{}, false, errors.New("claim next worker task: role is required")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return WorkerTask{}, false, fmt.Errorf("begin claim next worker task: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var taskKey string
+	err = tx.QueryRowContext(ctx, `SELECT task_key FROM worker_tasks WHERE role = ? AND status = ? AND julianday(available_at) <= julianday(?) ORDER BY available_at, priority DESC, task_key LIMIT 1`, role, WorkerTaskStatusQueued, formatTime(now)).Scan(&taskKey)
+	if errors.Is(err, sql.ErrNoRows) {
+		return WorkerTask{}, false, nil
+	}
+	if err != nil {
+		return WorkerTask{}, false, fmt.Errorf("select next worker task: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE worker_tasks SET status = ?, updated_at = ? WHERE task_key = ? AND status = ?`, WorkerTaskStatusClaimed, formatTime(now), taskKey, WorkerTaskStatusQueued)
+	if err != nil {
+		return WorkerTask{}, false, fmt.Errorf("claim next worker task: %w", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return WorkerTask{}, false, fmt.Errorf("claim next worker task rows affected: %w", err)
+	} else if rows == 0 {
+		return WorkerTask{}, false, nil
+	}
+	if err := tx.Commit(); err != nil {
+		return WorkerTask{}, false, fmt.Errorf("commit claim next worker task: %w", err)
 	}
 	task, ok, err := s.workerTask(ctx, taskKey)
 	if err != nil {
@@ -652,7 +807,7 @@ func (s *Store) CompleteWorkerTask(ctx context.Context, taskKey, status string, 
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE worker_tasks SET status = ?, updated_at = ? WHERE task_key = ? AND status = 'claimed'`, status, formatTime(now), taskKey)
+	result, err := s.db.ExecContext(ctx, `UPDATE worker_tasks SET status = ?, updated_at = ? WHERE task_key = ? AND status = ?`, status, formatTime(now), taskKey, WorkerTaskStatusClaimed)
 	if err != nil {
 		return fmt.Errorf("complete worker task: %w", err)
 	}
@@ -662,6 +817,468 @@ func (s *Store) CompleteWorkerTask(ctx context.Context, taskKey, status string, 
 		return fmt.Errorf("complete worker task: %w", ErrLeaseHeld)
 	}
 	return nil
+}
+
+func (s *Store) TouchClaimedWorkerTask(ctx context.Context, taskKey string, now time.Time) error {
+	if taskKey == "" {
+		return errors.New("touch claimed worker task: task_key is required")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE worker_tasks SET updated_at = ? WHERE task_key = ? AND status = ?`, formatTime(now), taskKey, WorkerTaskStatusClaimed)
+	if err != nil {
+		return fmt.Errorf("touch claimed worker task: %w", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("touch claimed worker task rows affected: %w", err)
+	} else if rows == 0 {
+		return fmt.Errorf("touch claimed worker task: %w", ErrLeaseHeld)
+	}
+	return nil
+}
+
+func (s *Store) RequeueReconciliationNeededWorkerTask(ctx context.Context, taskKey, reason string, now time.Time) (WorkerTask, error) {
+	if taskKey == "" {
+		return WorkerTask{}, errors.New("requeue reconciliation worker task: task key is required")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	task, ok, err := s.workerTask(ctx, taskKey)
+	if err != nil {
+		return WorkerTask{}, err
+	}
+	if !ok {
+		return WorkerTask{}, fmt.Errorf("requeue reconciliation worker task: task %s not found", taskKey)
+	}
+	if task.Status != WorkerTaskStatusReconciliationNeeded {
+		return WorkerTask{}, fmt.Errorf("requeue reconciliation worker task: task %s status is %s, want %s", taskKey, task.Status, WorkerTaskStatusReconciliationNeeded)
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "operator_requeued_reconciliation_task"
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return WorkerTask{}, fmt.Errorf("begin requeue reconciliation worker task: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, `UPDATE worker_tasks SET status = ?, available_at = ?, updated_at = ? WHERE task_key = ? AND status = ?`, WorkerTaskStatusQueued, formatTime(now), formatTime(now), taskKey, WorkerTaskStatusReconciliationNeeded)
+	if err != nil {
+		return WorkerTask{}, fmt.Errorf("requeue reconciliation worker task: %w", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return WorkerTask{}, fmt.Errorf("requeue reconciliation worker task rows affected: %w", err)
+	} else if rows == 0 {
+		return WorkerTask{}, fmt.Errorf("requeue reconciliation worker task: task %s status changed before repair", taskKey)
+	}
+	payload := map[string]any{
+		"task_key": task.TaskKey,
+		"role":     task.Role,
+		"old":      WorkerTaskStatusReconciliationNeeded,
+		"new":      WorkerTaskStatusQueued,
+		"reason":   reason,
+	}
+	if _, err := appendEvent(ctx, tx, EventInput{OccurredAt: now, IssueKey: task.IssueKey, IssueID: task.IssueID, Attempt: task.Attempt, Source: "repair", Type: EventWorkerTaskRepaired, Payload: payload}); err != nil {
+		return WorkerTask{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return WorkerTask{}, fmt.Errorf("commit requeue reconciliation worker task: %w", err)
+	}
+	task.Status = WorkerTaskStatusQueued
+	task.AvailableAt = now
+	task.UpdatedAt = now
+	return task, nil
+}
+
+func (s *Store) WorkerTask(ctx context.Context, taskKey string) (WorkerTask, bool, error) {
+	if taskKey == "" {
+		return WorkerTask{}, false, errors.New("worker task: task_key is required")
+	}
+	return s.workerTask(ctx, taskKey)
+}
+
+func (s *Store) MarkStaleClaimedWorkerTasksReconciliationNeeded(ctx context.Context, now time.Time, staleAfter time.Duration) ([]WorkerTask, error) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if staleAfter <= 0 {
+		return nil, errors.New("mark stale worker tasks: stale_after must be positive")
+	}
+	cutoff := now.Add(-staleAfter)
+	rows, err := s.db.QueryContext(ctx, `SELECT task_key FROM worker_tasks WHERE status = ? AND julianday(updated_at) <= julianday(?) ORDER BY updated_at, task_key`, WorkerTaskStatusClaimed, formatTime(cutoff))
+	if err != nil {
+		return nil, fmt.Errorf("query stale worker tasks: %w", err)
+	}
+	var taskKeys []string
+	for rows.Next() {
+		var taskKey string
+		if err := rows.Scan(&taskKey); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("scan stale worker task: %w", err)
+		}
+		taskKeys = append(taskKeys, taskKey)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close stale worker tasks: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate stale worker tasks: %w", err)
+	}
+	recovered := make([]WorkerTask, 0, len(taskKeys))
+	for _, taskKey := range taskKeys {
+		task, ok, err := s.workerTask(ctx, taskKey)
+		if err != nil {
+			return recovered, err
+		}
+		if !ok || task.Status != WorkerTaskStatusClaimed {
+			continue
+		}
+		recoverable, err := s.claimedWorkerTaskIsRecoverable(ctx, task, now, cutoff)
+		if err != nil {
+			return recovered, err
+		}
+		if !recoverable {
+			continue
+		}
+		updated, ok, err := s.markWorkerTaskReconciliationNeeded(ctx, task, now, staleAfter)
+		if err != nil {
+			return recovered, err
+		}
+		if ok {
+			recovered = append(recovered, updated)
+		}
+	}
+	return recovered, nil
+}
+
+func (s *Store) claimedWorkerTaskIsRecoverable(ctx context.Context, task WorkerTask, now, heartbeatCutoff time.Time) (bool, error) {
+	leaseName := strings.TrimSpace(task.LeaseName)
+	if leaseName == "" {
+		return true, nil
+	}
+	lease, ok, err := s.Lease(ctx, leaseName)
+	if err != nil {
+		return false, err
+	}
+	if !ok || !lease.ReleasedAt.IsZero() {
+		return true, nil
+	}
+	if lease.ExpiresAt.After(now.UTC()) {
+		return false, nil
+	}
+	if strings.TrimSpace(lease.Owner) == "" {
+		return true, nil
+	}
+	freshHeartbeat, err := s.ownerHasHeartbeatAfter(ctx, lease.Owner, heartbeatCutoff)
+	if err != nil {
+		return false, err
+	}
+	return !freshHeartbeat, nil
+}
+
+func (s *Store) ownerHasHeartbeatAfter(ctx context.Context, owner string, cutoff time.Time) (bool, error) {
+	var count int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM daemon_heartbeats WHERE process_id = ? AND julianday(updated_at) > julianday(?)`, owner, formatTime(cutoff)).Scan(&count); err != nil {
+		return false, fmt.Errorf("query owner heartbeat: %w", err)
+	}
+	return count > 0, nil
+}
+
+func (s *Store) markWorkerTaskReconciliationNeeded(ctx context.Context, task WorkerTask, now time.Time, staleAfter time.Duration) (WorkerTask, bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return WorkerTask{}, false, fmt.Errorf("begin stale worker task recovery: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, `UPDATE worker_tasks SET status = ?, updated_at = ? WHERE task_key = ? AND status = ?`, WorkerTaskStatusReconciliationNeeded, formatTime(now), task.TaskKey, WorkerTaskStatusClaimed)
+	if err != nil {
+		return WorkerTask{}, false, fmt.Errorf("mark worker task reconciliation needed: %w", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return WorkerTask{}, false, fmt.Errorf("mark worker task rows affected: %w", err)
+	} else if rows == 0 {
+		return WorkerTask{}, false, nil
+	}
+	payload := map[string]any{
+		"task_key":      task.TaskKey,
+		"role":          task.Role,
+		"status":        WorkerTaskStatusReconciliationNeeded,
+		"previous":      WorkerTaskStatusClaimed,
+		"reason":        "stale_claim_reconciliation_required",
+		"stale_after_s": int64(staleAfter.Seconds()),
+	}
+	if strings.TrimSpace(task.LeaseName) != "" {
+		payload["lease_name"] = task.LeaseName
+	}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return WorkerTask{}, false, fmt.Errorf("encode stale worker task payload: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO worker_results(task_key, role, lane_name, issue_key, issue_id, attempt, status, did_work, reason, error, payload_json, started_at, finished_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, '', ?, ?, ?, ?)
+ON CONFLICT(task_key) DO UPDATE SET role = excluded.role, lane_name = excluded.lane_name, issue_key = excluded.issue_key, issue_id = excluded.issue_id, attempt = excluded.attempt, status = excluded.status, did_work = excluded.did_work, reason = excluded.reason, error = excluded.error, payload_json = excluded.payload_json, finished_at = excluded.finished_at, updated_at = excluded.updated_at`,
+		task.TaskKey, task.Role, task.Role, task.IssueKey, task.IssueID, nullZeroInt(task.Attempt), WorkerTaskStatusReconciliationNeeded, "stale_claim_reconciliation_required", string(payloadJSON), formatTime(task.UpdatedAt), formatTime(now), formatTime(now))
+	if err != nil {
+		return WorkerTask{}, false, fmt.Errorf("record stale worker task result: %w", err)
+	}
+	if _, err := appendEvent(ctx, tx, EventInput{OccurredAt: now, IssueKey: task.IssueKey, IssueID: task.IssueID, Attempt: task.Attempt, RunID: task.TaskKey, Source: "worker." + task.Role, Type: EventReconciliationNeeded, Payload: payload}); err != nil {
+		return WorkerTask{}, false, fmt.Errorf("append stale worker task event: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return WorkerTask{}, false, fmt.Errorf("commit stale worker task recovery: %w", err)
+	}
+	task.Status = WorkerTaskStatusReconciliationNeeded
+	task.UpdatedAt = now
+	return task, true, nil
+}
+
+func (s *Store) UpsertWorkerResult(ctx context.Context, result WorkerResult) error {
+	if result.TaskKey == "" {
+		return errors.New("upsert worker result: task_key is required")
+	}
+	if result.Role == "" {
+		return errors.New("upsert worker result: role is required")
+	}
+	if result.Status == "" {
+		return errors.New("upsert worker result: status is required")
+	}
+	now := time.Now().UTC()
+	if result.StartedAt.IsZero() {
+		result.StartedAt = now
+	}
+	if result.FinishedAt.IsZero() {
+		result.FinishedAt = now
+	}
+	if result.UpdatedAt.IsZero() {
+		result.UpdatedAt = result.FinishedAt
+	}
+	if len(result.Payload) == 0 {
+		result.Payload = json.RawMessage(`{}`)
+	}
+	if !json.Valid(result.Payload) {
+		return errors.New("upsert worker result: payload must be valid JSON")
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO worker_results(task_key, role, lane_name, issue_key, issue_id, attempt, status, did_work, reason, error, payload_json, started_at, finished_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(task_key) DO UPDATE SET role = excluded.role, lane_name = excluded.lane_name, issue_key = excluded.issue_key, issue_id = excluded.issue_id, attempt = excluded.attempt, status = excluded.status, did_work = excluded.did_work, reason = excluded.reason, error = excluded.error, payload_json = excluded.payload_json, started_at = excluded.started_at, finished_at = excluded.finished_at, updated_at = excluded.updated_at`, result.TaskKey, result.Role, result.LaneName, result.IssueKey, result.IssueID, nullZeroInt(result.Attempt), result.Status, boolInt(result.DidWork), result.Reason, result.Error, string(result.Payload), formatTime(result.StartedAt), formatTime(result.FinishedAt), formatTime(result.UpdatedAt))
+	if err != nil {
+		return fmt.Errorf("upsert worker result: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) WorkerResults(ctx context.Context, role string) ([]WorkerResult, error) {
+	query := `SELECT task_key, role, lane_name, issue_key, issue_id, COALESCE(attempt, 0), status, did_work, reason, error, payload_json, started_at, finished_at, updated_at FROM worker_results`
+	var args []any
+	if role != "" {
+		query += ` WHERE role = ?`
+		args = append(args, role)
+	}
+	query += ` ORDER BY updated_at DESC, task_key`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("worker results: %w", err)
+	}
+	defer rows.Close()
+	var results []WorkerResult
+	for rows.Next() {
+		var result WorkerResult
+		var didWork int
+		var payloadRaw, startedRaw, finishedRaw, updatedRaw string
+		if err := rows.Scan(&result.TaskKey, &result.Role, &result.LaneName, &result.IssueKey, &result.IssueID, &result.Attempt, &result.Status, &didWork, &result.Reason, &result.Error, &payloadRaw, &startedRaw, &finishedRaw, &updatedRaw); err != nil {
+			return nil, fmt.Errorf("scan worker result: %w", err)
+		}
+		result.DidWork = didWork == 1
+		result.Payload = json.RawMessage(payloadRaw)
+		var err error
+		if result.StartedAt, err = parseTime(startedRaw); err != nil {
+			return nil, fmt.Errorf("parse worker result started_at: %w", err)
+		}
+		if result.FinishedAt, err = parseTime(finishedRaw); err != nil {
+			return nil, fmt.Errorf("parse worker result finished_at: %w", err)
+		}
+		if result.UpdatedAt, err = parseTime(updatedRaw); err != nil {
+			return nil, fmt.Errorf("parse worker result updated_at: %w", err)
+		}
+		results = append(results, result)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate worker results: %w", err)
+	}
+	return results, nil
+}
+
+func (s *Store) UpsertWorkerPayloadRef(ctx context.Context, ref WorkerPayloadRef) error {
+	if ref.Role == "" {
+		return errors.New("upsert worker payload ref: role is required")
+	}
+	if ref.Phase == "" {
+		return errors.New("upsert worker payload ref: phase is required")
+	}
+	if ref.IssueKey == "" {
+		return errors.New("upsert worker payload ref: issue key is required")
+	}
+	if ref.PayloadPath == "" {
+		return errors.New("upsert worker payload ref: payload path is required")
+	}
+	if ref.Attempt <= 0 {
+		ref.Attempt = 1
+	}
+	if ref.Status == "" {
+		ref.Status = "pending"
+	}
+	now := time.Now().UTC()
+	if ref.CreatedAt.IsZero() {
+		ref.CreatedAt = now
+	}
+	if ref.UpdatedAt.IsZero() {
+		ref.UpdatedAt = now
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO worker_payload_refs(role, phase, issue_key, issue_id, attempt, workspace_path, branch_name, pr_url, payload_path, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(role, phase, issue_key, attempt) DO UPDATE SET issue_id = excluded.issue_id, workspace_path = excluded.workspace_path, branch_name = excluded.branch_name, pr_url = excluded.pr_url, payload_path = excluded.payload_path, status = excluded.status, updated_at = excluded.updated_at`, ref.Role, ref.Phase, ref.IssueKey, ref.IssueID, ref.Attempt, ref.WorkspacePath, ref.BranchName, ref.PRURL, ref.PayloadPath, ref.Status, formatTime(ref.CreatedAt), formatTime(ref.UpdatedAt))
+	if err != nil {
+		return fmt.Errorf("upsert worker payload ref: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) PendingWorkerPayloadRefs(ctx context.Context, role, phase string) ([]WorkerPayloadRef, error) {
+	query := `SELECT role, phase, issue_key, issue_id, COALESCE(attempt, 0), workspace_path, branch_name, pr_url, payload_path, status, created_at, updated_at FROM worker_payload_refs WHERE status = 'pending'`
+	var args []any
+	if role != "" {
+		query += ` AND role = ?`
+		args = append(args, role)
+	}
+	if phase != "" {
+		query += ` AND phase = ?`
+		args = append(args, phase)
+	}
+	query += ` ORDER BY updated_at, issue_key`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("pending worker payload refs: %w", err)
+	}
+	defer rows.Close()
+	var refs []WorkerPayloadRef
+	for rows.Next() {
+		var ref WorkerPayloadRef
+		var createdRaw, updatedRaw string
+		if err := rows.Scan(&ref.Role, &ref.Phase, &ref.IssueKey, &ref.IssueID, &ref.Attempt, &ref.WorkspacePath, &ref.BranchName, &ref.PRURL, &ref.PayloadPath, &ref.Status, &createdRaw, &updatedRaw); err != nil {
+			return nil, fmt.Errorf("scan worker payload ref: %w", err)
+		}
+		if ref.CreatedAt, err = parseTime(createdRaw); err != nil {
+			return nil, fmt.Errorf("parse worker payload ref created_at: %w", err)
+		}
+		if ref.UpdatedAt, err = parseTime(updatedRaw); err != nil {
+			return nil, fmt.Errorf("parse worker payload ref updated_at: %w", err)
+		}
+		refs = append(refs, ref)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate worker payload refs: %w", err)
+	}
+	return refs, nil
+}
+
+func (s *Store) CompleteWorkerPayloadRef(ctx context.Context, ref WorkerPayloadRef, status string, now time.Time) error {
+	if ref.Role == "" {
+		return errors.New("complete worker payload ref: role is required")
+	}
+	if ref.Phase == "" {
+		return errors.New("complete worker payload ref: phase is required")
+	}
+	if ref.IssueKey == "" {
+		return errors.New("complete worker payload ref: issue key is required")
+	}
+	if status == "" {
+		return errors.New("complete worker payload ref: status is required")
+	}
+	if ref.Attempt <= 0 {
+		ref.Attempt = 1
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE worker_payload_refs SET status = ?, updated_at = ? WHERE role = ? AND phase = ? AND issue_key = ? AND attempt = ?`, status, formatTime(now), ref.Role, ref.Phase, ref.IssueKey, ref.Attempt)
+	if err != nil {
+		return fmt.Errorf("complete worker payload ref: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) UpsertPRHandoffIntent(ctx context.Context, intent PRHandoffIntent) error {
+	if intent.IssueKey == "" {
+		return errors.New("upsert PR handoff intent: issue key is required")
+	}
+	if intent.Attempt <= 0 {
+		intent.Attempt = 1
+	}
+	if intent.Status == "" {
+		intent.Status = PRHandoffIntentStatusPending
+	}
+	now := time.Now().UTC()
+	if intent.CreatedAt.IsZero() {
+		intent.CreatedAt = now
+	}
+	if intent.UpdatedAt.IsZero() {
+		intent.UpdatedAt = now
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO pr_handoff_intents(issue_key, issue_id, attempt, workspace_path, branch_name, agent_pr_url, pr_url, payload_path, status, result, error, created_at, updated_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(issue_key, attempt) DO UPDATE SET issue_id = excluded.issue_id, workspace_path = excluded.workspace_path, branch_name = excluded.branch_name, agent_pr_url = excluded.agent_pr_url, payload_path = excluded.payload_path, status = CASE WHEN pr_handoff_intents.status IN ('completed', 'failed') THEN pr_handoff_intents.status ELSE excluded.status END, updated_at = excluded.updated_at`, intent.IssueKey, intent.IssueID, intent.Attempt, intent.WorkspacePath, intent.BranchName, intent.AgentPRURL, intent.PRURL, intent.PayloadPath, intent.Status, intent.Result, intent.Error, formatTime(intent.CreatedAt), formatTime(intent.UpdatedAt), formatTime(intent.FinishedAt))
+	if err != nil {
+		return fmt.Errorf("upsert PR handoff intent: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) CompletePRHandoffIntent(ctx context.Context, issueKey string, attempt int, status, prURL, errorText string, now time.Time) error {
+	if issueKey == "" {
+		return errors.New("complete PR handoff intent: issue key is required")
+	}
+	if attempt <= 0 {
+		attempt = 1
+	}
+	if status == "" {
+		return errors.New("complete PR handoff intent: status is required")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	result := "success"
+	if status != PRHandoffIntentStatusCompleted {
+		result = "failed"
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE pr_handoff_intents SET status = ?, pr_url = ?, result = ?, error = ?, finished_at = ?, updated_at = ? WHERE issue_key = ? AND attempt = ? AND status = ?`, status, prURL, result, errorText, formatTime(now), formatTime(now), issueKey, attempt, PRHandoffIntentStatusPending)
+	if err != nil {
+		return fmt.Errorf("complete PR handoff intent: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) PRHandoffIntent(ctx context.Context, issueKey string, attempt int) (PRHandoffIntent, bool, error) {
+	if attempt <= 0 {
+		attempt = 1
+	}
+	var intent PRHandoffIntent
+	var createdRaw, updatedRaw, finishedRaw string
+	err := s.db.QueryRowContext(ctx, `SELECT issue_key, issue_id, attempt, workspace_path, branch_name, agent_pr_url, pr_url, payload_path, status, result, error, created_at, updated_at, finished_at FROM pr_handoff_intents WHERE issue_key = ? AND attempt = ?`, issueKey, attempt).Scan(&intent.IssueKey, &intent.IssueID, &intent.Attempt, &intent.WorkspacePath, &intent.BranchName, &intent.AgentPRURL, &intent.PRURL, &intent.PayloadPath, &intent.Status, &intent.Result, &intent.Error, &createdRaw, &updatedRaw, &finishedRaw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PRHandoffIntent{}, false, nil
+	}
+	if err != nil {
+		return PRHandoffIntent{}, false, fmt.Errorf("read PR handoff intent: %w", err)
+	}
+	if intent.CreatedAt, err = parseTime(createdRaw); err != nil {
+		return PRHandoffIntent{}, false, fmt.Errorf("parse PR handoff intent created_at: %w", err)
+	}
+	if intent.UpdatedAt, err = parseTime(updatedRaw); err != nil {
+		return PRHandoffIntent{}, false, fmt.Errorf("parse PR handoff intent updated_at: %w", err)
+	}
+	if finishedRaw != "" {
+		if intent.FinishedAt, err = parseTime(finishedRaw); err != nil {
+			return PRHandoffIntent{}, false, fmt.Errorf("parse PR handoff intent finished_at: %w", err)
+		}
+	}
+	return intent, true, nil
 }
 
 func (s *Store) workerTask(ctx context.Context, taskKey string) (WorkerTask, bool, error) {
@@ -766,15 +1383,17 @@ func (s *Store) ReconciliationFacts(ctx context.Context, issueKey string) (Recon
 	var facts ReconciliationFacts
 	var updatedRaw, retryDecidedRaw string
 	err := s.db.QueryRowContext(ctx, `SELECT a.issue_key, a.attempt, a.workspace_path, a.branch_name, a.status,
-COALESCE(p.pr_url, ''), COALESCE(r.next_state, ''), COALESCE(r.reason, ''), COALESCE(r.retry_count, 0), COALESCE(r.decided_at, ''), COALESCE(t.outcome, ''), COALESCE(t.reason, ''),
+COALESCE(p.pr_url, ''), COALESCE(rs.command_status, ''), COALESCE(rs.classification, ''), COALESCE(rs.output_ref, ''), COALESCE(rs.output_hash, ''), COALESCE(r.next_state, ''), COALESCE(r.reason, ''), COALESCE(r.retry_count, 0), COALESCE(r.decided_at, ''), COALESCE(f.feedback_hash, ''), COALESCE(f.next_action, ''), COALESCE(t.outcome, ''), COALESCE(t.reason, ''),
 COALESCE(c.decision, ''), COALESCE(c.deletion_result, ''), COALESCE(c.artifact_ref, ''), a.updated_at
 FROM issue_attempts a
 LEFT JOIN pr_mappings p ON p.attempt_id = a.id
+LEFT JOIN review_states rs ON rs.attempt_id = a.id
 LEFT JOIN retry_decisions r ON r.attempt_id = a.id
+LEFT JOIN feedback_states f ON f.attempt_id = a.id
 LEFT JOIN terminal_outcomes t ON t.attempt_id = a.id
 LEFT JOIN cleanup_states c ON c.attempt_id = a.id
 WHERE a.issue_key = ?
-ORDER BY a.attempt DESC LIMIT 1`, issueKey).Scan(&facts.IssueKey, &facts.Attempt, &facts.WorkspacePath, &facts.BranchName, &facts.Status, &facts.PRURL, &facts.RetryNextState, &facts.RetryReason, &facts.RetryCount, &retryDecidedRaw, &facts.TerminalOutcome, &facts.TerminalReason, &facts.CleanupDecision, &facts.CleanupResult, &facts.CleanupArtifactRef, &updatedRaw)
+ORDER BY a.attempt DESC LIMIT 1`, issueKey).Scan(&facts.IssueKey, &facts.Attempt, &facts.WorkspacePath, &facts.BranchName, &facts.Status, &facts.PRURL, &facts.ReviewStatus, &facts.ReviewClassification, &facts.ReviewOutputRef, &facts.ReviewOutputHash, &facts.RetryNextState, &facts.RetryReason, &facts.RetryCount, &retryDecidedRaw, &facts.FeedbackHash, &facts.FeedbackNextAction, &facts.TerminalOutcome, &facts.TerminalReason, &facts.CleanupDecision, &facts.CleanupResult, &facts.CleanupArtifactRef, &updatedRaw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ReconciliationFacts{}, false, nil
 	}
@@ -818,64 +1437,17 @@ func (s *Store) UpsertRunArtifact(ctx context.Context, snap RunArtifactSnapshot)
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	created := snap.StartedAt.UTC()
-	if created.IsZero() {
-		created = now
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin run artifact mirror: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	_, err = tx.ExecContext(ctx, `INSERT INTO issue_attempts(issue_key, issue_id, attempt, workspace_path, branch_name, base_branch, status, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(issue_key, attempt) DO UPDATE SET issue_id=excluded.issue_id, workspace_path=excluded.workspace_path, branch_name=excluded.branch_name, base_branch=excluded.base_branch, status=excluded.status, updated_at=excluded.updated_at`, snap.IssueKey, snap.IssueID, snap.Attempt, snap.WorkspacePath, snap.BranchName, snap.BaseBranch, snap.Status, created.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
-	if err != nil {
-		return fmt.Errorf("upsert issue attempt: %w", err)
+	if err := upsertAttemptResultTx(ctx, tx, attemptResultFromRunArtifactSnapshot(snap), now); err != nil {
+		return fmt.Errorf("upsert run artifact attempt result: %w", err)
 	}
 	attemptID, err := attemptID(ctx, tx, snap.IssueKey, snap.Attempt)
 	if err != nil {
 		return err
-	}
-	if snap.PRURL != "" || snap.Repository != "" {
-		_, err = tx.ExecContext(ctx, `INSERT INTO pr_mappings(attempt_id, repository, branch_name, base_branch, pr_number, pr_url, symphony_owned, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, 1, ?)
-ON CONFLICT(repository, branch_name) DO UPDATE SET attempt_id=excluded.attempt_id, base_branch=excluded.base_branch, pr_number=excluded.pr_number, pr_url=excluded.pr_url, symphony_owned=excluded.symphony_owned, updated_at=excluded.updated_at`, attemptID, snap.Repository, snap.BranchName, snap.BaseBranch, nullZeroInt(snap.PRNumber), snap.PRURL, now.Format(time.RFC3339Nano))
-		if err != nil {
-			return fmt.Errorf("upsert pr mapping: %w", err)
-		}
-	}
-	if snap.ReviewStatus != "" || snap.ReviewClassification != "" {
-		_, err = tx.ExecContext(ctx, `INSERT INTO review_states(attempt_id, command_status, passed, classification, output_ref, output_hash, merge_eligible, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(attempt_id) DO UPDATE SET command_status=excluded.command_status, passed=excluded.passed, classification=excluded.classification, output_ref=excluded.output_ref, output_hash=excluded.output_hash, merge_eligible=excluded.merge_eligible, updated_at=excluded.updated_at`, attemptID, snap.ReviewStatus, boolInt(snap.ReviewPassed), snap.ReviewClassification, snap.ReviewOutputRef, snap.ReviewOutputHash, boolInt(snap.MergeEligible), now.Format(time.RFC3339Nano))
-		if err != nil {
-			return fmt.Errorf("upsert review state: %w", err)
-		}
-	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO feedback_states(attempt_id, feedback_hash, next_action, updated_at) VALUES (?, ?, ?, ?)
-ON CONFLICT(attempt_id) DO UPDATE SET feedback_hash=excluded.feedback_hash, next_action=excluded.next_action, updated_at=excluded.updated_at`, attemptID, snap.FeedbackHash, snap.FeedbackNextAction, now.Format(time.RFC3339Nano))
-	if err != nil {
-		return fmt.Errorf("upsert feedback state: %w", err)
-	}
-	if snap.RetryNextState != "" || snap.RetryReason != "" {
-		if snap.RetryCount <= 0 {
-			snap.RetryCount = 1
-			_ = tx.QueryRowContext(ctx, `SELECT retry_count + 1 FROM retry_decisions WHERE attempt_id = ?`, attemptID).Scan(&snap.RetryCount)
-		}
-		if _, err = tx.ExecContext(ctx, `DELETE FROM retry_decisions WHERE attempt_id = ?`, attemptID); err != nil {
-			return fmt.Errorf("replace retry decision: %w", err)
-		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO retry_decisions(attempt_id, retry_count, budget_state, reason, input_hash, next_state, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, attemptID, snap.RetryCount, snap.RetryBudgetState, snap.RetryReason, snap.RetryInputHash, snap.RetryNextState, now.Format(time.RFC3339Nano))
-		if err != nil {
-			return fmt.Errorf("insert retry decision: %w", err)
-		}
-	}
-	if snap.TerminalOutcome != "" {
-		_, err = tx.ExecContext(ctx, `INSERT INTO terminal_outcomes(attempt_id, outcome, reason, recorded_at) VALUES (?, ?, ?, ?)
-ON CONFLICT(attempt_id) DO UPDATE SET outcome=excluded.outcome, reason=excluded.reason, recorded_at=excluded.recorded_at`, attemptID, snap.TerminalOutcome, snap.TerminalReason, now.Format(time.RFC3339Nano))
-		if err != nil {
-			return fmt.Errorf("upsert terminal outcome: %w", err)
-		}
 	}
 	for key, ref := range map[string]string{"run_record": snap.RunArtifactRef, "evaluation": snap.EvaluationRef} {
 		if ref == "" {
@@ -897,8 +1469,148 @@ ON CONFLICT(attempt_id) DO UPDATE SET outcome=excluded.outcome, reason=excluded.
 	return nil
 }
 
+func (s *Store) UpsertAttemptResult(ctx context.Context, result AttemptResult) error {
+	if result.IssueKey == "" {
+		return errors.New("upsert attempt result: issue key is required")
+	}
+	if result.Attempt <= 0 {
+		result.Attempt = 1
+	}
+	if result.BranchName == "" {
+		result.BranchName = result.IssueKey
+	}
+	if result.BaseBranch == "" {
+		result.BaseBranch = "main"
+	}
+	now := result.UpdatedAt.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin attempt result upsert: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := upsertAttemptResultTx(ctx, tx, result, now); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.appendAttemptResultEventsBestEffort(ctx, result, now)
+	return nil
+}
+
+func attemptResultFromRunArtifactSnapshot(snap RunArtifactSnapshot) AttemptResult {
+	return AttemptResult{
+		IssueKey:             snap.IssueKey,
+		IssueID:              snap.IssueID,
+		Attempt:              snap.Attempt,
+		WorkspacePath:        snap.WorkspacePath,
+		BranchName:           snap.BranchName,
+		BaseBranch:           snap.BaseBranch,
+		Status:               snap.Status,
+		StartedAt:            snap.StartedAt,
+		UpdatedAt:            snap.UpdatedAt,
+		Repository:           snap.Repository,
+		PRNumber:             snap.PRNumber,
+		PRURL:                snap.PRURL,
+		ReviewStatus:         snap.ReviewStatus,
+		ReviewPassed:         snap.ReviewPassed,
+		ReviewClassification: snap.ReviewClassification,
+		ReviewOutputRef:      snap.ReviewOutputRef,
+		ReviewOutputHash:     snap.ReviewOutputHash,
+		MergeEligible:        snap.MergeEligible,
+		FeedbackHash:         snap.FeedbackHash,
+		FeedbackNextAction:   snap.FeedbackNextAction,
+		RetryCount:           snap.RetryCount,
+		RetryBudgetState:     snap.RetryBudgetState,
+		RetryReason:          snap.RetryReason,
+		RetryInputHash:       snap.RetryInputHash,
+		RetryNextState:       snap.RetryNextState,
+		TerminalOutcome:      snap.TerminalOutcome,
+		TerminalReason:       snap.TerminalReason,
+	}
+}
+
+func upsertAttemptResultTx(ctx context.Context, tx *sql.Tx, result AttemptResult, now time.Time) error {
+	if result.IssueKey == "" {
+		return errors.New("upsert attempt result: issue key is required")
+	}
+	if result.Attempt <= 0 {
+		result.Attempt = 1
+	}
+	if result.BranchName == "" {
+		result.BranchName = result.IssueKey
+	}
+	if result.BaseBranch == "" {
+		result.BaseBranch = "main"
+	}
+	created := result.StartedAt.UTC()
+	if created.IsZero() {
+		created = now
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO issue_attempts(issue_key, issue_id, attempt, workspace_path, branch_name, base_branch, status, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(issue_key, attempt) DO UPDATE SET issue_id=excluded.issue_id, workspace_path=excluded.workspace_path, branch_name=excluded.branch_name, base_branch=excluded.base_branch, status=excluded.status, updated_at=excluded.updated_at`, result.IssueKey, result.IssueID, result.Attempt, result.WorkspacePath, result.BranchName, result.BaseBranch, result.Status, created.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("upsert issue attempt: %w", err)
+	}
+	attemptID, err := attemptID(ctx, tx, result.IssueKey, result.Attempt)
+	if err != nil {
+		return err
+	}
+	if result.PRURL != "" || result.Repository != "" {
+		_, err = tx.ExecContext(ctx, `INSERT INTO pr_mappings(attempt_id, repository, branch_name, base_branch, pr_number, pr_url, symphony_owned, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+ON CONFLICT(repository, branch_name) DO UPDATE SET attempt_id=excluded.attempt_id, base_branch=excluded.base_branch, pr_number=excluded.pr_number, pr_url=excluded.pr_url, symphony_owned=excluded.symphony_owned, updated_at=excluded.updated_at`, attemptID, result.Repository, result.BranchName, result.BaseBranch, nullZeroInt(result.PRNumber), result.PRURL, now.Format(time.RFC3339Nano))
+		if err != nil {
+			return fmt.Errorf("upsert pr mapping: %w", err)
+		}
+	}
+	if result.ReviewStatus != "" || result.ReviewClassification != "" {
+		_, err = tx.ExecContext(ctx, `INSERT INTO review_states(attempt_id, command_status, passed, classification, output_ref, output_hash, merge_eligible, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(attempt_id) DO UPDATE SET command_status=excluded.command_status, passed=excluded.passed, classification=excluded.classification, output_ref=excluded.output_ref, output_hash=excluded.output_hash, merge_eligible=excluded.merge_eligible, updated_at=excluded.updated_at`, attemptID, result.ReviewStatus, boolInt(result.ReviewPassed), result.ReviewClassification, result.ReviewOutputRef, result.ReviewOutputHash, boolInt(result.MergeEligible), now.Format(time.RFC3339Nano))
+		if err != nil {
+			return fmt.Errorf("upsert review state: %w", err)
+		}
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO feedback_states(attempt_id, feedback_hash, next_action, updated_at) VALUES (?, ?, ?, ?)
+ON CONFLICT(attempt_id) DO UPDATE SET feedback_hash=excluded.feedback_hash, next_action=excluded.next_action, updated_at=excluded.updated_at`, attemptID, result.FeedbackHash, result.FeedbackNextAction, now.Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("upsert feedback state: %w", err)
+	}
+	if result.RetryNextState != "" || result.RetryReason != "" {
+		if result.RetryCount <= 0 {
+			result.RetryCount = 1
+			_ = tx.QueryRowContext(ctx, `SELECT retry_count + 1 FROM retry_decisions WHERE attempt_id = ?`, attemptID).Scan(&result.RetryCount)
+		}
+		if _, err = tx.ExecContext(ctx, `DELETE FROM retry_decisions WHERE attempt_id = ?`, attemptID); err != nil {
+			return fmt.Errorf("replace retry decision: %w", err)
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO retry_decisions(attempt_id, retry_count, budget_state, reason, input_hash, next_state, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, attemptID, result.RetryCount, result.RetryBudgetState, result.RetryReason, result.RetryInputHash, result.RetryNextState, now.Format(time.RFC3339Nano))
+		if err != nil {
+			return fmt.Errorf("insert retry decision: %w", err)
+		}
+	}
+	if result.TerminalOutcome != "" {
+		_, err = tx.ExecContext(ctx, `INSERT INTO terminal_outcomes(attempt_id, outcome, reason, recorded_at) VALUES (?, ?, ?, ?)
+ON CONFLICT(attempt_id) DO UPDATE SET outcome=excluded.outcome, reason=excluded.reason, recorded_at=excluded.recorded_at`, attemptID, result.TerminalOutcome, result.TerminalReason, now.Format(time.RFC3339Nano))
+		if err != nil {
+			return fmt.Errorf("upsert terminal outcome: %w", err)
+		}
+	}
+	return nil
+}
+
 func (s *Store) appendRunArtifactEventsBestEffort(ctx context.Context, snap RunArtifactSnapshot, occurredAt time.Time) {
 	for _, input := range runArtifactEventInputs(snap, occurredAt) {
+		_, _ = s.AppendEvent(ctx, input)
+	}
+}
+
+func (s *Store) appendAttemptResultEventsBestEffort(ctx context.Context, result AttemptResult, occurredAt time.Time) {
+	for _, input := range attemptResultEventInputs(result, occurredAt) {
 		_, _ = s.AppendEvent(ctx, input)
 	}
 }
@@ -935,7 +1647,7 @@ ORDER BY ia.issue_key, ia.attempt`)
 }
 
 func (s *Store) SnapshotHeartbeats(ctx context.Context) ([]SnapshotHeartbeat, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT process_id, lane_name, workflow_path, cycle_number, last_success_at, last_error, recovery_required, updated_at FROM daemon_heartbeats ORDER BY lane_name, updated_at`)
+	rows, err := s.db.QueryContext(ctx, `SELECT process_id, lane_name, workflow_path, cycle_number, last_success_at, last_error, recovery_required, active_task_key, active_task_role, active_lease_name, active_task_started_at, updated_at FROM daemon_heartbeats ORDER BY lane_name, updated_at`)
 	if err != nil {
 		return nil, fmt.Errorf("query snapshot heartbeats: %w", err)
 	}
@@ -943,12 +1655,13 @@ func (s *Store) SnapshotHeartbeats(ctx context.Context) ([]SnapshotHeartbeat, er
 	var heartbeats []SnapshotHeartbeat
 	for rows.Next() {
 		var heartbeat SnapshotHeartbeat
-		var lastSuccessAt, updatedAt string
+		var lastSuccessAt, activeTaskStartedAt, updatedAt string
 		var recoveryRequired int
-		if err := rows.Scan(&heartbeat.ProcessID, &heartbeat.LaneName, &heartbeat.WorkflowPath, &heartbeat.CycleNumber, &lastSuccessAt, &heartbeat.LastError, &recoveryRequired, &updatedAt); err != nil {
+		if err := rows.Scan(&heartbeat.ProcessID, &heartbeat.LaneName, &heartbeat.WorkflowPath, &heartbeat.CycleNumber, &lastSuccessAt, &heartbeat.LastError, &recoveryRequired, &heartbeat.ActiveTaskKey, &heartbeat.ActiveTaskRole, &heartbeat.ActiveLeaseName, &activeTaskStartedAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan snapshot heartbeat: %w", err)
 		}
 		heartbeat.LastSuccessAt, _ = parseTime(lastSuccessAt)
+		heartbeat.ActiveTaskStartedAt, _ = parseTime(activeTaskStartedAt)
 		heartbeat.UpdatedAt, _ = parseTime(updatedAt)
 		heartbeat.RecoveryRequired = recoveryRequired == 1
 		heartbeats = append(heartbeats, heartbeat)
@@ -961,6 +1674,23 @@ func (s *Store) SnapshotHeartbeats(ctx context.Context) ([]SnapshotHeartbeat, er
 
 func runArtifactEventInput(snap RunArtifactSnapshot, occurredAt time.Time) EventInput {
 	return runArtifactEventInputs(snap, occurredAt)[0]
+}
+
+func attemptResultEventInputs(result AttemptResult, occurredAt time.Time) []EventInput {
+	return runArtifactEventInputs(RunArtifactSnapshot{
+		SchemaVersion:        CurrentSchemaVersion,
+		IssueKey:             result.IssueKey,
+		IssueID:              result.IssueID,
+		Attempt:              result.Attempt,
+		WorkspacePath:        result.WorkspacePath,
+		Status:               result.Status,
+		PRURL:                result.PRURL,
+		ReviewStatus:         result.ReviewStatus,
+		ReviewClassification: result.ReviewClassification,
+		FeedbackNextAction:   result.FeedbackNextAction,
+		TerminalOutcome:      result.TerminalOutcome,
+		TerminalReason:       result.TerminalReason,
+	}, occurredAt)
 }
 
 func runArtifactEventInputs(snap RunArtifactSnapshot, occurredAt time.Time) []EventInput {
@@ -1274,9 +2004,12 @@ func (s *Store) Counts(ctx context.Context) (Counts, error) {
 		"cleanup_states":       &counts.CleanupStates,
 		"orchestration_events": &counts.Events,
 		"worker_tasks":         &counts.WorkerTasks,
+		"worker_results":       &counts.WorkerResults,
+		"worker_payload_refs":  &counts.WorkerPayloadRefs,
+		"pr_handoff_intents":   &counts.PRHandoffIntents,
 	} {
 		if err := s.db.QueryRowContext(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s`, table)).Scan(dest); err != nil {
-			if (table == "orchestration_events" || table == "worker_tasks") && strings.Contains(err.Error(), "no such table") {
+			if (table == "orchestration_events" || table == "worker_tasks" || table == "worker_results" || table == "worker_payload_refs" || table == "pr_handoff_intents") && strings.Contains(err.Error(), "no such table") {
 				*dest = 0
 				continue
 			}
@@ -1323,6 +2056,28 @@ func (s *Store) init(ctx context.Context) error {
 	}
 	if version < 3 {
 		if err := migrateV3(ctx, tx); err != nil {
+			return err
+		}
+		version = 3
+	}
+	if version < 4 {
+		if err := migrateV4(ctx, tx); err != nil {
+			return err
+		}
+		version = 4
+	}
+	if version < 5 {
+		if err := migrateV5(ctx, tx); err != nil {
+			return err
+		}
+	}
+	if version < 6 {
+		if err := migrateV6(ctx, tx); err != nil {
+			return err
+		}
+	}
+	if version < 7 {
+		if err := migrateV7(ctx, tx); err != nil {
 			return err
 		}
 	}
@@ -1405,6 +2160,58 @@ func migrateV3(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
+func migrateV4(ctx context.Context, tx *sql.Tx) error {
+	for _, stmt := range v4Schema {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("apply migration v4: %w", err)
+		}
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, checksum, applied_at, success) VALUES (?, ?, ?, ?, 1)`, 4, "durable worker result read model", "v4", time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("record migration v4: %w", err)
+	}
+	return nil
+}
+
+func migrateV5(ctx context.Context, tx *sql.Tx) error {
+	for _, stmt := range v5Schema {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("apply migration v5: %w", err)
+		}
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, checksum, applied_at, success) VALUES (?, ?, ?, ?, 1)`, 5, "durable worker payload refs", "v5", time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("record migration v5: %w", err)
+	}
+	return nil
+}
+
+func migrateV6(ctx context.Context, tx *sql.Tx) error {
+	for _, stmt := range v6Schema {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("apply migration v6: %w", err)
+		}
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, checksum, applied_at, success) VALUES (?, ?, ?, ?, 1)`, 6, "durable PR handoff intents", "v6", time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("record migration v6: %w", err)
+	}
+	return nil
+}
+
+func migrateV7(ctx context.Context, tx *sql.Tx) error {
+	for _, stmt := range v7Schema {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("apply migration v7: %w", err)
+		}
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, checksum, applied_at, success) VALUES (?, ?, ?, ?, 1)`, 7, "active worker task heartbeat", "v7", time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("record migration v7: %w", err)
+	}
+	return nil
+}
+
 var v1Schema = []string{
 	`CREATE TABLE issue_attempts (id INTEGER PRIMARY KEY, issue_key TEXT NOT NULL, issue_id TEXT NOT NULL DEFAULT '', attempt INTEGER NOT NULL, workspace_path TEXT NOT NULL DEFAULT '', branch_name TEXT NOT NULL, base_branch TEXT NOT NULL, prompt_hash TEXT NOT NULL DEFAULT '', validation_summary TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(issue_key, attempt))`,
 	`CREATE TABLE pr_mappings (id INTEGER PRIMARY KEY, attempt_id INTEGER NOT NULL REFERENCES issue_attempts(id) ON DELETE CASCADE, repository TEXT NOT NULL, branch_name TEXT NOT NULL, base_branch TEXT NOT NULL, pr_number INTEGER, pr_url TEXT NOT NULL DEFAULT '', head_sha TEXT NOT NULL DEFAULT '', base_sha TEXT NOT NULL DEFAULT '', symphony_owned INTEGER NOT NULL CHECK (symphony_owned IN (0, 1)), updated_at TEXT NOT NULL, UNIQUE(repository, branch_name))`,
@@ -1434,4 +2241,29 @@ var v3Schema = []string{
 	`CREATE TABLE worker_tasks (id INTEGER PRIMARY KEY, task_key TEXT NOT NULL UNIQUE, role TEXT NOT NULL, issue_key TEXT NOT NULL DEFAULT '', issue_id TEXT NOT NULL DEFAULT '', attempt INTEGER, status TEXT NOT NULL, priority INTEGER NOT NULL DEFAULT 0, available_at TEXT NOT NULL, lease_name TEXT NOT NULL DEFAULT '', payload_json TEXT NOT NULL CHECK (json_valid(payload_json)), created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 	`CREATE INDEX idx_worker_tasks_role_status ON worker_tasks(role, status, available_at, priority)`,
 	`CREATE INDEX idx_worker_tasks_issue ON worker_tasks(issue_key, attempt)`,
+}
+
+var v4Schema = []string{
+	`CREATE TABLE worker_results (task_key TEXT PRIMARY KEY REFERENCES worker_tasks(task_key) ON DELETE CASCADE, role TEXT NOT NULL, lane_name TEXT NOT NULL DEFAULT '', issue_key TEXT NOT NULL DEFAULT '', issue_id TEXT NOT NULL DEFAULT '', attempt INTEGER, status TEXT NOT NULL, did_work INTEGER NOT NULL DEFAULT 0 CHECK (did_work IN (0, 1)), reason TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '', payload_json TEXT NOT NULL CHECK (json_valid(payload_json)), started_at TEXT NOT NULL, finished_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+	`CREATE INDEX idx_worker_results_role_status ON worker_results(role, status, updated_at)`,
+	`CREATE INDEX idx_worker_results_lane_status ON worker_results(lane_name, status, updated_at)`,
+}
+
+var v5Schema = []string{
+	`CREATE TABLE worker_payload_refs (id INTEGER PRIMARY KEY, role TEXT NOT NULL, phase TEXT NOT NULL, issue_key TEXT NOT NULL, issue_id TEXT NOT NULL DEFAULT '', attempt INTEGER NOT NULL DEFAULT 1, workspace_path TEXT NOT NULL DEFAULT '', branch_name TEXT NOT NULL DEFAULT '', pr_url TEXT NOT NULL DEFAULT '', payload_path TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(role, phase, issue_key, attempt))`,
+	`CREATE INDEX idx_worker_payload_refs_role_phase_status ON worker_payload_refs(role, phase, status, updated_at)`,
+	`CREATE INDEX idx_worker_payload_refs_issue ON worker_payload_refs(issue_key, attempt)`,
+}
+
+var v6Schema = []string{
+	`CREATE TABLE pr_handoff_intents (id INTEGER PRIMARY KEY, issue_key TEXT NOT NULL, issue_id TEXT NOT NULL DEFAULT '', attempt INTEGER NOT NULL DEFAULT 1, workspace_path TEXT NOT NULL DEFAULT '', branch_name TEXT NOT NULL DEFAULT '', agent_pr_url TEXT NOT NULL DEFAULT '', pr_url TEXT NOT NULL DEFAULT '', payload_path TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', result TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, finished_at TEXT NOT NULL DEFAULT '', UNIQUE(issue_key, attempt))`,
+	`CREATE INDEX idx_pr_handoff_intents_status ON pr_handoff_intents(status, updated_at)`,
+	`CREATE INDEX idx_pr_handoff_intents_issue ON pr_handoff_intents(issue_key, attempt)`,
+}
+
+var v7Schema = []string{
+	`ALTER TABLE daemon_heartbeats ADD COLUMN active_task_key TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE daemon_heartbeats ADD COLUMN active_task_role TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE daemon_heartbeats ADD COLUMN active_lease_name TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE daemon_heartbeats ADD COLUMN active_task_started_at TEXT NOT NULL DEFAULT ''`,
 }

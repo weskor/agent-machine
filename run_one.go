@@ -8,44 +8,39 @@ import (
 	"time"
 
 	"github.com/weskor/pi-symphony/internal/agentruntime"
-	cfg "github.com/weskor/pi-symphony/internal/config"
 	"github.com/weskor/pi-symphony/internal/state"
 )
 
-func runOne(client linearClient, wf workflow, config runnerConfig) (bool, error) {
-	log("mode=once; project=%s; states=%s", config.ProjectSlug, strings.Join(config.ActiveStates, ", "))
-	stateStore, stateDBPath := commandScopedStateStore(context.Background(), config.WorkspaceRoot, "run-one")
-	if stateStore == nil {
-		return false, fmt.Errorf("SQLite state store unavailable for run-one at %s", stateDBPath)
-	}
-	defer stateStore.Close()
-	claim, didWork, err := claimNextRunAttempt(client, wf, config, stateStore)
-	if err != nil || claim == nil {
-		return didWork, err
-	}
-	return executeClaimedRunAttempt(client, wf, config, stateStore, *claim)
-}
-
 type claimedRunAttempt struct {
-	Candidate       *issue
-	SelectedPR      *pullRequestSummary
-	Workspace       string
-	Branch          string
-	ProgressStarted time.Time
-	ReleaseLock     func()
+	Candidate                   *issue
+	SelectedPR                  *pullRequestSummary
+	Workspace                   string
+	Branch                      string
+	ProgressStarted             time.Time
+	ImplementationWorkerTaskKey string
+	ReviewWorkerTaskKey         string
+	ReleaseLock                 func()
 }
 
 func claimNextRunAttempt(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
-	return claimNextRunAttemptWithOptions(client, wf, config, stateStore, candidateSelectionOptions{})
+	return claimNextRunAttemptContext(context.Background(), client, wf, config, stateStore)
+}
+
+func claimNextRunAttemptContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
+	return claimNextRunAttemptWithOptionsContext(ctx, client, wf, config, stateStore, candidateSelectionOptions{})
 }
 
 func claimNextRunAttemptWithOptions(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, options candidateSelectionOptions) (*claimedRunAttempt, bool, error) {
-	if removed, err := cleanupStaleRunLocksWithState(stateStore, config.WorkspaceRoot, time.Now()); err != nil {
+	return claimNextRunAttemptWithOptionsContext(context.Background(), client, wf, config, stateStore, options)
+}
+
+func claimNextRunAttemptWithOptionsContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, options candidateSelectionOptions) (*claimedRunAttempt, bool, error) {
+	if removed, err := cleanupStaleRunLocksWithStateContext(ctx, stateStore, config.WorkspaceRoot, time.Now()); err != nil {
 		return nil, false, err
 	} else if removed > 0 {
 		log("removed %d stale/dead run lock(s) before candidate selection", removed)
 	}
-	candidate, selectedPR, err := nextRunnableCandidateWithOptions(client, config, stateStore, options)
+	candidate, selectedPR, err := nextRunnableCandidateWithOptionsContext(ctx, client, config, stateStore, options)
 	if err != nil {
 		return nil, false, err
 	}
@@ -71,7 +66,7 @@ func claimNextRunAttemptWithOptions(client linearClient, wf workflow, config run
 		writeRunProgress(config.WorkspaceRoot, snapshot)
 		return nil, true, err
 	}
-	if _, err := runtime.Preflight(context.Background(), agentruntime.PreflightInput{ImplementationCommand: configuredRuntimeCommand(config), ReviewCommand: config.ReviewCommand, MaxTurns: cfg.AgentMaxTurnsFromWorkflow(wf.YAML)}); err != nil {
+	if _, err := runtime.Preflight(ctx, agentruntime.PreflightInput{ImplementationCommand: configuredRuntimeCommand(config), ReviewCommand: config.ReviewCommand}); err != nil {
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhasePreflight, RuntimeErrorKind: "configuration", Error: err.Error()})
 		snapshot := runProgressForIssue(candidate, workspace, "failed", progressStarted)
 		snapshot.Error = err.Error()
@@ -80,58 +75,76 @@ func claimNextRunAttemptWithOptions(client linearClient, wf workflow, config run
 		return nil, true, err
 	}
 	branch, _ := currentGitBranch(workspace)
-	if existing, ok := reusableRunRecord(workspace); ok {
-		if feedbackRetryAvailable(workspace, candidate, existing, config, selectedPR) {
-			log("%s has terminal artifact but PR feedback is pending; retrying existing PR %s", candidate.Identifier, existing.PRURL)
-		} else {
-			log("%s already has terminal run artifact status=%s pr=%s; skipping duplicate work", candidate.Identifier, existing.Status, existing.PRURL)
-			return nil, true, nil
-		}
-	}
-	lock, releaseLock, err := acquireRunLockWithState(stateStore, workspace, candidate, branch, time.Now())
+	implementationTask, taskClaimed, err := claimImplementationWorkerTask(ctx, stateStore, candidate, workspace, branch, progressStarted)
 	if err != nil {
+		return nil, true, err
+	}
+	if !taskClaimed {
+		log("%s implementation task is already claimed; skipping duplicate dispatch", candidate.Identifier)
+		return nil, false, nil
+	}
+	lock, releaseLock, err := acquireRunLockWithStateContext(ctx, stateStore, workspace, candidate, branch, time.Now())
+	if err != nil {
+		completeClaimedImplementationWorkerTask(ctx, stateStore, implementationTask, "failed", false, "run_lock_unavailable", err.Error(), progressStarted, time.Now().UTC())
 		if errors.Is(err, errRunLocked) {
 			log("%v", err)
 			return nil, false, nil
 		}
 		return nil, true, err
 	}
-	return &claimedRunAttempt{Candidate: candidate, SelectedPR: selectedPR, Workspace: workspace, Branch: lock.Branch, ProgressStarted: progressStarted, ReleaseLock: releaseLock}, true, nil
+	return &claimedRunAttempt{Candidate: candidate, SelectedPR: selectedPR, Workspace: workspace, Branch: lock.Branch, ProgressStarted: progressStarted, ImplementationWorkerTaskKey: implementationTask.TaskKey, ReleaseLock: releaseLock}, true, nil
 }
 
-func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, claimed claimedRunAttempt) (bool, error) {
+func executeClaimedRunAttempt(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, claimed claimedRunAttempt) (didWork bool, err error) {
 	candidate := claimed.Candidate
 	selectedPR := claimed.SelectedPR
 	workspace := claimed.Workspace
 	branch := claimed.Branch
 	progressStarted := claimed.ProgressStarted
+	if claimed.ImplementationWorkerTaskKey != "" {
+		defer func() {
+			status := "completed"
+			reason := "attempt_completed"
+			errorText := ""
+			if err != nil {
+				status = "failed"
+				reason = "attempt_failed"
+				errorText = err.Error()
+			}
+			task := state.WorkerTask{TaskKey: claimed.ImplementationWorkerTaskKey, Role: implementationWorkerRole, IssueKey: candidate.Identifier, IssueID: candidate.ID, Attempt: 1}
+			completeErr := completeClaimedImplementationWorkerTask(ctx, stateStore, task, status, didWork, reason, errorText, progressStarted, time.Now().UTC())
+			if err == nil && completeErr != nil {
+				err = completeErr
+			}
+		}()
+	}
 	if claimed.ReleaseLock != nil {
 		defer claimed.ReleaseLock()
 	}
 	claimedProgress := runProgressForIssue(candidate, workspace, "claimed", progressStarted)
 	claimedProgress.Branch = branch
 	writeRunProgress(config.WorkspaceRoot, claimedProgress)
-	emitRunAttemptEvent(stateStore, state.EventAttemptStarted, candidate, branch, map[string]any{"workspace": workspace, "branch": branch})
-	states, err := client.workflowStates(candidate.Team.ID)
+	emitRunAttemptEventContext(ctx, stateStore, state.EventAttemptStarted, candidate, branch, map[string]any{"workspace": workspace, "branch": branch})
+	states, err := client.workflowStatesContext(ctx, candidate.Team.ID)
 	if err != nil {
 		return true, err
 	}
 	linearStatus := linearStatusWorker{client: client, candidate: candidate, states: states}
 	if candidate.State.Name == config.ReadyState {
-		if _, err := linearStatus.MoveTo(config.RunningState); err != nil {
+		if _, err := linearStatus.MoveToContext(ctx, config.RunningState); err != nil {
 			return true, err
 		}
 	}
 	runStarted := time.Now()
 	implementation := implementationWorker{client: client, workflow: wf, config: config, stateStore: stateStore, candidate: candidate, selectedPR: selectedPR, states: states, workspace: workspace, branch: branch, progressStarted: progressStarted, runStarted: runStarted}
-	if err := implementation.Prepare(); err != nil {
+	if err := implementation.Prepare(ctx); err != nil {
 		return true, err
 	}
 
 	githubEnv, githubAuth, err := githubAppEnvFromEnvironment()
 	if err != nil {
 		now := time.Now()
-		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, configuredRuntimeCommand(config), "github_app_error", now, now, nil, nil, "", runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
+		writeRunRecordWithCommandStateContext(ctx, stateStore, workspace, runRecordFor(candidate, workspace, configuredRuntimeCommand(config), "github_app_error", now, now, nil, nil, "", runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
 		return true, err
 	}
 	if githubAuth != "" {
@@ -142,14 +155,16 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 			return true, err
 		}
 	}
-	heartbeatRunLockWithState(stateStore, workspace, time.Now())
+	heartbeatRunLockWithStateContext(ctx, stateStore, workspace, time.Now())
 
-	reviewReadiness := newReviewReadinessModule(config.WorkspaceRoot)
-	if selectedPR != nil && config.ReviewCommand != "" && reviewReadiness.ShouldResume(candidate.Identifier, *selectedPR) {
-		return resumeReviewReadyRun(client, stateStore, config, candidate, states, workspace, branch, githubEnv, githubAuth, progressStarted, runStarted, selectedPR)
+	if selectedPR != nil && config.ReviewCommand != "" {
+		decision := reconcileCandidateForSelectionContext(ctx, config, *candidate, selectedPR, stateStore)
+		if decision.CanRun && decision.NextAction == "run_semantic_review_after_checks_ready" {
+			return resumeReviewReadyRunContext(ctx, client, stateStore, config, candidate, states, workspace, branch, githubEnv, githubAuth, progressStarted, runStarted, selectedPR)
+		}
 	}
 
-	implementationResult, err := implementation.Run(context.Background(), githubEnv, githubAuth)
+	implementationResult, err := implementation.Run(ctx, githubEnv, githubAuth)
 	if err != nil || implementationResult.Terminal {
 		return true, err
 	}
@@ -157,25 +172,25 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 	runtimeUsage := implementationResult.Usage
 	piOutput := implementationResult.Output
 	piStart := implementationResult.Started
-	scopeResult, err := checkScopeGuard(candidate.Description, workspace, config.BaseBranch)
+	scopeResult, err := checkScopeGuardContext(ctx, candidate.Description, workspace, config.BaseBranch)
 	if err != nil {
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseScopeGuard, PRURL: prURL, ScopeError: err.Error()})
-		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, configuredRuntimeCommand(config), githubAuth, piStart, time.Now(), runtimeUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), err.Error()))
+		writeRunRecordWithCommandStateContext(ctx, stateStore, workspace, runRecordFor(candidate, workspace, configuredRuntimeCommand(config), githubAuth, piStart, time.Now(), runtimeUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), err.Error()))
 		return true, err
 	}
 	if scopeResult.Blocks() {
 		reason := scopeResult.Summary()
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseScopeGuard, PRURL: prURL, ScopeResult: scopeResult})
 		review := &reviewResult{Status: decision.ReviewStatus, Classification: decision.ReviewClassification, Findings: reason}
-		if _, err := linearStatus.MoveTo(config.ReadyState); err != nil {
-			writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, configuredRuntimeCommand(config), githubAuth, piStart, time.Now(), runtimeUsage, review, prURL, decision.Status, err.Error(), config.Budget.Active(), ""))
+		if _, err := linearStatus.MoveToContext(ctx, config.ReadyState); err != nil {
+			writeRunRecordWithCommandStateContext(ctx, stateStore, workspace, runRecordFor(candidate, workspace, configuredRuntimeCommand(config), githubAuth, piStart, time.Now(), runtimeUsage, review, prURL, decision.Status, err.Error(), config.Budget.Active(), ""))
 			return true, err
 		}
 		comment := fmt.Sprintf("Scope guard failed before handoff; moved back to %s.\n\nPR: %s\nReason: %s", config.ReadyState, prURL, reason)
-		if err := linearStatus.Comment(comment); err != nil {
+		if err := linearStatus.CommentContext(ctx, comment); err != nil {
 			log("failed to comment on %s: %v", candidate.Identifier, err)
 		}
-		if err := writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, configuredRuntimeCommand(config), githubAuth, piStart, time.Now(), runtimeUsage, review, prURL, decision.Status, "scope guard failed", config.Budget.Active(), "")); err != nil {
+		if err := writeRunRecordWithCommandStateContext(ctx, stateStore, workspace, runRecordFor(candidate, workspace, configuredRuntimeCommand(config), githubAuth, piStart, time.Now(), runtimeUsage, review, prURL, decision.Status, "scope guard failed", config.Budget.Active(), "")); err != nil {
 			return true, err
 		}
 		log("scope guard failed for %s; moved back to %s: %s", candidate.Identifier, config.ReadyState, reason)
@@ -185,17 +200,20 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 		log("scope guard: %s", scopeResult.Summary())
 	}
 
-	validation := validationLines(piOutput)
+	validation := append([]string(nil), implementationResult.Validation...)
+	if len(validation) == 0 {
+		validation = validationLines(piOutput)
+	}
 	if strings.TrimSpace(scopeResult.Summary()) != "" {
 		validation = append(validation, "Scope guard: "+scopeResult.Summary())
 	} else if scopeResult.Checked {
 		validation = append(validation, "Scope guard: changed files matched the Linear ticket path contract.")
 	}
 
-	prURL, err = ensureRunnerPRHandoffFromInput(config, prHandoffInput{Candidate: candidate, Workspace: workspace, AgentPRURL: prURL, ProgressStarted: progressStarted, AttemptStartedAt: piStart, RuntimeUsage: runtimeUsage, ScopeResult: scopeResult, Validation: validation, GitHubAuth: githubAuth}, githubEnv)
+	prURL, err = ensureRunnerPRHandoffFromInputContext(ctx, config, prHandoffInput{Candidate: candidate, Workspace: workspace, AgentPRURL: prURL, ProgressStarted: progressStarted, AttemptStartedAt: piStart, RuntimeUsage: runtimeUsage, ScopeResult: scopeResult, Validation: validation, GitHubAuth: githubAuth, StateStore: stateStore}, githubEnv)
 	if err != nil {
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseHandoff, PRURL: prURL, Error: err.Error()})
-		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, configuredRuntimeCommand(config), githubAuth, piStart, time.Now(), runtimeUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), ""))
+		writeRunRecordWithCommandStateContext(ctx, stateStore, workspace, runRecordFor(candidate, workspace, configuredRuntimeCommand(config), githubAuth, piStart, time.Now(), runtimeUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), ""))
 		return true, err
 	}
 	handoff := runProgressForIssue(candidate, workspace, "handoff_pr", progressStarted)
@@ -203,12 +221,12 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 	handoff.PRURL = prURL
 	writeRunProgress(config.WorkspaceRoot, handoff)
 
-	reviewResult, err := reviewWorker{client: client, config: config, stateStore: stateStore, candidate: candidate, states: states, workspace: workspace, branch: branch, progressStarted: progressStarted, startedAt: piStart, runtimeUsage: runtimeUsage, prURL: prURL, githubEnv: githubEnv, githubAuth: githubAuth, scopeResult: scopeResult, validation: validation}.Execute(context.Background())
+	reviewResult, err := reviewWorker{client: client, config: config, stateStore: stateStore, candidate: candidate, states: states, workspace: workspace, branch: branch, progressStarted: progressStarted, startedAt: piStart, runtimeUsage: runtimeUsage, prURL: prURL, githubEnv: githubEnv, githubAuth: githubAuth, scopeResult: scopeResult, validation: validation}.Execute(ctx)
 	if err != nil || reviewResult.Terminal {
 		return true, err
 	}
 	review := reviewResult.Review
-	didWork, err := completeAttemptHandoff(context.Background(), handoffCompletion{client: client, config: config, stateStore: stateStore, candidate: candidate, states: states, workspace: workspace, branch: branch, progressStarted: progressStarted, startedAt: piStart, runtimeUsage: runtimeUsage, review: review, prURL: prURL, validation: validation, githubAuth: githubAuth})
+	didWork, err = completeAttemptHandoff(ctx, handoffCompletion{client: client, config: config, stateStore: stateStore, candidate: candidate, states: states, workspace: workspace, branch: branch, progressStarted: progressStarted, startedAt: piStart, runtimeUsage: runtimeUsage, review: review, prURL: prURL, validation: validation, githubAuth: githubAuth})
 	if err == nil {
 		log("completed one Pi run for %s; inspect %s", candidate.Identifier, workspace)
 	}
@@ -218,13 +236,17 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 var openPRsByIssueForSelection = openPRsByIssue
 
 func emitRunAttemptEvent(store *state.Store, eventType string, candidate *issue, runID string, payload map[string]any) {
+	emitRunAttemptEventContext(context.Background(), store, eventType, candidate, runID, payload)
+}
+
+func emitRunAttemptEventContext(ctx context.Context, store *state.Store, eventType string, candidate *issue, runID string, payload map[string]any) {
 	if store == nil || candidate == nil {
 		return
 	}
 	if payload == nil {
 		payload = map[string]any{}
 	}
-	if _, err := store.AppendEvent(context.Background(), state.EventInput{OccurredAt: time.Now().UTC(), IssueKey: candidate.Identifier, IssueID: candidate.ID, Attempt: 1, RunID: runID, Source: "runner.run_attempt", Type: eventType, Payload: payload}); err != nil {
+	if _, err := store.AppendEvent(ctx, state.EventInput{OccurredAt: time.Now().UTC(), IssueKey: candidate.Identifier, IssueID: candidate.ID, Attempt: 1, RunID: runID, Source: "runner.run_attempt", Type: eventType, Payload: payload}); err != nil {
 		log("failed to append orchestration event %s for %s: %v", eventType, candidate.Identifier, err)
 	}
 }

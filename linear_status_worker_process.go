@@ -35,8 +35,13 @@ func queueLinearStatusTransitionTask(ctx context.Context, store *state.Store, pa
 	if err != nil {
 		return err
 	}
+	taskKey := linearStatusTransitionTaskKey(normalized)
+	availableAt, err = workerTaskAvailableAtAfterLatestFailure(ctx, store, taskKey, linearStatusWorkerRole, availableAt)
+	if err != nil {
+		return err
+	}
 	task := state.WorkerTask{
-		TaskKey:     linearStatusTransitionTaskKey(normalized),
+		TaskKey:     taskKey,
 		Role:        linearStatusWorkerRole,
 		IssueKey:    normalized.IssueIdentifier,
 		IssueID:     normalized.IssueID,
@@ -50,14 +55,21 @@ func queueLinearStatusTransitionTask(ctx context.Context, store *state.Store, pa
 }
 
 func runLinearStatusTransitionTask(client linearClient, config runnerConfig, store *state.Store) (bool, error) {
+	return runLinearStatusTransitionTaskContext(context.Background(), client, config, store)
+}
+
+func runLinearStatusTransitionTaskContext(ctx context.Context, client linearClient, config runnerConfig, store *state.Store) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	if store == nil {
 		return false, fmt.Errorf("SQLite state store unavailable for Linear status worker at %s", state.DefaultDBPath(config.WorkspaceRoot))
 	}
-	claimed, ok, err := claimNextLinearStatusTransitionTask(context.Background(), store)
+	claimed, ok, err := claimNextLinearStatusTransitionTask(ctx, store)
 	if err != nil || !ok {
 		return false, err
 	}
-	return executeLinearStatusTransitionTask(context.Background(), client, store, claimed)
+	return executeLinearStatusTransitionTask(ctx, client, store, claimed)
 }
 
 func claimNextLinearStatusTransitionTask(ctx context.Context, store *state.Store) (state.WorkerTask, bool, error) {
@@ -86,13 +98,16 @@ func executeLinearStatusTransitionTask(ctx context.Context, client linearClient,
 	if err != nil {
 		return true, completeLinearStatusTask(ctx, store, task.TaskKey, "failed", err)
 	}
-	states, err := workflowStatesForLinearStatusWorker(client, payload.TeamID)
+	if err := ctx.Err(); err != nil {
+		return true, completeLinearStatusTask(ctx, store, task.TaskKey, "failed", err)
+	}
+	states, err := workflowStatesForLinearStatusWorker(ctx, client, payload.TeamID)
 	if err != nil {
 		return true, completeLinearStatusTask(ctx, store, task.TaskKey, "failed", err)
 	}
 	candidate := &issue{ID: payload.IssueID, Identifier: payload.IssueIdentifier, Title: payload.IssueTitle, URL: payload.IssueURL}
 	candidate.Team.ID = payload.TeamID
-	moved, err := (linearStatusWorker{client: client, candidate: candidate, states: states}).MoveTo(payload.TargetState)
+	moved, err := (linearStatusWorker{client: client, candidate: candidate, states: states}).MoveToContext(ctx, payload.TargetState)
 	if err != nil {
 		return true, completeLinearStatusTask(ctx, store, task.TaskKey, "failed", err)
 	}
@@ -104,7 +119,11 @@ func executeLinearStatusTransitionTask(ctx context.Context, client linearClient,
 }
 
 func completeLinearStatusTask(ctx context.Context, store *state.Store, taskKey, status string, primaryErr error) error {
-	completeErr := store.CompleteWorkerTask(ctx, taskKey, status, time.Now().UTC())
+	completeCtx := ctx
+	if ctx.Err() != nil {
+		completeCtx = context.WithoutCancel(ctx)
+	}
+	completeErr := store.CompleteWorkerTask(completeCtx, taskKey, status, time.Now().UTC())
 	if primaryErr != nil {
 		return errors.Join(primaryErr, completeErr)
 	}
@@ -160,6 +179,6 @@ func taskKeyToken(value string) string {
 	return strings.Join(fields, "-")
 }
 
-var workflowStatesForLinearStatusWorker = func(client linearClient, teamID string) ([]workflowState, error) {
-	return client.workflowStates(teamID)
+var workflowStatesForLinearStatusWorker = func(ctx context.Context, client linearClient, teamID string) ([]workflowState, error) {
+	return client.workflowStatesContext(ctx, teamID)
 }

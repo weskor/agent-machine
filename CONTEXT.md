@@ -53,7 +53,7 @@ The transition after Pi opens or updates a PR: validate the PR, optionally revie
 _Avoid_: completion, done.
 
 **Work lane**:
-The daemon lane that repeatedly attempts one runnable Linear issue via `runOne`.
+The implementation-domain lane that claims queued implementation worker tasks and executes runnable issue attempts under durable worker task ownership.
 _Avoid_: worker when referring to the named daemon lane.
 
 **Merge lane**:

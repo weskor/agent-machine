@@ -2,12 +2,29 @@ package main
 
 import (
 	"context"
+	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/weskor/pi-symphony/internal/state"
 )
+
+func TestRunSelectedWorkerContextHonorsCanceledContextBeforeOpeningState(t *testing.T) {
+	root := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := runSelectedWorkerContext(ctx, linearClient{}, workflow{}, runnerConfig{WorkflowPath: "WORKFLOW.md", ProjectSlug: "CAG", WorkspaceRoot: root}, statusWorkerRole)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("runSelectedWorkerContext() error = %v; want canceled", err)
+	}
+	if _, statErr := os.Stat(state.DefaultDBPath(root)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("state db stat error = %v; want no state opened for canceled worker", statErr)
+	}
+}
 
 func TestStatusWorkerProcessClaimsTaskRecordsHeartbeatAndReleasesLease(t *testing.T) {
 	root := t.TempDir()
@@ -126,15 +143,21 @@ func TestCleanupWorkerProcessClaimsTaskRefreshesDoneIssuesAndRecordsHeartbeat(t 
 		stateNow = oldStateNow
 	})
 	stateNow = func() time.Time { return now }
-	issueIdentifiersByStateForCleanupWorker = func(client linearClient, projectSlug, stateName string) (map[string]bool, error) {
+	issueIdentifiersByStateForCleanupWorker = func(ctx context.Context, client linearClient, projectSlug, stateName string) (map[string]bool, error) {
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("cleanup issue refresh context error = %v", err)
+		}
 		if projectSlug != "CAG" || stateName != "Done" {
 			t.Fatalf("Done issue refresh = project %q state %q; want CAG/Done", projectSlug, stateName)
 		}
 		return map[string]bool{"CAG-160": true}, nil
 	}
 	cleanupCalled := false
-	cleanupWorkspacesForWorker = func(workspaceRoot string, options cleanupOptions) error {
+	cleanupWorkspacesForWorker = func(ctx context.Context, workspaceRoot string, options cleanupOptions) error {
 		cleanupCalled = true
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("cleanup worker context error = %v", err)
+		}
 		if workspaceRoot != root || !options.Apply || !options.DoneIssues["CAG-160"] || options.StateStore == nil {
 			t.Fatalf("cleanup options = root %q options %+v; want apply with Done issues and state store", workspaceRoot, options)
 		}
@@ -189,12 +212,15 @@ func TestMergeWorkerProcessClaimsTaskRunsMergeWithoutCleanupAndRecordsHeartbeat(
 	})
 	stateNow = func() time.Time { return now }
 	var calls []string
-	cleanupWorkspacesForWorker = func(workspaceRoot string, options cleanupOptions) error {
+	cleanupWorkspacesForWorker = func(ctx context.Context, workspaceRoot string, options cleanupOptions) error {
 		t.Fatal("merge worker should not invoke cleanup prepass")
 		return nil
 	}
-	mergeApprovedPRsForWorker = func(client linearClient, config runnerConfig, store *state.Store) error {
+	mergeApprovedPRsForWorker = func(ctx context.Context, client linearClient, config runnerConfig, store *state.Store) error {
 		calls = append(calls, "merge")
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("merge worker context error = %v", err)
+		}
 		if config.WorkspaceRoot != root || config.ProjectSlug != "CAG" || store == nil {
 			t.Fatalf("merge config/store = %+v/%v; want root/project with worker state store", config, store)
 		}
@@ -247,8 +273,11 @@ func TestReconciliationWorkerProcessClaimsTaskRunsScanAndRecordsHeartbeat(t *tes
 	})
 	stateNow = func() time.Time { return now }
 	scanCalled := false
-	runReconciliationScanForWorker = func(client linearClient, config runnerConfig, store *state.Store) (bool, error) {
+	runReconciliationScanForWorker = func(ctx context.Context, client linearClient, config runnerConfig, store *state.Store) (bool, error) {
 		scanCalled = true
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("reconciliation worker context error = %v", err)
+		}
 		if config.WorkspaceRoot != root || config.ProjectSlug != "CAG" || store == nil {
 			t.Fatalf("reconciliation config/store = %+v/%v; want root/project with worker state store", config, store)
 		}
@@ -308,7 +337,7 @@ func TestReviewWorkerProcessClaimsTaskRunsReviewResumeAndRecordsHeartbeat(t *tes
 	})
 	stateNow = func() time.Time { return now }
 	resumeCalled := false
-	runReviewReadyAttemptForWorker = func(client linearClient, wf workflow, config runnerConfig, store *state.Store) (bool, error) {
+	runReviewReadyAttemptForWorker = func(ctx context.Context, client linearClient, wf workflow, config runnerConfig, store *state.Store) (bool, error) {
 		resumeCalled = true
 		if config.WorkspaceRoot != root || config.ProjectSlug != "CAG" || config.ReviewCommand != "pi review" || store == nil {
 			t.Fatalf("review worker input = config %+v store=%v; want root/project/review/store", config, store != nil)
@@ -362,7 +391,7 @@ func TestImplementationWorkerProcessClaimsTaskRunsFreshAttemptAndRecordsHeartbea
 	})
 	stateNow = func() time.Time { return now }
 	implementationCalled := false
-	runImplementationAttemptForWorker = func(client linearClient, wf workflow, config runnerConfig, store *state.Store) (bool, error) {
+	runImplementationAttemptForWorker = func(ctx context.Context, client linearClient, wf workflow, config runnerConfig, store *state.Store) (bool, error) {
 		implementationCalled = true
 		if config.WorkspaceRoot != root || config.ProjectSlug != "CAG" || store == nil {
 			t.Fatalf("implementation worker input = config %+v store=%v; want root/project/store", config, store != nil)
@@ -416,7 +445,7 @@ func TestHandoffWorkerProcessClaimsTaskRunsPendingHandoffAndRecordsHeartbeat(t *
 	})
 	stateNow = func() time.Time { return now }
 	handoffCalled := false
-	runHandoffPendingAttemptForWorker = func(client linearClient, config runnerConfig, store *state.Store) (bool, error) {
+	runHandoffPendingAttemptForWorker = func(ctx context.Context, client linearClient, config runnerConfig, store *state.Store) (bool, error) {
 		handoffCalled = true
 		if config.WorkspaceRoot != root || config.ProjectSlug != "CAG" || config.HandoffState != "Human Review" || store == nil {
 			t.Fatalf("handoff worker input = config %+v store=%v; want root/project/handoff/store", config, store != nil)
@@ -470,7 +499,7 @@ func TestLinearStatusWorkerProcessClaimsTaskRunsTransitionIntentAndRecordsHeartb
 	})
 	stateNow = func() time.Time { return now }
 	transitionCalled := false
-	runLinearStatusTransitionTaskForWorker = func(client linearClient, config runnerConfig, store *state.Store) (bool, error) {
+	runLinearStatusTransitionTaskForWorker = func(ctx context.Context, client linearClient, config runnerConfig, store *state.Store) (bool, error) {
 		transitionCalled = true
 		if config.WorkspaceRoot != root || config.ProjectSlug != "CAG" || store == nil {
 			t.Fatalf("linear-status worker input = config %+v store=%v; want root/project/store", config, store != nil)
@@ -524,7 +553,7 @@ func TestWorkWorkerProcessClaimsTaskRunsImplementationBatchAndRecordsHeartbeat(t
 	})
 	stateNow = func() time.Time { return now }
 	batchCalled := false
-	runImplementationAttemptBatchForWorkWorker = func(client linearClient, wf workflow, config runnerConfig, store *state.Store, capacity int) (bool, error) {
+	runImplementationAttemptBatchForWorkWorker = func(ctx context.Context, client linearClient, wf workflow, config runnerConfig, store *state.Store, capacity int) (bool, error) {
 		batchCalled = true
 		if config.WorkspaceRoot != root || config.ProjectSlug != "CAG" || store == nil || capacity != 3 {
 			t.Fatalf("work batch input = config %+v store=%v capacity=%d; want root/project/store/capacity=3", config, store != nil, capacity)

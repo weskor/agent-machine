@@ -154,7 +154,7 @@ func TestReconcileCandidateForSelectionAllowsRepairableReviewFailedPR(t *testing
 	}
 }
 
-func TestReconcileCandidateForSelectionDoesNotLetRepairArtifactOverrideSQLiteConflict(t *testing.T) {
+func TestReconcileCandidateForSelectionIgnoresStaleRepairArtifact(t *testing.T) {
 	root := t.TempDir()
 	store := openCandidateTestStateStore(t)
 	config := testRunnerConfig(root)
@@ -178,8 +178,45 @@ func TestReconcileCandidateForSelectionDoesNotLetRepairArtifactOverrideSQLiteCon
 
 	decision := reconcileCandidateForSelection(config, candidate, &pr, store)
 
-	if decision.CanRun || !decision.ReconciliationNeeded || decision.NextAction == repairReviewFindingsNextAction {
-		t.Fatalf("expected SQLite/artifact conflict to remain reconciliation-needed, got %#v", decision)
+	if decision.ReconciliationNeeded || decision.NextAction == repairReviewFindingsNextAction {
+		t.Fatalf("expected state-backed selection to ignore stale repair artifact, got %#v", decision)
+	}
+	if !strings.Contains(strings.Join(decision.Blockers, "; "), "PR exists while Linear state") {
+		t.Fatalf("expected current SQLite/PR state to drive blocker, got %#v", decision)
+	}
+}
+
+func TestRepairableReviewFailedPRDoesNotFallbackToArtifactWhenSQLiteFactsExist(t *testing.T) {
+	root := t.TempDir()
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	candidate := testIssue("CAG-143", "Ready for Agent")
+	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/pi-symphony/pull/143")
+	decision := reconciliationDecision{
+		NextAction: "reconcile_linear_state",
+		DBFacts: &state.ReconciliationFacts{
+			IssueKey: candidate.Identifier,
+			Attempt:  1,
+			PRURL:    pr.URL,
+		},
+	}
+
+	if repairableReviewFailedPR(config, candidate, &pr, decision) {
+		t.Fatal("repairableReviewFailedPR() used artifact fallback despite present SQLite facts")
+	}
+}
+
+func TestReconcileCandidateForSelectionIgnoresArtifactOnlyState(t *testing.T) {
+	root := t.TempDir()
+	store := openCandidateTestStateStore(t)
+	config := testRunnerConfig(root)
+	candidate := testIssue("CAG-142", "Ready for Agent")
+	writeRunRecordFixture(t, root, candidate.Identifier, `{"status":"success","pr_url":"https://github.com/weskor/pi-symphony/pull/142"}`)
+
+	decision := reconcileCandidateForSelection(config, candidate, nil, store)
+
+	if !decision.CanRun || decision.ReconciliationNeeded || decision.NextAction != "run_agent" {
+		t.Fatalf("expected state-backed selection to ignore artifact-only state, got %#v", decision)
 	}
 }
 
@@ -187,7 +224,9 @@ func TestClaimNextRunAttemptDispatchesRepairableReviewFailedPR(t *testing.T) {
 	root := t.TempDir()
 	store := openCandidateTestStateStore(t)
 	candidate := testIssue("CAG-141", "Ready for Agent")
-	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/pi-symphony/pull/93")
+	prURL := "https://github.com/weskor/pi-symphony/pull/93"
+	pr := pullRequestSummary{Number: 93, URL: prURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch(candidate.Identifier), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "COMMENTED"}
+	upsertRepairableReviewFailedAttempt(t, store, candidate, filepath.Join(root, candidate.Identifier), prURL)
 	original := openPRsByIssueForSelection
 	openPRsByIssueForSelection = func(runnerConfig) (map[string]*pullRequestSummary, error) {
 		return map[string]*pullRequestSummary{candidate.Identifier: &pr}, nil
@@ -221,6 +260,30 @@ func seedRepairableReviewFailedPR(t *testing.T, root, identifier, prURL string) 
 	workspace := filepath.Join(root, identifier)
 	writeJSON(t, filepath.Join(workspace, evaluationArtifactName), evaluationArtifact{IssueIdentifier: identifier, PRURL: prURL, Outcome: runAttemptStatusReviewFailed, ReviewStatus: "failed", ReviewClassification: reviewClassificationBehaviorSpecBlocker, ShouldRetry: true, NextAction: repairReviewFindingsNextAction})
 	return pullRequestSummary{Number: 93, URL: prURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch(identifier), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "COMMENTED"}
+}
+
+func upsertRepairableReviewFailedAttempt(t *testing.T, store *state.Store, candidate issue, workspace, prURL string) {
+	t.Helper()
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertAttemptResult(context.Background(), state.AttemptResult{
+		IssueKey:             candidate.Identifier,
+		IssueID:              candidate.ID,
+		Attempt:              1,
+		WorkspacePath:        workspace,
+		BranchName:           expectedWorkspaceBranch(candidate.Identifier),
+		BaseBranch:           "develop",
+		Status:               runAttemptStatusReviewFailed,
+		Repository:           "weskor/pi-symphony",
+		PRNumber:             93,
+		PRURL:                prURL,
+		ReviewStatus:         "failed",
+		ReviewClassification: reviewClassificationBehaviorSpecBlocker,
+		UpdatedAt:            time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("UpsertAttemptResult(review_failed) error = %v", err)
+	}
 }
 
 func writeRetryWorkflow(t *testing.T, maxRetryBackoffMS int) string {

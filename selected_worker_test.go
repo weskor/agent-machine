@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -232,6 +233,67 @@ func TestMergeWorkerProcessClaimsTaskRunsMergeWithoutCleanupAndRecordsHeartbeat(
 	}
 	if !ok || lease.ReleasedAt.IsZero() || lease.ReleaseReason != "worker task completed" {
 		t.Fatalf("lease = %+v ok=%t; want released worker task lease", lease, ok)
+	}
+}
+
+func TestReconciliationWorkerProcessClaimsTaskRunsScanAndRecordsHeartbeat(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 5, 23, 12, 12, 0, 0, time.UTC)
+	oldRunReconciliationScan := runReconciliationScanForWorker
+	oldStateNow := stateNow
+	t.Cleanup(func() {
+		runReconciliationScanForWorker = oldRunReconciliationScan
+		stateNow = oldStateNow
+	})
+	stateNow = func() time.Time { return now }
+	scanCalled := false
+	runReconciliationScanForWorker = func(client linearClient, config runnerConfig, store *state.Store) (bool, error) {
+		scanCalled = true
+		if config.WorkspaceRoot != root || config.ProjectSlug != "CAG" || store == nil {
+			t.Fatalf("reconciliation config/store = %+v/%v; want root/project with worker state store", config, store)
+		}
+		return true, nil
+	}
+
+	if err := runReconciliationWorkerProcess(linearClient{}, runnerConfig{WorkflowPath: "WORKFLOW.md", ProjectSlug: "CAG", WorkspaceRoot: root}); err != nil {
+		t.Fatalf("runReconciliationWorkerProcess() error = %v", err)
+	}
+	if !scanCalled {
+		t.Fatal("reconciliation worker did not run scan")
+	}
+
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	tasks, err := store.WorkerTasks(context.Background(), reconciliationWorkerRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].TaskKey != "process:reconciliation" || tasks[0].Status != "completed" || tasks[0].LeaseName != "worker:reconciliation" {
+		t.Fatalf("reconciliation worker task = %+v; want completed process:reconciliation with lease", tasks)
+	}
+	heartbeats, err := store.SnapshotHeartbeats(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(heartbeats) != 1 || heartbeats[0].LaneName != "worker:reconciliation" || heartbeats[0].CycleNumber != 1 || heartbeats[0].RecoveryRequired {
+		t.Fatalf("heartbeats = %+v; want successful worker:reconciliation heartbeat", heartbeats)
+	}
+	lease, ok, err := store.Lease(context.Background(), "worker:reconciliation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || lease.ReleasedAt.IsZero() || lease.ReleaseReason != "worker task completed" {
+		t.Fatalf("lease = %+v ok=%t; want released worker task lease", lease, ok)
+	}
+}
+
+func TestSelectedWorkerRejectsUnsupportedRole(t *testing.T) {
+	err := runSelectedWorker(linearClient{}, workflow{}, runnerConfig{}, "not-a-worker")
+	if err == nil || !strings.Contains(err.Error(), "unsupported worker role") || !strings.Contains(err.Error(), reconciliationWorkerRole) {
+		t.Fatalf("runSelectedWorker() error = %v; want unsupported role listing reconciliation", err)
 	}
 }
 

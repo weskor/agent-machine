@@ -73,6 +73,7 @@ const (
 	EventCleanupDeletionSucceeded      = "cleanup_deletion_succeeded"
 	EventCleanupDeletionFailed         = "cleanup_deletion_failed"
 	EventCleanupCompleted              = "cleanup_completed"
+	EventReconciliationNeeded          = "reconciliation_needed"
 	EventWorkerTaskQueued              = "worker_task_queued"
 	EventWorkerTaskClaimed             = "worker_task_claimed"
 	EventWorkerTaskCompleted           = "worker_task_completed"

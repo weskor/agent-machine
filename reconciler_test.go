@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -166,6 +167,56 @@ func TestReconcileIssueReportsClosedOrMissingPRMapping(t *testing.T) {
 
 	if decision.CanRun || !decision.ReconciliationNeeded || decision.NextAction != "reconcile_missing_or_closed_pr_mapping" {
 		t.Fatalf("expected missing current PR to require reconciliation, got %#v", decision)
+	}
+}
+
+func TestRunReconciliationScanRecordsReconciliationNeededEvent(t *testing.T) {
+	root := t.TempDir()
+	store := openTestStateStore(t, root)
+	candidate := testIssue("CAG-182", "Ready for Agent")
+	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: candidate.Identifier, IssueID: candidate.ID, Attempt: 1, BranchName: expectedWorkspaceBranch(candidate.Identifier), Status: "success", PRURL: "https://github.com/weskor/pi-symphony/pull/182", TerminalOutcome: "handoff_ready"}); err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	oldCandidates := candidatesForReconciliationWorker
+	oldOpenPRs := openPRsForReconciliationWorker
+	oldArtifacts := artifactSummariesForReconciliationWorker
+	t.Cleanup(func() {
+		candidatesForReconciliationWorker = oldCandidates
+		openPRsForReconciliationWorker = oldOpenPRs
+		artifactSummariesForReconciliationWorker = oldArtifacts
+	})
+	candidatesForReconciliationWorker = func(client linearClient, config runnerConfig) ([]issue, error) {
+		return []issue{candidate}, nil
+	}
+	openPRsForReconciliationWorker = func() ([]pullRequestSummary, error) {
+		return nil, nil
+	}
+	artifactSummariesForReconciliationWorker = func(workspaceRoot string) ([]artifactSummary, error) {
+		return nil, nil
+	}
+
+	didWork, err := runReconciliationScan(linearClient{}, testRunnerConfig(root), store)
+	if err != nil {
+		t.Fatalf("runReconciliationScan() error = %v", err)
+	}
+	if !didWork {
+		t.Fatal("runReconciliationScan() didWork=false; want scan to run")
+	}
+	events, err := store.Events(context.Background(), state.EventFilter{IssueKey: candidate.Identifier, Type: state.EventReconciliationNeeded})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Source != "reconciliation" || events[0].IssueID != candidate.ID || events[0].Attempt != 1 {
+		t.Fatalf("events = %+v; want one reconciliation-needed event with issue and attempt", events)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(events[0].Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["next_action"] != "reconcile_missing_or_closed_pr_mapping" || payload["reconciliation_needed"] != true || payload["sqlite_pr_url"] != "https://github.com/weskor/pi-symphony/pull/182" {
+		t.Fatalf("payload = %+v; want reconciliation-needed evidence", payload)
 	}
 }
 

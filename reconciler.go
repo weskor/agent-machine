@@ -54,6 +54,12 @@ type reconciliationModule struct {
 	now    func() time.Time
 }
 
+var candidatesForReconciliationWorker = func(client linearClient, config runnerConfig) ([]issue, error) {
+	return client.candidates(config.ProjectSlug, statusIssueStates(config))
+}
+var openPRsForReconciliationWorker = openSymphonyPRs
+var artifactSummariesForReconciliationWorker = workspaceArtifactSummaries
+
 func newReconciliationModule(reader reconciliationStateReader) reconciliationModule {
 	if reader == nil || reflect.ValueOf(reader).Kind() == reflect.Ptr && reflect.ValueOf(reader).IsNil() {
 		return reconciliationModule{now: func() time.Time { return time.Now().UTC() }}
@@ -160,6 +166,87 @@ func (m reconciliationModule) ReconcileIssueWithArtifact(config runnerConfig, ca
 		decision.CanRun = true
 	}
 	return decision
+}
+
+func runReconciliationScan(client linearClient, config runnerConfig, store *state.Store) (bool, error) {
+	if store == nil {
+		return false, fmt.Errorf("SQLite state store unavailable for reconciliation worker at %s", state.DefaultDBPath(config.WorkspaceRoot))
+	}
+	issues, err := candidatesForReconciliationWorker(client, config)
+	if err != nil {
+		return false, err
+	}
+	prs, err := openPRsForReconciliationWorker()
+	if err != nil {
+		return false, err
+	}
+	artifacts, err := artifactSummariesForReconciliationWorker(config.WorkspaceRoot)
+	if err != nil {
+		return false, err
+	}
+	prsByIssue := indexPRsByIssue(prs)
+	artifactIndex := indexArtifacts(artifacts)
+	decisions := newReconciliationModule(store).ReconcileIssues(config, issues, prsByIssue, artifactIndex.byIssue)
+	decisions = repairableReviewFailedReconciliationDecisions(config, issues, prsByIssue, decisions)
+	issueIDs := map[string]string{}
+	for _, issue := range issues {
+		issueIDs[issue.Identifier] = issue.ID
+	}
+	recorded := 0
+	for _, decision := range decisions {
+		if !decision.ReconciliationNeeded && !decision.ShouldQuarantine {
+			continue
+		}
+		if err := recordReconciliationNeededEvent(store, decision, issueIDs[decision.IssueIdentifier]); err != nil {
+			return true, err
+		}
+		recorded++
+	}
+	log("reconciliation scan completed: issues=%d findings=%d", len(issues), recorded)
+	return true, nil
+}
+
+func recordReconciliationNeededEvent(store *state.Store, decision reconciliationDecision, issueID string) error {
+	if store == nil {
+		return nil
+	}
+	attempt := 0
+	if decision.DBFacts != nil {
+		attempt = decision.DBFacts.Attempt
+	}
+	payload := map[string]any{
+		"state":                 decision.StateName,
+		"lifecycle":             string(decision.Lifecycle),
+		"next_action":           decision.NextAction,
+		"blockers":              append([]string(nil), decision.Blockers...),
+		"reconciliation_needed": decision.ReconciliationNeeded,
+		"should_quarantine":     decision.ShouldQuarantine,
+	}
+	if decision.DBFacts != nil {
+		payload["sqlite_status"] = decision.DBFacts.Status
+		payload["sqlite_pr_url"] = decision.DBFacts.PRURL
+		payload["sqlite_terminal_outcome"] = decision.DBFacts.TerminalOutcome
+	}
+	if decision.PR != nil {
+		payload["pr_url"] = decision.PR.URL
+		payload["pr_number"] = decision.PR.Number
+		payload["pr_head_ref"] = decision.PR.HeadRefName
+	}
+	if decision.Artifact != nil {
+		payload["artifact_status"] = decision.Artifact.Status
+		payload["artifact_pr_url"] = decision.Artifact.PRURL
+		payload["artifact_outcome"] = decision.Artifact.Outcome
+	}
+	_, err := store.AppendEvent(context.Background(), state.EventInput{
+		OccurredAt: time.Now().UTC(),
+		IssueKey:   decision.IssueIdentifier,
+		IssueID:    issueID,
+		Attempt:    attempt,
+		Source:     "reconciliation",
+		Type:       state.EventReconciliationNeeded,
+		Payload:    payload,
+	})
+	return err
 }
 
 func (m reconciliationModule) reconciliationFacts(ctx context.Context, issueKey string) (state.ReconciliationFacts, bool, error) {

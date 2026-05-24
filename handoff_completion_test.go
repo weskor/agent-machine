@@ -140,7 +140,7 @@ func TestHandoffPendingPayloadRoundTripsCompletionInput(t *testing.T) {
 		branch:          expectedWorkspaceBranch(candidate.Identifier),
 		progressStarted: time.Now().Add(-time.Minute),
 		startedAt:       time.Now().Add(-2 * time.Minute),
-		piUsage:         &usage{TotalTokens: 42},
+		runtimeUsage:    &usage{TotalTokens: 42},
 		review:          &reviewResult{Status: "passed", Findings: "ship it"},
 		prURL:           "https://github.com/acme/repo/pull/171",
 		validation:      []string{"go test ./...", "git diff --check"},
@@ -154,7 +154,7 @@ func TestHandoffPendingPayloadRoundTripsCompletionInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	completion := payload.Completion(linearClient{}, input.config, nil, []workflowState{{ID: "handoff-id", Name: "Human Review"}})
-	if completion.candidate.Identifier != candidate.Identifier || completion.candidate.Team.ID != "team-171" || completion.workspace != input.workspace || completion.branch != input.branch || completion.prURL != input.prURL || completion.review.Findings != "ship it" || completion.piUsage.TotalTokens != 42 || len(completion.validation) != 2 || completion.githubAuth != input.githubAuth {
+	if completion.candidate.Identifier != candidate.Identifier || completion.candidate.Team.ID != "team-171" || completion.workspace != input.workspace || completion.branch != input.branch || completion.prURL != input.prURL || completion.review.Findings != "ship it" || completion.runtimeUsage.TotalTokens != 42 || len(completion.validation) != 2 || completion.githubAuth != input.githubAuth {
 		t.Fatalf("completion = %+v; want payload round trip", completion)
 	}
 }
@@ -182,7 +182,7 @@ func TestResumeReviewReadyRunUsesPendingProgressBeforeHandoff(t *testing.T) {
 	collectReviewEvidenceForWorker = func(runnerConfig, *issue, string, string, scopeGuardResult, []string) (reviewEvidence, error) {
 		return reviewEvidence{ChecksStatus: "success", ChecksSummary: "go-ci=success"}, nil
 	}
-	runReviewForWorker = func(string, string, *issue, string, map[string]string, time.Duration, *reviewEvidence) (*reviewResult, error) {
+	runReviewForWorker = func(string, string, string, *issue, string, map[string]string, time.Duration, *reviewEvidence) (*reviewResult, error) {
 		return &reviewResult{Status: "passed"}, nil
 	}
 	postOrUpdatePRHandoffCommentForWorker = func(handoffSummary) error {

@@ -12,7 +12,7 @@ func TestRenderPRHandoffCommentIsReadableAndBounded(t *testing.T) {
 		IssueTitle:      "Readable handoff comments",
 		IssueURL:        "https://linear.app/wessismore/issue/CAG-15/example",
 		PRURL:           "https://github.com/pennywise-investments/compound-web/pull/407",
-		PiUsage:         &usage{Input: 10, Output: 5, TotalTokens: 15, Cost: &usageCost{Total: 0.25}},
+		RuntimeUsage:    &usage{Input: 10, Output: 5, TotalTokens: 15, Cost: &usageCost{Total: 0.25}},
 		Review:          &reviewResult{Status: "passed"},
 		Duration:        90 * time.Second,
 		Validation:      []string{"bun run symphony:pi:test", "git diff --check"},

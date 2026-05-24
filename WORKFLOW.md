@@ -27,15 +27,17 @@ hooks:
   before_remove: null
 agent:
   max_concurrent_agents: 1
-  # pi_cli supports only the default single implementation attempt; values >1
+  # Shell CLI runtimes support only the default single implementation attempt; values >1
   # require a future session runtime with continuation support.
   max_turns: 1
   max_retry_backoff_ms: 300000
-pi:
+runtime:
+  provider: codex_cli
   command: >-
-    pi --mode json --print --no-session --thinking low
+    codex --ask-for-approval never exec --ignore-user-config --ignore-rules --ephemeral --sandbox workspace-write
   review_command: >-
-    pi --mode json --print --no-session --thinking xhigh
+    codex --ask-for-approval never exec --ignore-user-config --ignore-rules --ephemeral --sandbox read-only
+pi:
   after_create: |
     git clone --branch main git@github.com:weskor/pi-symphony.git .
   before_run: mise exec go -- go test ./...
@@ -97,4 +99,3 @@ Issue context:
 - URL: {{issue.url}}
 - State: {{issue.state}}
 - Attempt: {{attempt}}
-

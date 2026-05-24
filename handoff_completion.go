@@ -24,7 +24,7 @@ type handoffCompletion struct {
 	branch          string
 	progressStarted time.Time
 	startedAt       time.Time
-	piUsage         *usage
+	runtimeUsage    *usage
 	review          *reviewResult
 	prURL           string
 	validation      []string
@@ -42,6 +42,7 @@ type handoffPendingPayload struct {
 	Branch          string        `json:"branch,omitempty"`
 	ProgressStarted time.Time     `json:"progress_started_at"`
 	StartedAt       time.Time     `json:"started_at"`
+	RuntimeUsage    *usage        `json:"runtime_usage,omitempty"`
 	PiUsage         *usage        `json:"pi_usage,omitempty"`
 	Review          *reviewResult `json:"review,omitempty"`
 	PRURL           string        `json:"pr_url"`
@@ -67,23 +68,23 @@ func executeHandoffPendingPayload(ctx context.Context, client linearClient, conf
 
 func executeAttemptHandoff(ctx context.Context, input handoffCompletion) (bool, error) {
 	handoffResult, err := handoffWorker{
-		client:     input.client,
-		config:     input.config,
-		stateStore: input.stateStore,
-		candidate:  input.candidate,
-		states:     input.states,
-		workspace:  input.workspace,
-		startedAt:  input.startedAt,
-		piUsage:    input.piUsage,
-		review:     input.review,
-		prURL:      input.prURL,
-		validation: input.validation,
-		githubAuth: input.githubAuth,
+		client:       input.client,
+		config:       input.config,
+		stateStore:   input.stateStore,
+		candidate:    input.candidate,
+		states:       input.states,
+		workspace:    input.workspace,
+		startedAt:    input.startedAt,
+		runtimeUsage: input.runtimeUsage,
+		review:       input.review,
+		prURL:        input.prURL,
+		validation:   input.validation,
+		githubAuth:   input.githubAuth,
 	}.Execute(ctx)
 	if err != nil || handoffResult.Terminal {
 		return true, err
 	}
-	if err := writeRunRecordWithCommandState(input.stateStore, input.workspace, runRecordFor(input.candidate, input.workspace, input.config.PiCommand, input.githubAuth, input.startedAt, time.Now(), input.piUsage, input.review, input.prURL, runAttemptStatusSuccess, "", input.config.Budget.Active(), "")); err != nil {
+	if err := writeRunRecordWithCommandState(input.stateStore, input.workspace, runRecordFor(input.candidate, input.workspace, configuredRuntimeCommand(input.config), input.githubAuth, input.startedAt, time.Now(), input.runtimeUsage, input.review, input.prURL, runAttemptStatusSuccess, "", input.config.Budget.Active(), "")); err != nil {
 		return true, err
 	}
 	return true, nil
@@ -98,7 +99,7 @@ func handoffPendingPayloadFromCompletion(input handoffCompletion) handoffPending
 		Branch:          input.branch,
 		ProgressStarted: input.progressStarted,
 		StartedAt:       input.startedAt,
-		PiUsage:         input.piUsage,
+		RuntimeUsage:    input.runtimeUsage,
 		Review:          input.review,
 		PRURL:           input.prURL,
 		Validation:      boundedHandoffValidation(input.validation),
@@ -127,7 +128,7 @@ func (p handoffPendingPayload) Completion(client linearClient, config runnerConf
 		branch:          p.Branch,
 		progressStarted: p.ProgressStarted,
 		startedAt:       p.StartedAt,
-		piUsage:         p.PiUsage,
+		runtimeUsage:    p.RuntimeUsage,
 		review:          p.Review,
 		prURL:           p.PRURL,
 		validation:      append([]string(nil), p.Validation...),
@@ -202,6 +203,9 @@ func readHandoffPendingPayload(workspaceRoot, issueIdentifier string) (handoffPe
 	}
 	if payload.SchemaVersion != 1 {
 		return handoffPendingPayload{}, fmt.Errorf("unsupported handoff pending payload schema_version %d", payload.SchemaVersion)
+	}
+	if payload.RuntimeUsage == nil {
+		payload.RuntimeUsage = payload.PiUsage
 	}
 	return payload, nil
 }

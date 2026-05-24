@@ -94,7 +94,7 @@ func isNumberedQuestion(line string) bool {
 
 func renderNeedsInfoComment(questions []string) string {
 	var builder strings.Builder
-	builder.WriteString("Go/Pi run stopped because the ticket needs additional information. Please answer the questions below, then move the issue back to Ready for Agent.\n\n")
+	builder.WriteString("Runtime run stopped because the ticket needs additional information. Please answer the questions below, then move the issue back to Ready for Agent.\n\n")
 	if len(questions) == 0 {
 		builder.WriteString("1. Please clarify the missing requirements so the agent can proceed safely.")
 		return builder.String()

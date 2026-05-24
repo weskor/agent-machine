@@ -19,7 +19,7 @@ type handoffSummary struct {
 	IssueTitle      string
 	IssueURL        string
 	PRURL           string
-	PiUsage         *usage
+	RuntimeUsage    *usage
 	Review          *reviewResult
 	Duration        time.Duration
 	Validation      []string
@@ -33,7 +33,7 @@ func renderPRHandoffComment(summary handoffSummary) string {
 	fmt.Fprintf(&builder, "- Issue: %s — %s\n", markdownLink(summary.IssueIdentifier, summary.IssueURL), sanitizeMarkdownLine(summary.IssueTitle))
 	fmt.Fprintf(&builder, "- PR: %s\n", markdownLink(summary.PRURL, summary.PRURL))
 	fmt.Fprintf(&builder, "- Review: %s\n", sanitizeMarkdownLine(reviewSummary(summary.Review)))
-	fmt.Fprintf(&builder, "- Usage: %s\n", sanitizeMarkdownLine(usageSummary(summary.PiUsage)))
+	fmt.Fprintf(&builder, "- Usage: %s\n", sanitizeMarkdownLine(usageSummary(summary.RuntimeUsage)))
 	fmt.Fprintf(&builder, "- Duration: %s\n\n", summary.Duration.Round(time.Second))
 
 	builder.WriteString("### Validation\n")
@@ -68,7 +68,7 @@ func reviewClassificationSummary(review *reviewResult) string {
 }
 
 func renderLinearHandoffComment(summary handoffSummary) string {
-	return truncateMarkdown(fmt.Sprintf("Go/Pi run completed.\n\nPR: %s\nUsage: %s\nReview: %s\nDuration: %s", summary.PRURL, usageSummary(summary.PiUsage), reviewSummary(summary.Review), summary.Duration.Round(time.Second)), 1000)
+	return truncateMarkdown(fmt.Sprintf("Runtime run completed.\n\nPR: %s\nUsage: %s\nReview: %s\nDuration: %s", summary.PRURL, usageSummary(summary.RuntimeUsage), reviewSummary(summary.Review), summary.Duration.Round(time.Second)), 1000)
 }
 
 func postOrUpdatePRHandoffComment(summary handoffSummary) error {

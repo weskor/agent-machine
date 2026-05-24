@@ -76,7 +76,7 @@ func resumeReviewReadyRun(client linearClient, stateStore *state.Store, config r
 	prURL := selectedPR.URL
 	scopeResult, err := checkScopeGuardForReviewResume(candidate.Description, workspace, config.BaseBranch)
 	if err != nil {
-		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, config.PiCommand, githubAuth, runStarted, time.Now(), nil, nil, prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), err.Error()))
+		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, configuredRuntimeCommand(config), githubAuth, runStarted, time.Now(), nil, nil, prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), err.Error()))
 		return true, err
 	}
 	validation := []string{"Implementation was preserved from prior runner-owned PR handoff; semantic review resumed after GitHub checks became terminal."}

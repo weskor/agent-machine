@@ -35,9 +35,9 @@ func TestReviewWorkerCollectsEvidenceAndRunsSemanticReview(t *testing.T) {
 		gotValidation = append([]string(nil), validation...)
 		return reviewEvidence{ChecksStatus: "success", ChecksSummary: "go-ci=COMPLETED/SUCCESS"}, nil
 	}
-	runReviewForWorker = func(command, gotWorkspace string, gotCandidate *issue, gotPRURL string, env map[string]string, timeout time.Duration, evidence *reviewEvidence) (*reviewResult, error) {
-		if command != "pi review" || gotWorkspace != workspace || gotCandidate.Identifier != candidate.Identifier || gotPRURL != prURL || env["GITHUB_TOKEN"] != "token" || timeout != time.Minute {
-			t.Fatalf("unexpected review input command=%q workspace=%q candidate=%+v pr=%q env=%+v timeout=%s", command, gotWorkspace, gotCandidate, gotPRURL, env, timeout)
+	runReviewForWorker = func(provider, command, gotWorkspace string, gotCandidate *issue, gotPRURL string, env map[string]string, timeout time.Duration, evidence *reviewEvidence) (*reviewResult, error) {
+		if provider != "" || command != "pi review" || gotWorkspace != workspace || gotCandidate.Identifier != candidate.Identifier || gotPRURL != prURL || env["GITHUB_TOKEN"] != "token" || timeout != time.Minute {
+			t.Fatalf("unexpected review input provider=%q command=%q workspace=%q candidate=%+v pr=%q env=%+v timeout=%s", provider, command, gotWorkspace, gotCandidate, gotPRURL, env, timeout)
 		}
 		if evidence == nil || evidence.ChecksStatus != "success" {
 			t.Fatalf("review evidence = %+v; want success evidence", evidence)
@@ -104,7 +104,7 @@ func TestReviewWorkerExecutesPersistedPayloadBoundary(t *testing.T) {
 		}
 		return reviewEvidence{ChecksStatus: "success", ChecksSummary: "go-ci=COMPLETED/SUCCESS"}, nil
 	}
-	runReviewForWorker = func(string, string, *issue, string, map[string]string, time.Duration, *reviewEvidence) (*reviewResult, error) {
+	runReviewForWorker = func(string, string, string, *issue, string, map[string]string, time.Duration, *reviewEvidence) (*reviewResult, error) {
 		return &reviewResult{Status: "passed"}, nil
 	}
 
@@ -147,7 +147,7 @@ func TestReviewWorkerRecordsNotReadyWithoutRunningReview(t *testing.T) {
 	collectReviewEvidenceForWorker = func(runnerConfig, *issue, string, string, scopeGuardResult, []string) (reviewEvidence, error) {
 		return reviewEvidence{ChecksStatus: "pending", ChecksSummary: "go-ci=IN_PROGRESS"}, nil
 	}
-	runReviewForWorker = func(string, string, *issue, string, map[string]string, time.Duration, *reviewEvidence) (*reviewResult, error) {
+	runReviewForWorker = func(string, string, string, *issue, string, map[string]string, time.Duration, *reviewEvidence) (*reviewResult, error) {
 		t.Fatal("review command should not run when checks are not ready")
 		return nil, nil
 	}

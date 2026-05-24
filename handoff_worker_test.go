@@ -42,17 +42,17 @@ func TestHandoffWorkerPostsCommentsAndMovesToHandoffState(t *testing.T) {
 
 	started := time.Now().Add(-2 * time.Minute)
 	result, err := handoffWorker{
-		client:     linearClient{},
-		config:     runnerConfig{PiCommand: "pi run", HandoffState: "Human Review"},
-		candidate:  candidate,
-		states:     []workflowState{{ID: "human-review-id", Name: "Human Review"}},
-		workspace:  workspace,
-		startedAt:  started,
-		piUsage:    &usage{TotalTokens: 42},
-		review:     &reviewResult{Status: "passed"},
-		prURL:      prURL,
-		validation: []string{"go test ./..."},
-		githubAuth: "github_app_installation",
+		client:       linearClient{},
+		config:       runnerConfig{PiCommand: "pi run", HandoffState: "Human Review"},
+		candidate:    candidate,
+		states:       []workflowState{{ID: "human-review-id", Name: "Human Review"}},
+		workspace:    workspace,
+		startedAt:    started,
+		runtimeUsage: &usage{TotalTokens: 42},
+		review:       &reviewResult{Status: "passed"},
+		prURL:        prURL,
+		validation:   []string{"go test ./..."},
+		githubAuth:   "github_app_installation",
 	}.Execute(context.Background())
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)

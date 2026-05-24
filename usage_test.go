@@ -30,6 +30,20 @@ func TestParseUsageIgnoresEmptyUsageEvents(t *testing.T) {
 	}
 }
 
+func TestCodexUsageToRuntimeParsesTokensUsedSummary(t *testing.T) {
+	output := "final answer\n\ntokens used\n70,500\n"
+	got := codexUsageToRuntime(output)
+	if got == nil || got.TotalTokens != 70500 {
+		t.Fatalf("unexpected codex usage: %+v", got)
+	}
+}
+
+func TestNewAgentRuntimeRejectsUnsupportedProvider(t *testing.T) {
+	if _, err := newAgentRuntime("mystery"); err == nil || !strings.Contains(err.Error(), "unsupported runtime.provider") {
+		t.Fatalf("expected unsupported provider error, got %v", err)
+	}
+}
+
 func TestAssistantTextReturnsLastAssistantText(t *testing.T) {
 	output := `{"message":{"role":"assistant","content":[{"type":"text","text":"first"}]}}
 {"message":{"role":"user","content":[{"type":"text","text":"ignore me"}]}}

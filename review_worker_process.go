@@ -149,7 +149,7 @@ func executeReviewPendingAttempt(ctx context.Context, client linearClient, confi
 	if err != nil {
 		now := time.Now()
 		worker := payload.Worker(client, config, stateStore, states, nil)
-		writeRunRecordWithCommandState(stateStore, worker.workspace, runRecordFor(worker.candidate, worker.workspace, config.PiCommand, "github_app_error", now, now, worker.piUsage, nil, worker.prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
+		writeRunRecordWithCommandState(stateStore, worker.workspace, runRecordFor(worker.candidate, worker.workspace, configuredRuntimeCommand(config), "github_app_error", now, now, worker.runtimeUsage, nil, worker.prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
 		return true, err
 	}
 	payload.GitHubAuth = githubAuth
@@ -172,7 +172,7 @@ func reviewPayloadHandoffCompletion(payload reviewPendingPayload, client linearC
 		branch:          worker.branch,
 		progressStarted: worker.progressStarted,
 		startedAt:       worker.startedAt,
-		piUsage:         worker.piUsage,
+		runtimeUsage:    worker.runtimeUsage,
 		review:          review,
 		prURL:           worker.prURL,
 		validation:      worker.validation,
@@ -215,8 +215,14 @@ func claimNextReviewReadyAttempt(client linearClient, wf workflow, config runner
 		}
 		progressStarted := time.Now().UTC()
 		writeRunProgress(config.WorkspaceRoot, runProgressForIssue(&candidate, workspace, "review_resume_selected", progressStarted))
-		runtime := newPiCLIRuntime()
-		if _, err := runtime.Preflight(context.Background(), agentruntime.PreflightInput{ImplementationCommand: config.PiCommand, ReviewCommand: config.ReviewCommand, MaxTurns: cfg.AgentMaxTurnsFromWorkflow(wf.YAML)}); err != nil {
+		runtime, err := newAgentRuntime(config.RuntimeProvider)
+		if err != nil {
+			snapshot := runProgressForIssue(&candidate, workspace, "failed", progressStarted)
+			snapshot.Error = err.Error()
+			writeRunProgress(config.WorkspaceRoot, snapshot)
+			return nil, true, err
+		}
+		if _, err := runtime.Preflight(context.Background(), agentruntime.PreflightInput{ImplementationCommand: configuredRuntimeCommand(config), ReviewCommand: config.ReviewCommand, MaxTurns: cfg.AgentMaxTurnsFromWorkflow(wf.YAML)}); err != nil {
 			snapshot := runProgressForIssue(&candidate, workspace, "failed", progressStarted)
 			snapshot.Error = err.Error()
 			writeRunProgress(config.WorkspaceRoot, snapshot)
@@ -252,7 +258,7 @@ func executeReviewReadyAttempt(client linearClient, config runnerConfig, stateSt
 	githubEnv, githubAuth, err := githubAppEnvFromEnvironment()
 	if err != nil {
 		now := time.Now()
-		writeRunRecordWithCommandState(stateStore, claimed.Workspace, runRecordFor(candidate, claimed.Workspace, config.PiCommand, "github_app_error", now, now, nil, nil, claimed.SelectedPR.URL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
+		writeRunRecordWithCommandState(stateStore, claimed.Workspace, runRecordFor(candidate, claimed.Workspace, configuredRuntimeCommand(config), "github_app_error", now, now, nil, nil, claimed.SelectedPR.URL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
 		return true, err
 	}
 	return resumeReviewReadyRun(client, stateStore, config, candidate, states, claimed.Workspace, claimed.Branch, githubEnv, githubAuth, claimed.ProgressStarted, time.Now(), claimed.SelectedPR)

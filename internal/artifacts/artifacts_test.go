@@ -139,7 +139,7 @@ func TestManagerReadBackfillMissingAndMalformedArtifacts(t *testing.T) {
 func TestManagerRepairPreservesUsageAndMarksManualMerge(t *testing.T) {
 	workspace := t.TempDir()
 	path := RunRecordPath(workspace)
-	record := domain.RunRecord{IssueIdentifier: "CAG-75", Status: "success", PRURL: "https://github.com/acme/repo/pull/75", PiUsage: &domain.Usage{TotalTokens: 42}}
+	record := domain.RunRecord{IssueIdentifier: "CAG-75", Status: "success", PRURL: "https://github.com/acme/repo/pull/75", RuntimeUsage: &domain.Usage{TotalTokens: 42}}
 	data, err := json.Marshal(record)
 	if err != nil {
 		t.Fatal(err)
@@ -154,7 +154,7 @@ func TestManagerRepairPreservesUsageAndMarksManualMerge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !changed || repaired.Status != "merged" || repaired.OriginalStatus != "success" || repaired.ManualRepair != "pr_manually_merged" || repaired.PiUsage.TotalTokens != 42 {
+	if !changed || repaired.Status != "merged" || repaired.OriginalStatus != "success" || repaired.ManualRepair != "pr_manually_merged" || repaired.RuntimeUsage.TotalTokens != 42 {
 		t.Fatalf("unexpected repaired record: %#v", repaired)
 	}
 }

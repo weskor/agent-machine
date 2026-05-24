@@ -57,8 +57,8 @@ func classifyRunRecord(workspace string, record runRecord) runClassification {
 
 func runRecordTotalTokens(record runRecord) float64 {
 	var total float64
-	if record.PiUsage != nil {
-		total += record.PiUsage.TotalTokens
+	if usage := recordRuntimeUsage(record); usage != nil {
+		total += usage.TotalTokens
 	}
 	if record.ReviewUsage != nil {
 		total += record.ReviewUsage.TotalTokens

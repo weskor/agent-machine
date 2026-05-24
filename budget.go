@@ -27,5 +27,5 @@ func budgetExceeded(b runBudget, started time.Time, usages ...*usage) string {
 }
 
 func renderBudgetFailureComment(reason string) string {
-	return truncateMarkdown(fmt.Sprintf("Go/Pi run stopped before handoff because a runner budget or subprocess timeout was exceeded.\n\nReason: %s\n\nThe run artifact records the terminal status. Prompts and raw subprocess output are intentionally omitted.", sanitizeMarkdownLine(reason)), 1000)
+	return truncateMarkdown(fmt.Sprintf("Runtime run stopped before handoff because a runner budget or subprocess timeout was exceeded.\n\nReason: %s\n\nThe run artifact records the terminal status. Prompts and raw subprocess output are intentionally omitted.", sanitizeMarkdownLine(reason)), 1000)
 }

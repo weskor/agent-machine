@@ -36,6 +36,10 @@ must not be used as architecture names for the runner itself.
   production runtime. That dependency should fail during runner preflight before
   claiming or mutating work, not after a workspace or Linear issue has been
   changed.
+- `codex_cli`: a local shell Adapter for clean `codex exec` runs. It reads the
+  prepared prompt file through stdin, supports the same one-shot implementation
+  and review attempt shape as `pi_cli`, and is selected explicitly with
+  `runtime.provider: codex_cli`.
 - `fake`: deterministic fake/test runtime used by tests and characterization
   scenarios. It should exercise the same AgentRuntime contract and handoff
   evidence paths without requiring network, auth, or an installed Agent CLI.
@@ -188,12 +192,12 @@ The current Pi CLI flow in `run_one.go` maps to the contract as follows:
   `expectedWorkspaceBranch`, branch detection). |
 | `AttemptContext` | Workspace path, branch, issue id/identifier, attempt number, and
   timeout budget (`config.Budget`). |
-| `RunAttempt` | `captureAgentOutput(...)` with command `PI_COMMAND @<prompt>` and
+| `RunAttempt` | `captureAgentOutput(...)` with the configured runtime command and
   timeout `Budget.PiTimeout`. |
 | `RuntimeEvent` | Structured event equivalents for command start, finished, timeout,
   and terminal outcome (to be produced by adapter implementation). |
 | `AttemptUsage` | `parseUsage(piOutput)` output currently stored on
-  `runRecord.PiUsage`. |
+  `runRecord.RuntimeUsage`. |
 | `AttemptResult` | Terminal status currently represented by
   `runAttemptStatus*` and persisted through `runRecord`. |
 | `ReviewAttempt` | `runReview(...)` when `config.ReviewCommand != ""` and run
@@ -215,4 +219,3 @@ The current Pi CLI flow in `run_one.go` maps to the contract as follows:
 - No change to scheduler policy, lock semantics, review heuristics, handoff
   transitions, or status mapping logic.
 - No behavior re-implementation in this ticket.
-

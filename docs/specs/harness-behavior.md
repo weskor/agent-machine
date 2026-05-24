@@ -93,7 +93,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 - Live dogfood smoke test CAG-131 validated that the claim-first split still lets a `Ready for Agent` issue enter the normal isolated workspace flow; no scheduler or state-machine policy changed as part of that smoke test.
 - `agent.max_concurrent_agents` controls only implementation-lane claim capacity. Duplicate work prevention remains enforced before Agent execution by candidate reconciliation, reusable terminal run artifacts, run locks, and SQLite leases.
 - `agent.max_turns` is enforced at the AgentRuntime/config preflight boundary for one-shot shell CLI runtimes: normalized `1` preserves the single implementation attempt, while values greater than `1` fail before claim, lease acquisition, workspace mutation, Linear state movement, or Agent execution.
-- `codex_cli` and `pi_cli` do not gate or stop an in-flight attempt by turn count; future session-runtime Adapters must declare and enforce a `max_turns` capability rather than relying on scheduler guesses.
+- `codex_cli` and `pi_cli` do not gate or stop an in-flight attempt by turn count; future session-runtime Adapters must declare session, turn-continuation, and `max_turns` capabilities rather than relying on scheduler guesses.
 - `max_retry_backoff_ms` gates retry timing for durable retry decisions: retryable failed or blocked attempts write retry metadata to SQLite, candidate selection skips the issue until the exponential backoff delay elapses, and the delay is capped by the configured maximum.
 - Duplicate dispatch prevention relies on workspace-level run lock artifacts and SQLite lease acquisition when available.
 - For duplicate-claim safety, the runner:

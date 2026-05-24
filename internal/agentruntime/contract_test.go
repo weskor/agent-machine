@@ -63,6 +63,26 @@ func TestStubRuntimeReturnsExplicitUnsupportedForStopCancel(t *testing.T) {
 	}
 }
 
+func TestRuntimeCapabilitiesCanRunMultipleTurns(t *testing.T) {
+	tests := []struct {
+		name string
+		caps RuntimeCapabilities
+		want bool
+	}{
+		{name: "one shot", caps: RuntimeCapabilities{SupportsReview: true}, want: false},
+		{name: "max turns without session", caps: RuntimeCapabilities{SupportsMaxTurns: true}, want: false},
+		{name: "session without continuation", caps: RuntimeCapabilities{SupportsSessions: true, SupportsMaxTurns: true}, want: false},
+		{name: "session continuation", caps: RuntimeCapabilities{SupportsSessions: true, SupportsTurnContinuation: true, SupportsMaxTurns: true}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.caps.CanRunMultipleTurns(); got != tt.want {
+				t.Fatalf("CanRunMultipleTurns() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsTerminalOutcome(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -72,6 +92,7 @@ func TestIsTerminalOutcome(t *testing.T) {
 		{name: "success", outcome: AttemptOutcomeSuccess, terminal: true},
 		{name: "failed", outcome: AttemptOutcomeFailed, terminal: true},
 		{name: "needs info", outcome: AttemptOutcomeNeedsInfo, terminal: true},
+		{name: "needs continuation", outcome: AttemptOutcomeContinuation, terminal: false},
 		{name: "timeout", outcome: AttemptOutcomeTimeout, terminal: true},
 	}
 	for _, tt := range tests {

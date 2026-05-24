@@ -7,6 +7,13 @@ import (
 	"time"
 )
 
+const (
+	defaultRuntimeProvider = "codex_cli"
+	legacyPiRuntime        = "pi_cli"
+	defaultCodexCommand    = "codex --ask-for-approval never exec --ignore-user-config --ignore-rules --ephemeral --sandbox workspace-write"
+	defaultPiCommand       = "pi --print --no-session --thinking low"
+)
+
 // Config is the normalized WORKFLOW.md configuration consumed by the runner.
 type Config struct {
 	Tracker   TrackerConfig
@@ -109,8 +116,10 @@ func ParseConfig(yaml string) (Config, error) {
 		return Config{}, err
 	}
 
-	runtimeProvider := Scalar(runtimeYAML, "  provider", Scalar(agentYAML, "  runtime_provider", "pi_cli"))
-	runtimeCommand := CommandUnder(runtimeYAML, "command", CommandUnder(piYAML, "command", "pi --print --no-session --thinking low"))
+	legacyPiCommand := CommandUnder(piYAML, "command", "")
+	legacyPiReviewCommand := CommandUnder(piYAML, "review_command", "")
+	runtimeProvider := runtimeProviderFromYAML(runtimeYAML, agentYAML, legacyPiCommand, legacyPiReviewCommand)
+	runtimeCommand := CommandUnder(runtimeYAML, "command", CommandUnder(piYAML, "command", defaultRuntimeCommand(runtimeProvider)))
 	runtimeReviewCommand := CommandUnder(runtimeYAML, "review_command", CommandUnder(piYAML, "review_command", ""))
 
 	config := Config{
@@ -187,6 +196,26 @@ func ParseConfig(yaml string) (Config, error) {
 		return Config{}, err
 	}
 	return config, nil
+}
+
+func runtimeProviderFromYAML(runtimeYAML, agentYAML, legacyPiCommand, legacyPiReviewCommand string) string {
+	if provider := Scalar(runtimeYAML, "  provider", ""); provider != "" {
+		return provider
+	}
+	if provider := Scalar(agentYAML, "  runtime_provider", ""); provider != "" {
+		return provider
+	}
+	if legacyPiCommand != "" || legacyPiReviewCommand != "" {
+		return legacyPiRuntime
+	}
+	return defaultRuntimeProvider
+}
+
+func defaultRuntimeCommand(provider string) string {
+	if strings.TrimSpace(provider) == legacyPiRuntime {
+		return defaultPiCommand
+	}
+	return defaultCodexCommand
 }
 
 // AgentMaxTurnsFromWorkflow returns the normalized agent.max_turns value used

@@ -1,6 +1,6 @@
 # Pi Symphony
 
-Pi Symphony is a Pi-native runner for a conservative Linear → workspace → Pi → review → GitHub PR handoff loop.
+Pi Symphony is a local-first Agent runner for a conservative Linear → workspace → Agent → review → GitHub PR handoff loop.
 
 It is extracted from `pennywise-investments/compound-web` and should be treated as private/experimental while the runner dogfoods its own workflow.
 
@@ -8,7 +8,7 @@ It is extracted from `pennywise-investments/compound-web` and should be treated 
 
 - Linear project polling with Ready/In Progress/Human Review/Done lanes.
 - Fresh per-issue workspaces and run locks.
-- One implementation Pi run plus a separate review Pi pass.
+- One implementation Agent run plus a separate review pass.
 - GitHub App authentication for bot-authored PR handoff, merge gates, squash merge, and branch cleanup.
 - Structured run/evaluation artifacts with usage, review status, blockers, and next action.
 - Conservative merge gating: approval, green checks/statuses, correct base/head, run evidence, and review pass required.
@@ -16,7 +16,8 @@ It is extracted from `pennywise-investments/compound-web` and should be treated 
 ## Requirements
 
 - Go 1.23+ installed through `mise` (`mise install` in this repository, then use `mise exec go -- ...` for validation)
-- `pi` CLI available on `PATH`
+- `codex` CLI available on `PATH` for the default `codex_cli` runtime
+- Optional: `pi` CLI available on `PATH` when `runtime.provider: pi_cli` is configured
 - Linear API token
 - GitHub token or GitHub App credentials with repository access
 

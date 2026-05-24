@@ -30,16 +30,15 @@ not a policy engine.
 Runtime provider names identify Adapter choices at the AgentRuntime seam. They
 must not be used as architecture names for the runner itself.
 
-- `pi_cli`: the current local Adapter. It shells to the local `pi` executable
-  and may remain the first/default local provider while the runner is local-first.
-  Users therefore need `pi` installed and configured on `PATH` for the current
-  production runtime. That dependency should fail during runner preflight before
-  claiming or mutating work, not after a workspace or Linear issue has been
-  changed.
-- `codex_cli`: a local shell Adapter for clean `codex exec` runs. It reads the
-  prepared prompt file through stdin, supports the same one-shot implementation
-  and review attempt shape as `pi_cli`, and is selected explicitly with
-  `runtime.provider: codex_cli`.
+- `codex_cli`: the default local shell Adapter. It shells to `codex exec`, reads
+  the prepared prompt file through stdin, and supports the same one-shot
+  implementation and review attempt shape as `pi_cli`. Users therefore need
+  `codex` installed and configured on `PATH` for the default production runtime.
+  That dependency should fail during runner preflight before claiming or mutating
+  work, not after a workspace or Linear issue has been changed.
+- `pi_cli`: the legacy local Adapter. It shells to the local `pi` executable and
+  remains available as an explicit runtime provider for operators that opt into
+  it.
 - `fake`: deterministic fake/test runtime used by tests and characterization
   scenarios. It should exercise the same AgentRuntime contract and handoff
   evidence paths without requiring network, auth, or an installed Agent CLI.
@@ -58,7 +57,7 @@ or moving a Linear issue, the selected runtime provider exposes a preflight
 result with actionable failures. The result includes the provider name, checked
 command(s), resolved executable path when available, prerequisite status, and a
 configuration error that does not expand environment variables or leak secrets.
-For `pi_cli`, this includes:
+For shell CLI providers, this includes:
 
 - binary availability and executable path for the configured implementation
   command;
@@ -71,8 +70,8 @@ For `pi_cli`, this includes:
   login to, or select.
 
 Preflight must be best-effort where runtime CLIs do not expose stable auth/model
-inspection commands, but a missing configured executable for `pi_cli` is a hard
-pre-claim failure.
+inspection commands, but a missing configured executable for the selected shell
+CLI provider is a hard pre-claim failure.
 The runner should record the selected provider and visible model/config evidence
 in artifacts or orchestration state when available.
 
@@ -104,15 +103,17 @@ Unsupported capabilities must be explicit. A future `max_turns` implementation
 must check the provider capability first; it must not assume that `pi_cli` can
 enforce internal turn limits just because the workflow field exists.
 
-Current `pi_cli` semantics for `agent.max_turns` are intentionally narrow:
+Current shell CLI semantics for `agent.max_turns` are intentionally narrow:
 missing, invalid, zero, or `1` resolves to the historical single implementation
-attempt, and any normalized value greater than `1` is a runtime configuration
-preflight failure before claim, lease acquisition, workspace mutation, or Linear
-state movement. The actionable failure must tell the operator to use
-`agent.max_turns: 1` or a future session runtime that supports continuation.
+attempt for `codex_cli` and `pi_cli`, and any normalized value greater than `1`
+is a runtime configuration preflight failure before claim, lease acquisition,
+workspace mutation, or Linear state movement. The actionable failure must tell
+the operator to use `agent.max_turns: 1` or a future session runtime that
+supports continuation.
 A future app-server/session-runtime Adapter may support `max_turns` by declaring
 the capability and enforcing continuation inside the session lifecycle; the
-runner must not emulate continuation by repeatedly shelling out to `pi_cli`.
+runner must not emulate continuation by repeatedly shelling out to a one-shot
+CLI runtime.
 
 ### Deterministic handoff boundary
 

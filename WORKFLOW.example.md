@@ -31,20 +31,20 @@ agent:
   max_turns: 1
   max_retry_backoff_ms: 300000
 runtime:
-  provider: pi_cli
+  provider: codex_cli
   command: >-
-    pi --mode json --print --no-session --thinking low
+    codex --ask-for-approval never exec --ignore-user-config --ignore-rules --ephemeral --sandbox workspace-write
   review_command: >-
-    pi --mode json --print --no-session --thinking xhigh
+    codex --ask-for-approval never exec --ignore-user-config --ignore-rules --ephemeral --sandbox read-only
 pi:
   after_create: |
     git clone --branch develop git@github.com:OWNER/REPO.git .
   before_run: git status --short --branch
   after_run: git diff --check
-# For a clean Codex CLI runtime, set:
-# runtime.provider: codex_cli
-# runtime.command: codex --ask-for-approval never exec --ignore-user-config --ignore-rules --ephemeral --sandbox workspace-write
-# runtime.review_command: codex --ask-for-approval never exec --ignore-user-config --ignore-rules --ephemeral --sandbox read-only
+# To opt into the legacy Pi CLI runtime, set:
+# runtime.provider: pi_cli
+# runtime.command: pi --mode json --print --no-session --thinking low
+# runtime.review_command: pi --mode json --print --no-session --thinking xhigh
 review:
   # Optional target-repository review guidance appended to the generic Pi Symphony review prompt.
   # Use this for domain-specific paths, invariants, security checks, or docs that reviewers

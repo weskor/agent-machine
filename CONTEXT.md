@@ -1,6 +1,6 @@
 # Pi Symphony
 
-Pi Symphony is a runner harness for taking one well-scoped Linear issue through an isolated workspace, a Pi implementation attempt, optional review, and GitHub PR handoff.
+Pi Symphony is a runner harness for taking one well-scoped Linear issue through an isolated workspace, an Agent implementation attempt, optional review, and GitHub PR handoff.
 
 ## Language
 

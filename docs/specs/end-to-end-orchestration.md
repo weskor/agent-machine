@@ -38,17 +38,18 @@ The V1 orchestration target follows the boundary in [Harness Behavior Spec: Runn
 
 ## AgentRuntime provider strategy
 
-Pi Symphony is a runner harness with an AgentRuntime Adapter seam. The current
-local production provider is `pi_cli`, which shells to the local `pi` executable.
-That means current users need `pi` installed on `PATH` and configured for auth,
-provider, model, and quota outside Pi Symphony. `pi_cli` may remain the first and
-default local provider, but it is not the runner architecture itself.
+Pi Symphony is a runner harness with an AgentRuntime Adapter seam. The default
+local production provider is `codex_cli`, which shells to a clean local
+`codex exec` command. That means current users need `codex` installed on `PATH`
+and configured for auth, provider, model, and quota outside Pi Symphony. The
+legacy `pi_cli` provider remains available as an explicit opt-in, but neither
+provider is the runner architecture itself.
 
 Supported vocabulary:
 
-- `pi_cli`: local shell Adapter for the Pi CLI.
-- `codex_cli`: local shell Adapter for clean `codex exec` sessions, selected
-  explicitly with `runtime.provider: codex_cli`.
+- `codex_cli`: default local shell Adapter for clean `codex exec` sessions.
+- `pi_cli`: legacy local shell Adapter for the Pi CLI, selected explicitly with
+  `runtime.provider: pi_cli` or by legacy `pi.command`-only workflows.
 - `fake`: deterministic fake/test Adapter for parity tests and contract coverage.
 - Future API, app-server, ACP-style, or MCP-style Adapters: transport choices
   that must reuse runner Modules instead of owning orchestration policy.
@@ -136,10 +137,10 @@ Terminal failure must include the failing phase, evidence pointer, and side effe
   - Invalid/zero handling is delegated to configuration parsing, which currently falls back to `1` for missing/malformed/negative values.
   - Duplicate dispatch protection remains authoritative in candidate selection, reusable terminal artifact checks, run locks, and SQLite leases before Agent execution starts; increasing capacity must not intentionally bypass those protections.
 - `max_turns`:
-  - Current `pi_cli` runtime behavior: no continuation/session loop exists today, so missing, invalid, zero, or `1` resolves to exactly one implementation attempt for the selected issue.
-  - A normalized value greater than `1` is unsupported for `pi_cli` and fails runtime preflight before claim, lease acquisition, workspace mutation, Linear state movement, or Agent execution.
-  - The failure is an operator-facing configuration error that names `pi_cli`, the configured value, and the remediation: set `agent.max_turns: 1` or use a future session runtime with continuation support.
-  - Future session-runtime Adapters may support this by declaring a `max_turns` capability and enforcing turns inside one durable session; the runner must not approximate multi-turn behavior by issuing multiple independent `pi_cli` attempts.
+  - Current one-shot shell CLI runtime behavior: no continuation/session loop exists today, so missing, invalid, zero, or `1` resolves to exactly one implementation attempt for the selected issue.
+  - A normalized value greater than `1` is unsupported for `codex_cli` and `pi_cli` and fails runtime preflight before claim, lease acquisition, workspace mutation, Linear state movement, or Agent execution.
+  - The failure is an operator-facing configuration error that names the selected provider, the configured value, and the remediation: set `agent.max_turns: 1` or use a future session runtime with continuation support.
+  - Future session-runtime Adapters may support this by declaring a `max_turns` capability and enforcing turns inside one durable session; the runner must not approximate multi-turn behavior by issuing multiple independent one-shot CLI attempts.
 - `max_retry_backoff_ms`:
   - Current CLI runtime behavior: parsed for configuration storage only; no scheduler delay/backoff is applied before retry.
   - Default is `300000` ms.

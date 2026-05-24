@@ -200,7 +200,10 @@ SQLite lease, records a process heartbeat, and exits after one completed task.
 The `reconciliation` process refreshes Linear candidates, open Symphony PRs,
 workspace artifacts, and SQLite facts, then records reconciliation-needed or
 quarantine evidence as SQLite events without repairing or mutating external
-systems. The `review` process only
+systems. Continuous mode runs cleanup and merge as separate lanes: cleanup
+refreshes Done issues and applies workspace cleanup, while merge runs
+merge-approved processing through the shared continuous SQLite store without a
+cleanup prepass. The `review` process only
 claims existing `review_pending` payloads before falling back to review-not-ready
 attempts whose current GitHub checks are successful. The `implementation`
 process claims fresh runnable attempts and skips review-ready resumes owned by

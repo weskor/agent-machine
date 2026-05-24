@@ -96,33 +96,67 @@ func TestContinuousSchedulerRecordsLaneHeartbeats(t *testing.T) {
 	}
 }
 
-func TestContinuousLanesSplitReviewAndImplementationWork(t *testing.T) {
+func TestContinuousLanesSplitCleanupMergeReviewAndImplementationWork(t *testing.T) {
 	root := t.TempDir()
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	oldIssueIdentifiers := issueIdentifiersByStateForContinuousCleanup
+	oldCleanupWorkspaces := cleanupWorkspacesForContinuous
+	oldMergeApprovedPRs := mergeApprovedPRsForContinuous
 	oldRunReviewReadyAttempt := runReviewReadyAttemptForWorker
 	oldRunImplementationBatch := runImplementationAttemptBatchForContinuous
 	t.Cleanup(func() {
+		issueIdentifiersByStateForContinuousCleanup = oldIssueIdentifiers
+		cleanupWorkspacesForContinuous = oldCleanupWorkspaces
+		mergeApprovedPRsForContinuous = oldMergeApprovedPRs
 		runReviewReadyAttemptForWorker = oldRunReviewReadyAttempt
 		runImplementationAttemptBatchForContinuous = oldRunImplementationBatch
 	})
 	var calls []string
+	issueIdentifiersByStateForContinuousCleanup = func(client linearClient, projectSlug, stateName string) (map[string]bool, error) {
+		if projectSlug != "CAG" || stateName != "Done" {
+			t.Fatalf("Done issue refresh = project %q state %q; want CAG/Done", projectSlug, stateName)
+		}
+		return map[string]bool{"CAG-160": true}, nil
+	}
+	cleanupWorkspacesForContinuous = func(workspaceRoot string, options cleanupOptions) error {
+		calls = append(calls, "cleanup")
+		if workspaceRoot != root || !options.Apply || !options.DoneIssues["CAG-160"] || options.StateStore == nil {
+			t.Fatalf("cleanup options = root %q options %+v; want apply with Done issues and state store", workspaceRoot, options)
+		}
+		return nil
+	}
+	mergeApprovedPRsForContinuous = func(client linearClient, config runnerConfig, store *state.Store) error {
+		calls = append(calls, "merge")
+		if config.WorkspaceRoot != root || config.ProjectSlug != "CAG" || store == nil {
+			t.Fatalf("merge lane input = config %+v store=%v; want root/project with shared store", config, store)
+		}
+		return nil
+	}
 	runReviewReadyAttemptForWorker = func(client linearClient, wf workflow, config runnerConfig, store *state.Store) (bool, error) {
 		calls = append(calls, "review")
-		if config.WorkspaceRoot != root || store != nil {
-			t.Fatalf("review lane input = config %+v store=%v; want root and nil store in direct lane test", config, store != nil)
+		if config.WorkspaceRoot != root || store == nil {
+			t.Fatalf("review lane input = config %+v store=%v; want root with shared store", config, store)
 		}
 		return true, nil
 	}
 	runImplementationAttemptBatchForContinuous = func(client linearClient, wf workflow, config runnerConfig, store *state.Store, capacity int) (bool, error) {
 		calls = append(calls, "implementation")
-		if config.WorkspaceRoot != root || store != nil || capacity != 4 {
-			t.Fatalf("implementation lane input = config %+v store=%v capacity=%d; want root nil store capacity=4", config, store != nil, capacity)
+		if config.WorkspaceRoot != root || store == nil || capacity != 4 {
+			t.Fatalf("implementation lane input = config %+v store=%v capacity=%d; want root with shared store capacity=4", config, store, capacity)
 		}
 		return true, nil
 	}
 
-	lanes := continuousLanes(context.Background(), linearClient{}, workflow{}, runnerConfig{ProjectSlug: "CAG", WorkspaceRoot: root, ReviewCommand: "pi review"}, nil, 4)
-	if len(lanes) != 3 || lanes[0].name != "merge" || lanes[1].name != "review" || lanes[2].name != "implementation" {
-		t.Fatalf("lanes = %+v; want merge, review, implementation", lanes)
+	lanes := continuousLanes(context.Background(), linearClient{}, workflow{}, runnerConfig{ProjectSlug: "CAG", WorkspaceRoot: root, DoneState: "Done", ReviewCommand: "pi review"}, store, 4)
+	if len(lanes) != 4 || lanes[0].name != "cleanup" || lanes[1].name != "merge" || lanes[2].name != "review" || lanes[3].name != "implementation" {
+		t.Fatalf("lanes = %+v; want cleanup, merge, review, implementation", lanes)
+	}
+	if _, err := lanes[0].run(); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := lanes[1].run(); err != nil {
 		t.Fatal(err)
@@ -130,8 +164,12 @@ func TestContinuousLanesSplitReviewAndImplementationWork(t *testing.T) {
 	if _, err := lanes[2].run(); err != nil {
 		t.Fatal(err)
 	}
-	if len(calls) != 2 || calls[0] != "review" || calls[1] != "implementation" {
-		t.Fatalf("calls = %#v; want review then implementation", calls)
+	if _, err := lanes[3].run(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"cleanup", "merge", "review", "implementation"}
+	if !equalStrings(calls, want) {
+		t.Fatalf("calls = %#v; want %v", calls, want)
 	}
 }
 

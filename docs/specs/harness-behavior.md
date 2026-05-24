@@ -86,7 +86,9 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 ### Scheduler parameter behavior (current runnable contract)
 
 - Current runtime behavior is capacity-limited by `agent.max_concurrent_agents`:
-  - `--continuous` starts merge, review, and implementation lanes;
+  - `--continuous` starts cleanup, merge, review, and implementation lanes;
+  - the cleanup lane refreshes Done issue identifiers and applies workspace cleanup;
+  - the merge lane runs merge-approved processing without cleanup prepass work;
   - the implementation lane deterministically claims up to `agent.max_concurrent_agents` distinct fresh runnable attempts per iteration, then executes the claimed attempts concurrently;
   - the review lane resumes existing review-not-ready attempts after current GitHub checks become successful;
   - the default value of `1` preserves the historical single-agent behavior.
@@ -116,12 +118,13 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 ## CLI modes
 
 - Default and `--once`: claim and execute one eligible Linear issue.
-- `--continuous` / `--daemon`: run merge, review, and implementation lanes until canceled, or until `--cycles=N` completes N cycles per lane.
-- `--worker=<role>`: run one selected worker role as a separate CLI process through a durable worker task, process heartbeat, and SQLite lease. Supported roles are `status`, `plan`, `cleanup`, `merge`, `review`, `implementation`, `handoff`, `linear-status`, and `work`.
+- `--continuous` / `--daemon`: run cleanup, merge, review, and implementation lanes until canceled, or until `--cycles=N` completes N cycles per lane.
+- `--worker=<role>`: run one selected worker role as a separate CLI process through a durable worker task, process heartbeat, and SQLite lease. Supported roles are `status`, `plan`, `cleanup`, `merge`, `reconciliation`, `review`, `implementation`, `handoff`, `linear-status`, and `work`.
   - `status` wraps normal status output and is read-only.
   - `plan` wraps normal explain/planning output and is read-only.
   - `cleanup` refreshes Done issue identifiers and applies existing workspace cleanup behavior.
-  - `merge` refreshes Done issue identifiers, applies cleanup, then runs existing approved-PR merge behavior.
+  - `merge` runs approved-PR merge behavior without cleanup prepass work.
+  - `reconciliation` refreshes Linear candidates, open Symphony PRs, workspace artifacts, and SQLite facts, then records reconciliation-needed/quarantine evidence without mutating external systems.
   - `review` claims existing `review_pending` payloads before resuming review-not-ready attempts whose current GitHub checks are successful; it does not claim fresh implementation work or execute handoff side effects.
   - `implementation` claims fresh runnable attempts and skips review-ready resumes owned by `review`.
   - `handoff` claims existing `pr_handoff_pending` progress before final `handoff_pending` progress; it executes PR handoff from the bounded PR handoff payload, queues review/final handoff output, and completes final handoff side effects without implementation or semantic review.
@@ -147,9 +150,11 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 
 ## Continuous scheduler
 
-- Continuous mode starts a merge lane and a work lane concurrently.
-- The merge lane is continuous, sleeps 30 seconds between cycles, cleans Done workspaces with apply enabled, then runs merge-approved processing.
-- The work lane claims up to `agent.max_concurrent_agents` distinct runnable attempts per cycle, executes those claimed attempts concurrently, and sleeps 60 seconds only when no attempt was claimed or executed.
+- Continuous mode starts cleanup, merge, review, and implementation lanes concurrently.
+- The cleanup lane is continuous, sleeps 30 seconds between cycles, refreshes Done issues, and cleans eligible Done workspaces with apply enabled.
+- The merge lane is continuous, sleeps 30 seconds between cycles, and runs merge-approved processing without cleanup prepass work.
+- The review lane resumes review-not-ready attempts after current GitHub checks become successful.
+- The implementation lane claims up to `agent.max_concurrent_agents` distinct runnable attempts per cycle, executes those claimed attempts concurrently, and sleeps 60 seconds only when no attempt was claimed or executed.
 - Any lane error cancels the scheduler and returns the error.
 - With `--cycles=N`, each lane exits after N cycles.
 

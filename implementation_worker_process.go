@@ -10,23 +10,11 @@ import (
 	"github.com/weskor/pi-symphony/internal/state"
 )
 
-func runImplementationAttempt(client linearClient, proj project, config runnerConfig, stateStore *state.Store) (bool, error) {
-	return runImplementationAttemptBatch(client, proj, config, stateStore, 1)
-}
-
-func runImplementationAttemptBatch(client linearClient, proj project, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
-	return runImplementationAttemptBatchContext(context.Background(), client, proj, config, stateStore, capacity)
-}
-
 func runImplementationAttemptBatchContext(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
 	if stateStore == nil {
 		return false, fmt.Errorf("SQLite state store unavailable for implementation worker at %s", state.DefaultDBPath(config.WorkspaceRoot))
 	}
 	return runClaimedAttemptBatchWithClaimerContext(ctx, client, proj, config, stateStore, capacity, claimNextImplementationAttemptContext)
-}
-
-func runQueuedImplementationAttemptBatch(client linearClient, proj project, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
-	return runQueuedImplementationAttemptBatchContext(context.Background(), client, proj, config, stateStore, capacity)
 }
 
 func runQueuedImplementationAttemptBatchContext(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
@@ -60,10 +48,6 @@ func claimNextImplementationAttemptContext(ctx context.Context, client linearCli
 		}
 	}
 	return prepareClaimedImplementationWorkerTask(ctx, client, proj, config, stateStore, task)
-}
-
-func claimNextQueuedImplementationAttempt(client linearClient, proj project, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
-	return claimNextQueuedImplementationAttemptContext(context.Background(), client, proj, config, stateStore)
 }
 
 func claimNextQueuedImplementationAttemptContext(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
@@ -147,7 +131,7 @@ func prepareClaimedImplementationWorkerTask(ctx context.Context, client linearCl
 		return failTask("linear_issue_lookup_failed", err)
 	}
 	if candidate == nil {
-		return failTask("linear_issue_missing", fmt.Errorf("Linear issue %s was not found", task.IssueKey))
+		return failTask("linear_issue_missing", fmt.Errorf("linear issue %s was not found", task.IssueKey))
 	}
 	prsByIssue, err := openPRsByIssueForSelection(config)
 	if err != nil {

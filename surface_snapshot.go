@@ -165,19 +165,19 @@ func buildSurfaceSnapshot(ctx context.Context, config runnerConfig, observedAt t
 		out.Issues = append(out.Issues, surfaceIssue{Issue: issue.Issue, Status: issue.Status, Review: issue.Review, PRURL: issue.PRURL, Outcome: issue.Outcome, Source: issue.Source, UpdatedAt: issue.UpdatedAt})
 	}
 	for _, lock := range orch.ActiveLocks {
-		out.ActiveLocks = append(out.ActiveLocks, surfaceLock{Issue: lock.Issue, Workspace: lock.Workspace, Owner: lock.Owner, Active: lock.Active, Stale: lock.Stale, RenewedAt: lock.RenewedAt})
+		out.ActiveLocks = append(out.ActiveLocks, surfaceLock(lock))
 	}
 	for _, lane := range orch.ActiveLanes {
-		out.ActiveLanes = append(out.ActiveLanes, surfaceLane{Name: lane.Name, ProcessID: lane.ProcessID, CycleNumber: lane.CycleNumber, LastSuccessAt: lane.LastSuccessAt, LastError: lane.LastError, RecoveryRequired: lane.RecoveryRequired, ActiveTaskKey: lane.ActiveTaskKey, ActiveTaskRole: lane.ActiveTaskRole, ActiveLeaseName: lane.ActiveLeaseName, ActiveTaskStartedAt: lane.ActiveTaskStartedAt, UpdatedAt: lane.UpdatedAt, Source: lane.Source})
+		out.ActiveLanes = append(out.ActiveLanes, surfaceLane(lane))
 	}
 	for _, task := range orch.WorkerTasks {
-		out.WorkerTasks = append(out.WorkerTasks, surfaceWorkerTask{TaskKey: task.TaskKey, Role: task.Role, IssueKey: task.IssueKey, Attempt: task.Attempt, Status: task.Status, Priority: task.Priority, LeaseName: task.LeaseName, AvailableAt: task.AvailableAt, UpdatedAt: task.UpdatedAt})
+		out.WorkerTasks = append(out.WorkerTasks, surfaceWorkerTask(task))
 	}
 	for _, result := range orch.WorkerResults {
-		out.WorkerResults = append(out.WorkerResults, surfaceWorkerResult{TaskKey: result.TaskKey, Role: result.Role, LaneName: result.LaneName, IssueKey: result.IssueKey, Attempt: result.Attempt, Status: result.Status, DidWork: result.DidWork, Reason: result.Reason, Error: result.Error, StartedAt: result.StartedAt, FinishedAt: result.FinishedAt, UpdatedAt: result.UpdatedAt})
+		out.WorkerResults = append(out.WorkerResults, surfaceWorkerResult(result))
 	}
 	for _, event := range orch.RecentEvents {
-		out.RecentEvents = append(out.RecentEvents, surfaceRecentEvent{Sequence: event.Sequence, OccurredAt: event.OccurredAt, IssueKey: event.IssueKey, Source: event.Source, Type: event.Type})
+		out.RecentEvents = append(out.RecentEvents, surfaceRecentEvent(event))
 	}
 	return out, nil
 }

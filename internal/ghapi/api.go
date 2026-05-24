@@ -450,7 +450,7 @@ func (c *goClient) PullRequestHandoffDetails(ctx context.Context, prURL string) 
 }
 
 func (c *goClient) CreatePullRequest(ctx context.Context, title, body, head, base string) (PRHandoffDetails, error) {
-	pr, _, err := c.client.PullRequests.Create(ctx, c.owner, c.repo, &github.NewPullRequest{Title: github.String(title), Body: github.String(body), Head: github.String(head), Base: github.String(base)})
+	pr, _, err := c.client.PullRequests.Create(ctx, c.owner, c.repo, &github.NewPullRequest{Title: github.Ptr(title), Body: github.Ptr(body), Head: github.Ptr(head), Base: github.Ptr(base)})
 	if err != nil {
 		return PRHandoffDetails{}, fmt.Errorf("GitHub API PR create failed: %w", err)
 	}
@@ -458,7 +458,7 @@ func (c *goClient) CreatePullRequest(ctx context.Context, title, body, head, bas
 }
 
 func (c *goClient) UpdatePullRequest(ctx context.Context, number int, title, body, base string) (PRHandoffDetails, error) {
-	pr, _, err := c.client.PullRequests.Edit(ctx, c.owner, c.repo, number, &github.PullRequest{Title: github.String(title), Body: github.String(body), Base: &github.PullRequestBranch{Ref: github.String(base)}})
+	pr, _, err := c.client.PullRequests.Edit(ctx, c.owner, c.repo, number, &github.PullRequest{Title: github.Ptr(title), Body: github.Ptr(body), Base: &github.PullRequestBranch{Ref: github.Ptr(base)}})
 	if err != nil {
 		return PRHandoffDetails{}, fmt.Errorf("GitHub API PR update failed for #%d: %w", number, err)
 	}

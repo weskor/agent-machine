@@ -174,10 +174,6 @@ func findMergeTaskPullRequest(prs []pullRequestSummary, task orchstate.WorkerTas
 	return pullRequestSummary{}, false
 }
 
-func recordMergeEvent(store *orchstate.Store, eventType, issueKey, issueID string, prNumber int, payload map[string]any) {
-	recordMergeEventContext(context.Background(), store, eventType, issueKey, issueID, prNumber, payload)
-}
-
 func recordMergeEventContext(ctx context.Context, store *orchstate.Store, eventType, issueKey, issueID string, prNumber int, payload map[string]any) {
 	if store == nil {
 		return
@@ -191,10 +187,6 @@ func recordMergeEventContext(ctx context.Context, store *orchstate.Store, eventT
 	if _, err := store.AppendEvent(ctx, orchstate.EventInput{OccurredAt: time.Now().UTC(), IssueKey: issueKey, IssueID: issueID, Source: "merge-lane", Type: eventType, Payload: payload}); err != nil {
 		log("skipping sqlite merge event %s: %v", eventType, err)
 	}
-}
-
-func recordMergeError(store *orchstate.Store, issueKey, issueID string, prNumber int, err error) {
-	recordMergeErrorContext(context.Background(), store, issueKey, issueID, prNumber, err)
 }
 
 func recordMergeErrorContext(ctx context.Context, store *orchstate.Store, issueKey, issueID string, prNumber int, err error) {

@@ -15,7 +15,7 @@ func TestSummarizeArtifactsReportsUsageAndTerminalStatus(t *testing.T) {
 		Issue:             "CAG-12",
 		Status:            "success",
 		Review:            "passed",
-		PRURL:             "https://github.com/pennywise-investments/compound-web/pull/402",
+		PRURL:             "https://github.com/weskor/pi-symphony/pull/402",
 		Outcome:           "handoff_ready",
 		RootCause:         "none",
 		NextAction:        "await_approval_and_green_checks",
@@ -140,7 +140,7 @@ func TestStatusIssueStatesIncludesHandoffState(t *testing.T) {
 
 func TestSummarizePRAnnotatesArtifactGate(t *testing.T) {
 	artifact := artifactSummary{HasEvaluation: true, Outcome: "review_failed", NextAction: "repair_review_findings_before_handoff", ShouldRetry: true, OperatorAttention: true}
-	line := summarizePR(pullRequestSummary{Number: 402, URL: "https://github.com/pennywise-investments/compound-web/pull/402", HeadRefName: "symphony/CAG-12-workspace", Mergeable: "MERGEABLE", ReviewDecision: "CHANGES_REQUESTED"}, &artifact)
+	line := summarizePR(pullRequestSummary{Number: 402, URL: "https://github.com/weskor/pi-symphony/pull/402", HeadRefName: "symphony/CAG-12-workspace", Mergeable: "MERGEABLE", ReviewDecision: "CHANGES_REQUESTED"}, &artifact)
 	for _, expected := range []string{"#402", "artifact_gate=outcome:review_failed", "merge_eligible:false", "retry:true", "attention:true", "next:repair_review_findings_before_handoff"} {
 		if !strings.Contains(line, expected) {
 			t.Fatalf("expected %q in %q", expected, line)
@@ -201,7 +201,7 @@ func TestReconcileIssuesUsesOpenPRMapping(t *testing.T) {
 	config.HandoffState = "Human Review"
 	config.BaseBranch = "develop"
 	candidate := testIssue("CAG-44", "Human Review")
-	pr := pullRequestSummary{Number: 444, URL: "https://github.com/pennywise-investments/compound-web/pull/444", BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-44"), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "COMMENTED"}
+	pr := pullRequestSummary{Number: 444, URL: "https://github.com/weskor/pi-symphony/pull/444", BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-44"), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "COMMENTED"}
 
 	decisions := reconcileIssues(config, []issue{candidate}, indexPRsByIssue([]pullRequestSummary{pr}), nil)
 
@@ -245,7 +245,7 @@ func TestRunningReconciliationReportsDeletedWorkspace(t *testing.T) {
 func TestReadyReconciliationReportsStaleTerminalArtifactWithoutWorkspaceRead(t *testing.T) {
 	candidate := testIssue("CAG-46", "Ready for Agent")
 	config := runnerConfig{WorkspaceRoot: t.TempDir(), ReadyState: "Ready for Agent"}
-	artifacts := map[string]artifactSummary{"CAG-46": {Issue: "CAG-46", Status: "success", Outcome: "handoff_ready", NextAction: "await_approval_and_green_checks", Cleanable: true, HasArtifact: true, PRURL: "https://github.com/pennywise-investments/compound-web/pull/446"}}
+	artifacts := map[string]artifactSummary{"CAG-46": {Issue: "CAG-46", Status: "success", Outcome: "handoff_ready", NextAction: "await_approval_and_green_checks", Cleanable: true, HasArtifact: true, PRURL: "https://github.com/weskor/pi-symphony/pull/446"}}
 
 	decisions := reconcileIssues(config, []issue{candidate}, nil, artifacts)
 	lines := summarizeReadyReconciliationDecisions(decisions, config.ReadyState)

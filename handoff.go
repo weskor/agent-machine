@@ -237,17 +237,9 @@ func ensureRunnerPRHandoffFromInputContext(ctx context.Context, config runnerCon
 	return prURL, err
 }
 
-func executePRHandoffPendingPayload(config runnerConfig, payload prHandoffPendingPayload, githubEnv map[string]string) (string, error) {
-	return executePRHandoffPendingPayloadContext(context.Background(), config, payload, githubEnv)
-}
-
 func executePRHandoffPendingPayloadContext(ctx context.Context, config runnerConfig, payload prHandoffPendingPayload, githubEnv map[string]string) (string, error) {
 	candidate := payload.Issue()
 	return executeRunnerPRHandoffContext(ctx, config, candidate, payload.Workspace, payload.AgentPRURL, githubEnv)
-}
-
-func executeRunnerPRHandoff(config runnerConfig, candidate *issue, workspace, agentPRURL string, githubEnv map[string]string) (string, error) {
-	return executeRunnerPRHandoffContext(context.Background(), config, candidate, workspace, agentPRURL, githubEnv)
 }
 
 func executeRunnerPRHandoffContext(ctx context.Context, config runnerConfig, candidate *issue, workspace, agentPRURL string, githubEnv map[string]string) (string, error) {

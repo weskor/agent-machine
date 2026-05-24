@@ -114,7 +114,7 @@ func TestRunArtifactMergeBlockReason(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	record := testRunRecord("review_failed", "https://github.com/pennywise-investments/compound-web/pull/426")
+	record := testRunRecord("review_failed", "https://github.com/weskor/pi-symphony/pull/426")
 	record.IssueIdentifier = "CAG-28"
 	record.ReviewStatus = "failed"
 	data, err := json.Marshal(record)
@@ -260,7 +260,7 @@ func TestMergeGateBlockReason(t *testing.T) {
 func TestMergeApprovedPRsMovesConflictingPRBackToReady(t *testing.T) {
 	root := t.TempDir()
 	merged := map[int]bool{}
-	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 414, URL: "https://github.com/pennywise-investments/compound-web/pull/414", HeadRefName: "symphony/CAG-23-workspace-cleanup", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: merged})
+	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 414, URL: "https://github.com/weskor/pi-symphony/pull/414", HeadRefName: "symphony/CAG-23-workspace-cleanup", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: merged})
 
 	var updatedStates []string
 	var comments []string
@@ -324,10 +324,10 @@ func TestMergeApprovedPRsSquashMergesAndDeletesBranchViaGitHubAPI(t *testing.T) 
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeMergeableRunArtifact(t, workspace, "https://github.com/pennywise-investments/compound-web/pull/441")
+	writeMergeableRunArtifact(t, workspace, "https://github.com/weskor/pi-symphony/pull/441")
 	merged := map[int]bool{}
 	deleted := map[string]bool{}
-	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 441, URL: "https://github.com/pennywise-investments/compound-web/pull/441", BaseRefName: "develop", HeadRefName: "symphony/CAG-41-workspace", Author: prAuthor{Login: "app/compound-symphony-bot"}, Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: merged, deletedBranches: deleted})
+	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 441, URL: "https://github.com/weskor/pi-symphony/pull/441", BaseRefName: "develop", HeadRefName: "symphony/CAG-41-workspace", Author: prAuthor{Login: "app/pi-symphony-bot"}, Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: merged, deletedBranches: deleted})
 
 	var updatedStates []string
 	var comments []string
@@ -391,8 +391,8 @@ func TestMergeApprovedPRsEmitsCompletedEvent(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeMergeableRunArtifact(t, workspace, "https://github.com/pennywise-investments/compound-web/pull/104")
-	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 104, URL: "https://github.com/pennywise-investments/compound-web/pull/104", BaseRefName: "develop", HeadRefName: "symphony/CAG-104-workspace", Author: prAuthor{Login: "app/compound-symphony-bot"}, Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: map[int]bool{}, deletedBranches: map[string]bool{}})
+	writeMergeableRunArtifact(t, workspace, "https://github.com/weskor/pi-symphony/pull/104")
+	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 104, URL: "https://github.com/weskor/pi-symphony/pull/104", BaseRefName: "develop", HeadRefName: "symphony/CAG-104-workspace", Author: prAuthor{Login: "app/pi-symphony-bot"}, Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: map[int]bool{}, deletedBranches: map[string]bool{}})
 
 	var updatedStates []string
 	var comments []string
@@ -431,7 +431,7 @@ func TestMergeApprovedPRsEmitsCompletedEvent(t *testing.T) {
 
 func TestMergeApprovedPRsEmitsBlockedEvent(t *testing.T) {
 	root := t.TempDir()
-	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 105, URL: "https://github.com/pennywise-investments/compound-web/pull/105", BaseRefName: "develop", HeadRefName: "symphony/CAG-105-workspace", Author: prAuthor{Login: "app/compound-symphony-bot"}, Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}})
+	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 105, URL: "https://github.com/weskor/pi-symphony/pull/105", BaseRefName: "develop", HeadRefName: "symphony/CAG-105-workspace", Author: prAuthor{Login: "app/pi-symphony-bot"}, Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}})
 	var updatedStates []string
 	var comments []string
 	config := testRunnerConfig(root)
@@ -464,10 +464,10 @@ func TestScheduleMergeWorkerTasksEnqueuesHandoffPRWithoutClaiming(t *testing.T) 
 	merged := map[int]bool{}
 	pr := pullRequestSummary{
 		Number:            190,
-		URL:               "https://github.com/pennywise-investments/compound-web/pull/190",
+		URL:               "https://github.com/weskor/pi-symphony/pull/190",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch("CAG-190"),
-		Author:            prAuthor{Login: "app/compound-symphony-bot"},
+		Author:            prAuthor{Login: "app/pi-symphony-bot"},
 		Mergeable:         "MERGEABLE",
 		MergeStateStatus:  "CLEAN",
 		ReviewDecision:    "APPROVED",
@@ -515,10 +515,10 @@ func TestRunQueuedMergeWorkerTaskClaimsTaskAndRefreshesOpenPR(t *testing.T) {
 	defer store.Close()
 	pr := pullRequestSummary{
 		Number:            191,
-		URL:               "https://github.com/pennywise-investments/compound-web/pull/191",
+		URL:               "https://github.com/weskor/pi-symphony/pull/191",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch("CAG-191"),
-		Author:            prAuthor{Login: "app/compound-symphony-bot"},
+		Author:            prAuthor{Login: "app/pi-symphony-bot"},
 		Mergeable:         "MERGEABLE",
 		MergeStateStatus:  "CLEAN",
 		ReviewDecision:    "APPROVED",
@@ -532,7 +532,7 @@ func TestRunQueuedMergeWorkerTaskClaimsTaskAndRefreshesOpenPR(t *testing.T) {
 		BranchName:    expectedWorkspaceBranch("CAG-191"),
 		BaseBranch:    "develop",
 		Status:        runAttemptStatusSuccess,
-		Repository:    "pennywise-investments/compound-web",
+		Repository:    "weskor/pi-symphony",
 		PRNumber:      pr.Number,
 		PRURL:         pr.URL,
 		ReviewStatus:  "passed",
@@ -596,10 +596,10 @@ func TestMergeWorkerRoutesChangesRequestedBackToReady(t *testing.T) {
 	client := mergeTestLinearClient(t, "CAG-106", &updatedStates, &comments)
 	pr := pullRequestSummary{
 		Number:         106,
-		URL:            "https://github.com/pennywise-investments/compound-web/pull/106",
+		URL:            "https://github.com/weskor/pi-symphony/pull/106",
 		BaseRefName:    "develop",
 		HeadRefName:    "symphony/CAG-106-workspace",
-		Author:         prAuthor{Login: "app/compound-symphony-bot"},
+		Author:         prAuthor{Login: "app/pi-symphony-bot"},
 		ReviewDecision: "CHANGES_REQUESTED",
 	}
 
@@ -627,9 +627,9 @@ func TestMergeApprovedPRsStopsIfBranchDeletionFails(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeMergeableRunArtifact(t, workspace, "https://github.com/pennywise-investments/compound-web/pull/441")
+	writeMergeableRunArtifact(t, workspace, "https://github.com/weskor/pi-symphony/pull/441")
 	merged := map[int]bool{}
-	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 441, URL: "https://github.com/pennywise-investments/compound-web/pull/441", BaseRefName: "develop", HeadRefName: "symphony/CAG-41-workspace", Author: prAuthor{Login: "app/compound-symphony-bot"}, Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: merged, deleteErr: errors.New("delete failed")})
+	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 441, URL: "https://github.com/weskor/pi-symphony/pull/441", BaseRefName: "develop", HeadRefName: "symphony/CAG-41-workspace", Author: prAuthor{Login: "app/pi-symphony-bot"}, Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: merged, deleteErr: errors.New("delete failed")})
 
 	var updatedStates []string
 	var comments []string
@@ -763,7 +763,7 @@ func TestFeedbackAlreadyAddressedWhenRunPassedReview(t *testing.T) {
 	}
 	defer store.Close()
 	feedback := "# PR #429 review feedback\n\n## Review: CHANGES_REQUESTED by reviewer\n\nTest should be unit test.\n"
-	prURL := "https://github.com/pennywise-investments/compound-web/pull/429"
+	prURL := "https://github.com/weskor/pi-symphony/pull/429"
 	if err := store.UpsertAttemptResult(context.Background(), state.AttemptResult{
 		IssueKey:     "CAG-30",
 		Attempt:      1,
@@ -794,7 +794,7 @@ func TestFeedbackAlreadyAddressedDoesNotFallbackToArtifacts(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-feedback.md"), []byte(feedback), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	record := runRecord{Status: "success", ReviewStatus: "passed", PRURL: "https://github.com/pennywise-investments/compound-web/pull/429"}
+	record := runRecord{Status: "success", ReviewStatus: "passed", PRURL: "https://github.com/weskor/pi-symphony/pull/429"}
 	encoded, err := json.Marshal(record)
 	if err != nil {
 		t.Fatal(err)

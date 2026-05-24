@@ -21,10 +21,6 @@ func NewClient(apiKey, endpoint string) Client {
 	return Client{apiKey: apiKey, endpoint: endpoint}
 }
 
-func (c Client) query(query string, variables map[string]any, out any) error {
-	return c.queryContext(context.Background(), query, variables, out)
-}
-
 func (c Client) queryContext(ctx context.Context, query string, variables map[string]any, out any) error {
 	body, _ := json.Marshal(map[string]any{"query": query, "variables": variables})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
@@ -47,7 +43,7 @@ func (c Client) queryContext(ctx context.Context, query string, variables map[st
 		return err
 	}
 	if res.StatusCode >= 300 || len(envelope.Errors) > 0 {
-		return fmt.Errorf("Linear API error: %s", string(data))
+		return fmt.Errorf("linear API error: %s", string(data))
 	}
 	return json.Unmarshal(envelope.Data, out)
 }
@@ -124,7 +120,7 @@ func (c Client) UpdateIssueStateContext(ctx context.Context, issueID, stateID st
 		return err
 	}
 	if !out.IssueUpdate.Success {
-		return errors.New("Linear issueUpdate returned success=false")
+		return errors.New("linear issueUpdate returned success=false")
 	}
 	return nil
 }
@@ -144,7 +140,7 @@ func (c Client) CreateCommentContext(ctx context.Context, issueID, body string) 
 		return err
 	}
 	if !out.CommentCreate.Success {
-		return errors.New("Linear commentCreate returned success=false")
+		return errors.New("linear commentCreate returned success=false")
 	}
 	return nil
 }

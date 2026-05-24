@@ -481,9 +481,7 @@ func summarizeArtifacts(artifacts []artifactSummary) []string {
 		}
 		lines = append(lines, fmt.Sprintf("%s class=%s status=%s review=%s tokens=%.0f cost=$%.4f bucket=%s pr=%s %s", artifact.Issue, class, artifact.Status, review, artifact.TotalTokens, artifact.TotalCost, cleanable, artifact.PRURL, evaluation))
 	}
-	for _, line := range summarizeRecurringFriction(artifacts, 5) {
-		lines = append(lines, line)
-	}
+	lines = append(lines, summarizeRecurringFriction(artifacts, 5)...)
 	return lines
 }
 

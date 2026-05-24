@@ -17,10 +17,6 @@ type claimedReviewPendingAttempt struct {
 	PayloadRef  *state.WorkerPayloadRef
 }
 
-func runReviewReadyAttempt(client linearClient, proj project, config runnerConfig, stateStore *state.Store) (bool, error) {
-	return runReviewReadyAttemptContext(context.Background(), client, proj, config, stateStore)
-}
-
 func runReviewReadyAttemptContext(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
@@ -261,7 +257,7 @@ func prepareClaimedReviewReadyWorkerTask(ctx context.Context, client linearClien
 		return failTask("linear_issue_lookup_failed", err)
 	}
 	if candidate == nil {
-		return failTask("linear_issue_missing", fmt.Errorf("Linear issue %s was not found", task.IssueKey))
+		return failTask("linear_issue_missing", fmt.Errorf("linear issue %s was not found", task.IssueKey))
 	}
 	prsByIssue, err := openPRsByIssueForSelection(config)
 	if err != nil {
@@ -372,10 +368,6 @@ func claimNextReviewReadyAttemptContext(ctx context.Context, client linearClient
 	}
 	log("no review-ready issues")
 	return nil, false, nil
-}
-
-func executeReviewReadyAttempt(client linearClient, config runnerConfig, stateStore *state.Store, claimed claimedRunAttempt) (didWork bool, err error) {
-	return executeReviewReadyAttemptContext(context.Background(), client, config, stateStore, claimed)
 }
 
 func executeReviewReadyAttemptContext(ctx context.Context, client linearClient, config runnerConfig, stateStore *state.Store, claimed claimedRunAttempt) (didWork bool, err error) {

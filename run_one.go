@@ -30,10 +30,6 @@ func claimNextRunAttemptContext(ctx context.Context, client linearClient, proj p
 	return claimNextRunAttemptWithOptionsContext(ctx, client, proj, config, stateStore, candidateSelectionOptions{})
 }
 
-func claimNextRunAttemptWithOptions(client linearClient, proj project, config runnerConfig, stateStore *state.Store, options candidateSelectionOptions) (*claimedRunAttempt, bool, error) {
-	return claimNextRunAttemptWithOptionsContext(context.Background(), client, proj, config, stateStore, options)
-}
-
 func claimNextRunAttemptWithOptionsContext(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store, options candidateSelectionOptions) (*claimedRunAttempt, bool, error) {
 	if removed, err := cleanupStaleRunLocksWithStateContext(ctx, stateStore, config.WorkspaceRoot, time.Now()); err != nil {
 		return nil, false, err
@@ -234,10 +230,6 @@ func executeClaimedRunAttempt(ctx context.Context, client linearClient, proj pro
 }
 
 var openPRsByIssueForSelection = openPRsByIssue
-
-func emitRunAttemptEvent(store *state.Store, eventType string, candidate *issue, runID string, payload map[string]any) {
-	emitRunAttemptEventContext(context.Background(), store, eventType, candidate, runID, payload)
-}
 
 func emitRunAttemptEventContext(ctx context.Context, store *state.Store, eventType string, candidate *issue, runID string, payload map[string]any) {
 	if store == nil || candidate == nil {

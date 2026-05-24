@@ -72,10 +72,6 @@ func reviewEvidenceFromPRDetails(candidate *issue, workspace string, details prH
 	return reviewEvidence{IssueIdentifier: candidate.Identifier, IssueTitle: candidate.Title, PRURL: details.URL, Workspace: workspace, BaseBranch: details.BaseRefName, HeadBranch: details.HeadRefName, HeadSHA: details.HeadSHA, ChangedFiles: details.ChangedFiles, Additions: details.Additions, Deletions: details.Deletions, ChecksStatus: status, ChecksSummary: summary, ScopeSummary: scopeSummary, Validation: validation, ProgressPath: progressPath}
 }
 
-func collectReviewEvidence(config runnerConfig, candidate *issue, workspace, prURL string, scopeResult scopeGuardResult, validation []string) (reviewEvidence, error) {
-	return collectReviewEvidenceContext(context.Background(), config, candidate, workspace, prURL, scopeResult, validation)
-}
-
 func collectReviewEvidenceContext(parent context.Context, config runnerConfig, candidate *issue, workspace, prURL string, scopeResult scopeGuardResult, validation []string) (reviewEvidence, error) {
 	if err := parent.Err(); err != nil {
 		return reviewEvidence{}, err
@@ -245,12 +241,6 @@ func reviewCommandWithHighReasoning(command string) string {
 
 func runReview(reviewCommand, workspace string, candidate *issue, prURL string, env map[string]string, timeout time.Duration, evidence *reviewEvidence) (*reviewResult, error) {
 	return runReviewWithProviderContext(context.Background(), runtimeProviderPiCLI, reviewCommand, workspace, candidate, prURL, env, timeout, evidence)
-}
-
-// runReviewWithProvider performs a separate read-only Agent pass over the final
-// diff before the runner hands the Linear issue to Human Review.
-func runReviewWithProvider(provider, reviewCommand, workspace string, candidate *issue, prURL string, env map[string]string, timeout time.Duration, evidence *reviewEvidence) (*reviewResult, error) {
-	return runReviewWithProviderContext(context.Background(), provider, reviewCommand, workspace, candidate, prURL, env, timeout, evidence)
 }
 
 func runReviewWithProviderContext(ctx context.Context, provider, reviewCommand, workspace string, candidate *issue, prURL string, env map[string]string, timeout time.Duration, evidence *reviewEvidence) (*reviewResult, error) {

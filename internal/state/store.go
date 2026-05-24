@@ -1672,10 +1672,6 @@ func (s *Store) SnapshotHeartbeats(ctx context.Context) ([]SnapshotHeartbeat, er
 	return heartbeats, nil
 }
 
-func runArtifactEventInput(snap RunArtifactSnapshot, occurredAt time.Time) EventInput {
-	return runArtifactEventInputs(snap, occurredAt)[0]
-}
-
 func attemptResultEventInputs(result AttemptResult, occurredAt time.Time) []EventInput {
 	return runArtifactEventInputs(RunArtifactSnapshot{
 		SchemaVersion:        CurrentSchemaVersion,

@@ -23,8 +23,6 @@ type fakeGitHubAPI struct {
 	deletedBranches     map[string]bool
 	mergeErr            error
 	deleteErr           error
-	createdPRs          []prHandoffDetails
-	updatedPRs          []prHandoffDetails
 }
 
 func (f fakeGitHubAPI) OpenPullRequests(context.Context) ([]pullRequestSummary, error) {
@@ -75,12 +73,6 @@ func withFakeGitHubAPI(t interface{ Cleanup(func()) }, api githubAPI) {
 	previous := newGitHubAPI
 	newGitHubAPI = func() (githubAPI, error) { return api, nil }
 	t.Cleanup(func() { newGitHubAPI = previous })
-}
-
-func withFakeGitHubAppEnv(t interface{ Cleanup(func()) }, fn func() (map[string]string, string, error)) {
-	previous := githubAppEnvFromEnvironmentForAPI
-	githubAppEnvFromEnvironmentForAPI = fn
-	t.Cleanup(func() { githubAppEnvFromEnvironmentForAPI = previous })
 }
 
 func (f fakeGitHubAPI) PullRequestHandoffDetails(_ context.Context, prURL string) (prHandoffDetails, error) {

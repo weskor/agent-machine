@@ -89,13 +89,13 @@ func TestMutationsReturnErrorsWhenLinearReportsFailure(t *testing.T) {
 			name:    "issue update",
 			body:    `{"data":{"issueUpdate":{"success":false}}}`,
 			call:    func(client Client) error { return client.UpdateIssueState("issue-id", "state-id") },
-			wantErr: "Linear issueUpdate returned success=false",
+			wantErr: "linear issueUpdate returned success=false",
 		},
 		{
 			name:    "comment create",
 			body:    `{"data":{"commentCreate":{"success":false}}}`,
 			call:    func(client Client) error { return client.CreateComment("issue-id", "body") },
-			wantErr: "Linear commentCreate returned success=false",
+			wantErr: "linear commentCreate returned success=false",
 		},
 	}
 

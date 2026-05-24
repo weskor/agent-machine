@@ -75,14 +75,6 @@ func reconcileIssueContext(ctx context.Context, config runnerConfig, candidate i
 	return newReconciliationModule(nil).ReconcileIssueContext(ctx, config, candidate, pr)
 }
 
-func reconcileIssueWithArtifact(config runnerConfig, candidate issue, pr *pullRequestSummary, artifact *artifactSummary) reconciliationDecision {
-	return reconcileIssueWithArtifactContext(context.Background(), config, candidate, pr, artifact)
-}
-
-func reconcileIssueWithArtifactContext(ctx context.Context, config runnerConfig, candidate issue, pr *pullRequestSummary, artifact *artifactSummary) reconciliationDecision {
-	return newReconciliationModule(nil).ReconcileIssueWithArtifactContext(ctx, config, candidate, pr, artifact)
-}
-
 func (m reconciliationModule) ReconcileIssue(config runnerConfig, candidate issue, pr *pullRequestSummary) reconciliationDecision {
 	return m.ReconcileIssueContext(context.Background(), config, candidate, pr)
 }
@@ -265,10 +257,6 @@ func runReconciliationScanContext(ctx context.Context, client linearClient, conf
 	}
 	log("reconciliation scan completed: issues=%d findings=%d", len(issues), recorded)
 	return true, nil
-}
-
-func recordReconciliationNeededEvent(store *state.Store, decision reconciliationDecision, issueID string) error {
-	return recordReconciliationNeededEventContext(context.Background(), store, decision, issueID)
 }
 
 func recordReconciliationNeededEventContext(ctx context.Context, store *state.Store, decision reconciliationDecision, issueID string) error {

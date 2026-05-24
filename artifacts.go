@@ -45,14 +45,6 @@ func repairArtifact(path string) (bool, error) {
 	return true, nil
 }
 
-func markManualRepairStatus(record *runRecord, status, note string) {
-	artifactio.MarkManualRepairStatus(record, status, note)
-}
-
-func appendRepairNote(existing, note string) string {
-	return artifactio.AppendRepairNote(existing, note)
-}
-
 func githubPRStateForURL(prURL string) (string, bool, error) {
 	if strings.TrimSpace(prURL) == "" {
 		return "", false, nil

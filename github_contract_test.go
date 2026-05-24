@@ -9,9 +9,9 @@ import (
 
 func TestGitHubContractFixtureCoversOpenPRMetadataAndOwnership(t *testing.T) {
 	fixture := `[
-		{"number":501,"url":"https://github.com/acme/widget/pull/501","baseRefName":"develop","headRefName":"symphony/CAG-39-workspace","author":{"login":"app/compound-symphony-bot"},"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"Vercel","state":"SUCCESS"}]},
+		{"number":501,"url":"https://github.com/acme/widget/pull/501","baseRefName":"develop","headRefName":"symphony/CAG-39-workspace","author":{"login":"app/pi-symphony-bot"},"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"Vercel","state":"SUCCESS"}]},
 		{"number":502,"url":"https://github.com/acme/widget/pull/502","baseRefName":"main","headRefName":"symphony/CAG-39-workspace","author":{"login":"human"},"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"}]},
-		{"number":503,"url":"https://github.com/acme/widget/pull/503","baseRefName":"develop","headRefName":"symphony/CAG-39-workspace","author":{"login":"compound-symphony-bot[bot]"},"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"}]},
+		{"number":503,"url":"https://github.com/acme/widget/pull/503","baseRefName":"develop","headRefName":"symphony/CAG-39-workspace","author":{"login":"pi-symphony-bot[bot]"},"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"}]},
 		{"number":504,"url":"https://github.com/acme/widget/pull/504","baseRefName":"develop","headRefName":"symphony/CAG-39-workspace","author":{"login":"unrelated-bot[bot]"},"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"}]}
 	]`
 	var prs []pullRequestSummary
@@ -137,8 +137,8 @@ func TestGitHubContractInventoryDocumentsGhParityChecklist(t *testing.T) {
 		"former `gh pr view <number> --json reviews,comments` plus `gh api repos/:owner/:repo/pulls/<number>/comments` shapes through the typed GitHub API client",
 		"Approved PR merge uses the typed GitHub API client to squash merge",
 		"Post-merge branch deletion uses the typed GitHub API client only after squash merge confirms `merged=true`",
-		"app/compound-symphony-bot",
-		"compound-symphony-bot[bot]",
+		"app/pi-symphony-bot",
+		"pi-symphony-bot[bot]",
 		"CHANGES_REQUESTED",
 		"GITHUB_REPOSITORY",
 	} {

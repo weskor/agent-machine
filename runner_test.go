@@ -28,7 +28,7 @@ func TestHasUnresolvedReviewFailure(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	record := `{"status":"review_failed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/1"}`
+	record := `{"status":"review_failed","pr_url":"https://github.com/weskor/pi-symphony/pull/1"}`
 	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(record), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestHasUnresolvedReviewFailureIgnoresSuccessfulRuns(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	record := `{"status":"success","pr_url":"https://github.com/pennywise-investments/compound-web/pull/2"}`
+	record := `{"status":"success","pr_url":"https://github.com/weskor/pi-symphony/pull/2"}`
 	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(record), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestNextRunnableCandidateDoesNotRecordSkipForFallbackSelection(t *testing.T
 
 func TestNextRunnableCandidateSkipsUnresolvedReviewFailures(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-1", `{"status":"review_failed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/1"}`)
+	writeRunRecordFixture(t, root, "CAG-1", `{"status":"review_failed","pr_url":"https://github.com/weskor/pi-symphony/pull/1"}`)
 	client := linearClientWithCandidates(t, []issue{
 		testIssue("CAG-1", "Ready for Agent"),
 		testIssue("CAG-2", "In Progress"),
@@ -227,8 +227,8 @@ func TestNextRunnableCandidateSkipsBlockedLabel(t *testing.T) {
 
 func TestNextRunnableCandidateReturnsNilWhenAllCandidatesHaveUnresolvedReviewFailures(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-1", `{"status":"review_failed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/1"}`)
-	writeRunRecordFixture(t, root, "CAG-2", `{"status":"review_failed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/2"}`)
+	writeRunRecordFixture(t, root, "CAG-1", `{"status":"review_failed","pr_url":"https://github.com/weskor/pi-symphony/pull/1"}`)
+	writeRunRecordFixture(t, root, "CAG-2", `{"status":"review_failed","pr_url":"https://github.com/weskor/pi-symphony/pull/2"}`)
 	client := linearClientWithCandidates(t, []issue{
 		testIssue("CAG-1", "Ready for Agent"),
 		testIssue("CAG-2", "In Progress"),
@@ -306,7 +306,7 @@ func TestClaimNextRunAttemptClaimsDistinctCandidatesBeforeExecution(t *testing.T
 
 func TestNextRunnableCandidateSkipsExistingSuccessfulPRArtifact(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/pennywise-investments/compound-web/pull/21"}`)
+	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/weskor/pi-symphony/pull/21"}`)
 	client := linearClientWithCandidates(t, []issue{testIssue("CAG-1", "Ready for Agent"), testIssue("CAG-2", "In Progress")})
 
 	selected, _, err := nextRunnableCandidate(client, testRunnerConfig(root), nil)
@@ -320,7 +320,7 @@ func TestNextRunnableCandidateSkipsExistingSuccessfulPRArtifact(t *testing.T) {
 
 func TestNextRunnableCandidateAllowsReadyFeedbackRetryWithTerminalArtifact(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/pennywise-investments/compound-web/pull/429"}`)
+	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/weskor/pi-symphony/pull/429"}`)
 	if err := os.WriteFile(filepath.Join(root, "CAG-1", ".pi-symphony-feedback.md"), []byte("# PR feedback\n\nTest should be unit test."), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +337,7 @@ func TestNextRunnableCandidateAllowsReadyFeedbackRetryWithTerminalArtifact(t *te
 
 func TestNextRunnableCandidateDoesNotRetryTerminalArtifactWithoutFeedback(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/pennywise-investments/compound-web/pull/429"}`)
+	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/weskor/pi-symphony/pull/429"}`)
 	client := linearClientWithCandidates(t, []issue{testIssue("CAG-1", "Ready for Agent"), testIssue("CAG-2", "In Progress")})
 
 	selected, _, err := nextRunnableCandidate(client, testRunnerConfig(root), nil)
@@ -388,11 +388,11 @@ func TestNextRunnableCandidateRetriesFailedArtifactAfterPersistedBackoff(t *test
 
 func TestNextRunnableCandidateSelectsChangesRequestedReviewFailure(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-35", `{"status":"review_failed","review_status":"failed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/440"}`)
+	writeRunRecordFixture(t, root, "CAG-35", `{"status":"review_failed","review_status":"failed","pr_url":"https://github.com/weskor/pi-symphony/pull/440"}`)
 	client := linearClientWithCandidates(t, []issue{testIssue("CAG-35", "Ready for Agent"), testIssue("CAG-36", "Ready for Agent")})
 	original := openPRsByIssueForSelection
 	openPRsByIssueForSelection = func(runnerConfig) (map[string]*pullRequestSummary, error) {
-		pr := &pullRequestSummary{Number: 440, URL: "https://github.com/pennywise-investments/compound-web/pull/440", BaseRefName: "develop", HeadRefName: "symphony/CAG-35-workspace", Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "CHANGES_REQUESTED"}
+		pr := &pullRequestSummary{Number: 440, URL: "https://github.com/weskor/pi-symphony/pull/440", BaseRefName: "develop", HeadRefName: "symphony/CAG-35-workspace", Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "CHANGES_REQUESTED"}
 		return map[string]*pullRequestSummary{"CAG-35": pr}, nil
 	}
 	t.Cleanup(func() { openPRsByIssueForSelection = original })
@@ -1113,7 +1113,7 @@ func testRunnerConfig(workspaceRoot string) runnerConfig {
 		ReadyState:     "Ready for Agent",
 		NeedsInfoState: "Needs Info",
 		ActiveStates:   []string{"Ready for Agent", "In Progress"},
-		GitHubAppSlug:  "compound-symphony-bot",
+		GitHubAppSlug:  "pi-symphony-bot",
 	}
 }
 

@@ -128,10 +128,6 @@ func cleanupDecisionForWorkspace(ctx context.Context, workspaceRoot, workspace s
 	return decision, nil
 }
 
-func recordCleanupEvent(store *orchstate.Store, eventType string, decision cleanupResult, payload map[string]any) {
-	recordCleanupEventContext(context.Background(), store, eventType, decision, payload)
-}
-
 func recordCleanupEventContext(ctx context.Context, store *orchstate.Store, eventType string, decision cleanupResult, payload map[string]any) {
 	if store == nil {
 		return
@@ -147,10 +143,6 @@ func recordCleanupEventContext(ctx context.Context, store *orchstate.Store, even
 	}
 }
 
-func recordCleanupError(store *orchstate.Store, decision cleanupResult, err error) {
-	recordCleanupErrorContext(context.Background(), store, decision, err)
-}
-
 func recordCleanupErrorContext(ctx context.Context, store *orchstate.Store, decision cleanupResult, err error) {
 	if err == nil {
 		return
@@ -163,10 +155,6 @@ func cleanupDeletionResult(decision cleanupResult, fallback string) string {
 		return "reconciliation_needed"
 	}
 	return fallback
-}
-
-func removeDoneWorkspace(workspaceRoot, identifier string) error {
-	return removeDoneWorkspaceContext(context.Background(), workspaceRoot, identifier)
 }
 
 func removeDoneWorkspaceContext(ctx context.Context, workspaceRoot, identifier string) error {

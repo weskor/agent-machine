@@ -27,20 +27,12 @@ func (r scopeGuardResult) Summary() string {
 	return strings.Join(parts, "; ")
 }
 
-func checkScopeGuard(description, workspace, baseBranch string) (scopeGuardResult, error) {
-	return checkScopeGuardContext(context.Background(), description, workspace, baseBranch)
-}
-
 func checkScopeGuardContext(ctx context.Context, description, workspace, baseBranch string) (scopeGuardResult, error) {
 	changed, err := scopeGuardChangedFilesContext(ctx, workspace, baseBranch)
 	if err != nil {
 		return scopeGuardResult{}, err
 	}
 	return evaluateScopeGuard(description, changed), nil
-}
-
-func scopeGuardChangedFiles(workspace, baseBranch string) ([]string, error) {
-	return scopeGuardChangedFilesContext(context.Background(), workspace, baseBranch)
 }
 
 func scopeGuardChangedFilesContext(ctx context.Context, workspace, baseBranch string) ([]string, error) {

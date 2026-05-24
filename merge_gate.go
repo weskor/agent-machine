@@ -5,8 +5,6 @@ import (
 	"strings"
 )
 
-type mergeGateBlocker = deterministicGateBlocker
-
 type mergeGateDecision struct {
 	Eligible bool
 	deterministicGateResult

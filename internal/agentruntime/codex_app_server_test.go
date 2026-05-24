@@ -15,16 +15,16 @@ type fakeSessionClient struct {
 	turnResult SessionTurnResult
 }
 
-func (f *fakeSessionClient) StartThread(_ context.Context, input SessionStartInput) (SessionContext, error) {
+func (f *fakeSessionClient) StartSession(_ context.Context, input SessionStartInput) (SessionContext, error) {
 	f.startInput = input
-	return SessionContext{AttemptID: input.AttemptContext.ID, ThreadID: "thread-1", Workspace: input.WorkingDir, MaxTurns: input.AttemptContext.MaxTurns}, nil
+	return SessionContext{AttemptID: input.AttemptContext.ID, SessionID: "thread-1", Workspace: input.WorkingDir, MaxTurns: input.AttemptContext.MaxTurns}, nil
 }
 
-func (f *fakeSessionClient) StartTurn(_ context.Context, session SessionContext, input SessionTurnInput) (SessionTurnResult, error) {
+func (f *fakeSessionClient) RunTurn(_ context.Context, session SessionContext, input SessionTurnInput) (SessionTurnResult, error) {
 	f.turnInput = input
 	result := f.turnResult
-	if result.ThreadID == "" {
-		result.ThreadID = session.ThreadID
+	if result.SessionID == "" {
+		result.SessionID = session.SessionID
 	}
 	if result.TurnNumber == 0 {
 		result.TurnNumber = input.TurnNumber
@@ -94,7 +94,7 @@ func TestCodexAppServerAdapterRunAttemptStartsSessionAndTurn(t *testing.T) {
 	if client.startInput.WorkingDir != workspace || client.startInput.AttemptContext.MaxTurns != 3 {
 		t.Fatalf("unexpected session start input: %+v", client.startInput)
 	}
-	if client.turnInput.ThreadID != "thread-1" || client.turnInput.Prompt != "implement this" || client.turnInput.TurnNumber != 1 {
+	if client.turnInput.SessionID != "thread-1" || client.turnInput.Prompt != "implement this" || client.turnInput.TurnNumber != 1 {
 		t.Fatalf("unexpected turn input: %+v", client.turnInput)
 	}
 }

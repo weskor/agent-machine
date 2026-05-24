@@ -79,7 +79,7 @@ func (a CodexAppServerAdapter) RunAttempt(ctx context.Context, attemptID string,
 		sink.Emit(RuntimeEvent{Type: RuntimeEventAttemptRunFinished, AttemptID: attemptID, Occurred: ended, Phase: "implementation"})
 		return AttemptResult{AttemptID: attemptID, AttemptOutcome: AttemptOutcomeFailed, StartedAt: started, EndedAt: ended, ErrorKind: RuntimeErrorKindExecution, Error: err.Error()}, err
 	}
-	turn, err := a.RunSessionTurn(ctx, session, SessionTurnInput{ThreadID: session.ThreadID, TurnNumber: 1, Prompt: string(prompt), WorkingDir: input.WorkingDir, Timeout: input.Timeout}, sink)
+	turn, err := a.RunSessionTurn(ctx, session, SessionTurnInput{SessionID: session.SessionID, TurnNumber: 1, Prompt: string(prompt), WorkingDir: input.WorkingDir, Timeout: input.Timeout}, sink)
 	ended := a.now()
 	sink.Emit(RuntimeEvent{Type: RuntimeEventAttemptRunFinished, AttemptID: attemptID, Occurred: ended, Phase: "implementation"})
 	outcome := turn.TerminalOutcome
@@ -108,13 +108,13 @@ func (a CodexAppServerAdapter) StartSession(ctx context.Context, input SessionSt
 	if a.Client == nil {
 		return SessionContext{}, RuntimeError{Kind: RuntimeErrorKindConfiguration, Message: "provider codex_app_server has no app-server client"}
 	}
-	return a.Client.StartThread(ctx, input)
+	return a.Client.StartSession(ctx, input)
 }
 
 func (a CodexAppServerAdapter) RunSessionTurn(ctx context.Context, session SessionContext, input SessionTurnInput, events EventSink) (SessionTurnResult, error) {
 	sink := normalizeSink(events)
-	sink.Emit(RuntimeEvent{Type: RuntimeEventRuntimeOutput, AttemptID: session.AttemptID, Occurred: a.now(), Phase: "turn", Data: map[string]any{"thread_id": session.ThreadID, "turn": input.TurnNumber}})
-	return a.Client.StartTurn(ctx, session, input)
+	sink.Emit(RuntimeEvent{Type: RuntimeEventRuntimeOutput, AttemptID: session.AttemptID, Occurred: a.now(), Phase: "turn", Data: map[string]any{"session_id": session.SessionID, "turn": input.TurnNumber}})
+	return a.Client.RunTurn(ctx, session, input)
 }
 
 func (CodexAppServerAdapter) ReviewAttempt(context.Context, string, ReviewAttemptInput, EventSink) (ReviewResult, error) {

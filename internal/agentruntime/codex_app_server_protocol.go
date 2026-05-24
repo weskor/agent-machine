@@ -69,7 +69,7 @@ func NewCodexTurnStartRequest(id int64, input SessionTurnInput, approvalPolicy, 
 		ID:      id,
 		Method:  CodexRPCTurnStart,
 		Params: CodexTurnStartParams{
-			ThreadID:       input.ThreadID,
+			ThreadID:       input.SessionID,
 			Input:          []CodexUserInput{{Type: "input_text", Text: input.Prompt}},
 			CWD:            input.WorkingDir,
 			ApprovalPolicy: approvalPolicy,

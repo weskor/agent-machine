@@ -110,8 +110,10 @@ and PR validation side effects, then re-reads that payload for PR handoff
 execution. After review, the inline runner writes `handoff_pending` progress plus
 a bounded handoff payload before final handoff side effects, then re-reads that
 payload for final handoff execution. The dedicated `handoff` worker claims
-pending records through the run lease and finishes the same final handoff side
-effects from the same persisted payload boundary.
+`pr_handoff_pending` records before final `handoff_pending` records. After
+standalone PR handoff succeeds, it queues `review_pending` when review is
+configured, otherwise it queues final `handoff_pending`. Final handoff side
+effects still run from the same persisted handoff payload boundary.
 
 ### Merge worker
 
@@ -194,12 +196,13 @@ process heartbeat, and exits after one completed task. The `review` process only
 claims existing `review_pending` payloads before falling back to review-not-ready
 attempts whose current GitHub checks are successful. The `implementation`
 process claims fresh runnable attempts and skips review-ready resumes owned by
-`review`. The `handoff` process claims `handoff_pending` progress through the run
-lease and completes side effects from the persisted handoff payload. The
-`linear-status` process claims queued Linear transition intents and applies
-workflow moves after refreshing workflow states. Mutating roles use existing
-worker modules and lane behavior after their fresh-fact, lease, and fail-closed
-contracts are covered by focused tests.
+`review`. The `handoff` process claims `pr_handoff_pending` progress before
+`handoff_pending` progress through the run lease, executes PR handoff from the
+persisted PR handoff payload, and completes final handoff side effects from the
+persisted handoff payload. The `linear-status` process claims queued Linear
+transition intents and applies workflow moves after refreshing workflow states.
+Mutating roles use existing worker modules and lane behavior after their
+fresh-fact, lease, and fail-closed contracts are covered by focused tests.
 
 ## Rollout
 

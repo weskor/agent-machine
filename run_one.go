@@ -185,7 +185,14 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 		log("scope guard: %s", scopeResult.Summary())
 	}
 
-	prURL, err = ensureRunnerPRHandoff(config, candidate, workspace, prURL, githubEnv)
+	validation := validationLines(piOutput)
+	if strings.TrimSpace(scopeResult.Summary()) != "" {
+		validation = append(validation, "Scope guard: "+scopeResult.Summary())
+	} else if scopeResult.Checked {
+		validation = append(validation, "Scope guard: changed files matched the Linear ticket path contract.")
+	}
+
+	prURL, err = ensureRunnerPRHandoffFromInput(config, prHandoffInput{Candidate: candidate, Workspace: workspace, AgentPRURL: prURL, ProgressStarted: progressStarted, AttemptStartedAt: piStart, RuntimeUsage: runtimeUsage, ScopeResult: scopeResult, Validation: validation, GitHubAuth: githubAuth}, githubEnv)
 	if err != nil {
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseHandoff, PRURL: prURL, Error: err.Error()})
 		writeRunRecordWithCommandState(stateStore, workspace, runRecordFor(candidate, workspace, configuredRuntimeCommand(config), githubAuth, piStart, time.Now(), runtimeUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), ""))
@@ -195,13 +202,6 @@ func executeClaimedRunAttempt(client linearClient, wf workflow, config runnerCon
 	handoff.Branch = branch
 	handoff.PRURL = prURL
 	writeRunProgress(config.WorkspaceRoot, handoff)
-
-	validation := validationLines(piOutput)
-	if strings.TrimSpace(scopeResult.Summary()) != "" {
-		validation = append(validation, "Scope guard: "+scopeResult.Summary())
-	} else if scopeResult.Checked {
-		validation = append(validation, "Scope guard: changed files matched the Linear ticket path contract.")
-	}
 
 	reviewResult, err := reviewWorker{client: client, config: config, stateStore: stateStore, candidate: candidate, states: states, workspace: workspace, branch: branch, progressStarted: progressStarted, startedAt: piStart, runtimeUsage: runtimeUsage, prURL: prURL, githubEnv: githubEnv, githubAuth: githubAuth, scopeResult: scopeResult, validation: validation}.Execute(context.Background())
 	if err != nil || reviewResult.Terminal {

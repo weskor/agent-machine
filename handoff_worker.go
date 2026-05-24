@@ -70,5 +70,6 @@ var postOrUpdatePRHandoffCommentForWorker = postOrUpdatePRHandoffComment
 func resetHandoffWorkerHooks() {
 	postOrUpdatePRHandoffCommentForWorker = postOrUpdatePRHandoffComment
 	readHandoffPendingPayloadForCompletion = readHandoffPendingPayload
+	githubAppEnvFromEnvironmentForHandoffWorker = githubAppEnvFromEnvironment
 	resetLinearStatusWorkerHooks()
 }

@@ -80,7 +80,7 @@ func TestPRHandoffPendingPayloadRoundTripsInput(t *testing.T) {
 	candidate.Description = "Implement handoff payload."
 	candidate.Team.ID = "team-180"
 	workspace := filepath.Join(root, candidate.Identifier)
-	input := prHandoffPendingPayloadFromInput(&candidate, workspace, "https://github.com/weskor/pi-symphony/pull/180")
+	input := prHandoffPendingPayloadFromInput(prHandoffInput{Candidate: &candidate, Workspace: workspace, AgentPRURL: "https://github.com/weskor/pi-symphony/pull/180"})
 	if err := writePRHandoffPendingPayload(root, input); err != nil {
 		t.Fatal(err)
 	}

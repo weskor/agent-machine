@@ -10,22 +10,30 @@ import (
 	"time"
 
 	sh "github.com/weskor/pi-symphony/internal/shell"
+	"github.com/weskor/pi-symphony/internal/state"
 )
 
 const runProgressPhasePRHandoffPending = "pr_handoff_pending"
 
 type prHandoffPendingPayload struct {
-	SchemaVersion    int       `json:"schema_version"`
-	IssueID          string    `json:"issue_id,omitempty"`
-	IssueIdentifier  string    `json:"issue_identifier"`
-	IssueTitle       string    `json:"issue_title,omitempty"`
-	IssueURL         string    `json:"issue_url,omitempty"`
-	IssueDescription string    `json:"issue_description,omitempty"`
-	TeamID           string    `json:"team_id,omitempty"`
-	Workspace        string    `json:"workspace"`
-	Branch           string    `json:"branch,omitempty"`
-	AgentPRURL       string    `json:"agent_pr_url,omitempty"`
-	StartedAt        time.Time `json:"started_at"`
+	SchemaVersion    int              `json:"schema_version"`
+	IssueID          string           `json:"issue_id,omitempty"`
+	IssueIdentifier  string           `json:"issue_identifier"`
+	IssueTitle       string           `json:"issue_title,omitempty"`
+	IssueURL         string           `json:"issue_url,omitempty"`
+	IssueDescription string           `json:"issue_description,omitempty"`
+	TeamID           string           `json:"team_id,omitempty"`
+	Workspace        string           `json:"workspace"`
+	Branch           string           `json:"branch,omitempty"`
+	AgentPRURL       string           `json:"agent_pr_url,omitempty"`
+	StartedAt        time.Time        `json:"started_at"`
+	AttemptStartedAt time.Time        `json:"attempt_started_at,omitempty"`
+	ProgressStarted  time.Time        `json:"progress_started_at,omitempty"`
+	RuntimeUsage     *usage           `json:"runtime_usage,omitempty"`
+	PiUsage          *usage           `json:"pi_usage,omitempty"`
+	ScopeResult      scopeGuardResult `json:"scope_result,omitempty"`
+	Validation       []string         `json:"validation,omitempty"`
+	GitHubAuth       string           `json:"github_auth,omitempty"`
 }
 
 func hasUnresolvedReviewFailure(workspaceRoot, identifier string) bool {
@@ -193,10 +201,26 @@ func validatePRForHandoff(config runnerConfig, candidate *issue, prURL string) (
 }
 
 func ensureRunnerPRHandoff(config runnerConfig, candidate *issue, workspace, agentPRURL string, githubEnv map[string]string) (string, error) {
-	if err := writePRHandoffPendingState(config, candidate, workspace, agentPRURL); err != nil {
+	return ensureRunnerPRHandoffFromInput(config, prHandoffInput{Candidate: candidate, Workspace: workspace, AgentPRURL: agentPRURL}, githubEnv)
+}
+
+type prHandoffInput struct {
+	Candidate        *issue
+	Workspace        string
+	AgentPRURL       string
+	ProgressStarted  time.Time
+	AttemptStartedAt time.Time
+	RuntimeUsage     *usage
+	ScopeResult      scopeGuardResult
+	Validation       []string
+	GitHubAuth       string
+}
+
+func ensureRunnerPRHandoffFromInput(config runnerConfig, input prHandoffInput, githubEnv map[string]string) (string, error) {
+	if err := writePRHandoffPendingState(config, input); err != nil {
 		return "", err
 	}
-	payload, err := readPRHandoffPendingPayloadForExecution(config.WorkspaceRoot, candidate.Identifier)
+	payload, err := readPRHandoffPendingPayloadForExecution(config.WorkspaceRoot, input.Candidate.Identifier)
 	if err != nil {
 		return "", err
 	}
@@ -281,21 +305,27 @@ func executeRunnerPRHandoff(config runnerConfig, candidate *issue, workspace, ag
 	return details.URL, nil
 }
 
-func prHandoffPendingPayloadFromInput(candidate *issue, workspace, agentPRURL string) prHandoffPendingPayload {
+func prHandoffPendingPayloadFromInput(input prHandoffInput) prHandoffPendingPayload {
 	payload := prHandoffPendingPayload{
-		SchemaVersion: 1,
-		Workspace:     workspace,
-		AgentPRURL:    agentPRURL,
-		StartedAt:     time.Now().UTC(),
+		SchemaVersion:    1,
+		Workspace:        input.Workspace,
+		AgentPRURL:       input.AgentPRURL,
+		StartedAt:        time.Now().UTC(),
+		AttemptStartedAt: input.AttemptStartedAt,
+		ProgressStarted:  input.ProgressStarted,
+		RuntimeUsage:     input.RuntimeUsage,
+		ScopeResult:      input.ScopeResult,
+		Validation:       append([]string(nil), input.Validation...),
+		GitHubAuth:       input.GitHubAuth,
 	}
-	if candidate != nil {
-		payload.IssueID = candidate.ID
-		payload.IssueIdentifier = candidate.Identifier
-		payload.IssueTitle = candidate.Title
-		payload.IssueURL = candidate.URL
-		payload.IssueDescription = candidate.Description
-		payload.TeamID = candidate.Team.ID
-		payload.Branch = expectedWorkspaceBranch(candidate.Identifier)
+	if input.Candidate != nil {
+		payload.IssueID = input.Candidate.ID
+		payload.IssueIdentifier = input.Candidate.Identifier
+		payload.IssueTitle = input.Candidate.Title
+		payload.IssueURL = input.Candidate.URL
+		payload.IssueDescription = input.Candidate.Description
+		payload.TeamID = input.Candidate.Team.ID
+		payload.Branch = expectedWorkspaceBranch(input.Candidate.Identifier)
 	}
 	return payload
 }
@@ -306,14 +336,76 @@ func (p prHandoffPendingPayload) Issue() *issue {
 	return candidate
 }
 
-func writePRHandoffPendingState(config runnerConfig, candidate *issue, workspace, agentPRURL string) error {
-	payload := prHandoffPendingPayloadFromInput(candidate, workspace, agentPRURL)
+func (p prHandoffPendingPayload) ReviewWorker(client linearClient, config runnerConfig, stateStore *state.Store, githubEnv map[string]string) reviewWorker {
+	startedAt := p.AttemptStartedAt
+	if startedAt.IsZero() {
+		startedAt = p.StartedAt
+	}
+	progressStarted := p.ProgressStarted
+	if progressStarted.IsZero() {
+		progressStarted = p.StartedAt
+	}
+	return reviewWorker{
+		client:          client,
+		config:          config,
+		stateStore:      stateStore,
+		candidate:       p.Issue(),
+		workspace:       p.Workspace,
+		branch:          p.Branch,
+		progressStarted: progressStarted,
+		startedAt:       startedAt,
+		runtimeUsage:    p.RuntimeUsage,
+		prURL:           p.AgentPRURL,
+		githubEnv:       githubEnv,
+		githubAuth:      p.GitHubAuth,
+		scopeResult:     p.ScopeResult,
+		validation:      append([]string(nil), p.Validation...),
+	}
+}
+
+func (p prHandoffPendingPayload) HandoffCompletion(client linearClient, config runnerConfig, stateStore *state.Store, review *reviewResult, prURL, githubAuth string) handoffCompletion {
+	startedAt := p.AttemptStartedAt
+	if startedAt.IsZero() {
+		startedAt = p.StartedAt
+	}
+	progressStarted := p.ProgressStarted
+	if progressStarted.IsZero() {
+		progressStarted = p.StartedAt
+	}
+	return handoffCompletion{
+		client:          client,
+		config:          config,
+		stateStore:      stateStore,
+		candidate:       p.Issue(),
+		workspace:       p.Workspace,
+		branch:          p.Branch,
+		progressStarted: progressStarted,
+		startedAt:       startedAt,
+		runtimeUsage:    p.RuntimeUsage,
+		review:          review,
+		prURL:           prURL,
+		validation:      append([]string(nil), p.Validation...),
+		githubAuth:      githubAuth,
+	}
+}
+
+func writePRHandoffPendingState(config runnerConfig, input prHandoffInput) error {
+	payload := prHandoffPendingPayloadFromInput(input)
+	return writePRHandoffPendingPayloadState(config, payload)
+}
+
+func writePRHandoffPendingPayloadState(config runnerConfig, payload prHandoffPendingPayload) error {
 	if err := writePRHandoffPendingPayload(config.WorkspaceRoot, payload); err != nil {
 		return err
 	}
-	progress := runProgressForIssue(candidate, workspace, runProgressPhasePRHandoffPending, payload.StartedAt)
+	candidate := payload.Issue()
+	progressStarted := payload.ProgressStarted
+	if progressStarted.IsZero() {
+		progressStarted = payload.StartedAt
+	}
+	progress := runProgressForIssue(candidate, payload.Workspace, runProgressPhasePRHandoffPending, progressStarted)
 	progress.Branch = payload.Branch
-	progress.PRURL = agentPRURL
+	progress.PRURL = payload.AgentPRURL
 	progress.Status = runProgressPhasePRHandoffPending
 	progress.NextAction = "complete_runner_pr_handoff"
 	if path, err := prHandoffPendingPayloadPath(config.WorkspaceRoot, candidate.Identifier); err == nil {
@@ -362,6 +454,9 @@ func readPRHandoffPendingPayload(workspaceRoot, issueIdentifier string) (prHando
 	}
 	if payload.SchemaVersion != 1 {
 		return prHandoffPendingPayload{}, fmt.Errorf("unsupported PR handoff pending payload schema_version %d", payload.SchemaVersion)
+	}
+	if payload.RuntimeUsage == nil {
+		payload.RuntimeUsage = payload.PiUsage
 	}
 	return payload, nil
 }

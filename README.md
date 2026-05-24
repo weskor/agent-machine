@@ -1,93 +1,217 @@
 # Pi Symphony
 
-Pi Symphony is a local-first Agent runner for a conservative Linear -> workspace -> Agent -> review -> GitHub PR handoff loop.
+Pi Symphony is a local-first runner for moving well-scoped Linear issues through
+an isolated workspace, an Agent implementation pass, optional review, and a
+GitHub PR handoff.
 
-It is extracted from `pennywise-investments/compound-web` and should be treated as private/experimental while the runner dogfoods its own project configuration.
+The project is private/experimental and currently dogfoods itself. The design
+goal is conservative automation: Pi Symphony should make small, reviewable PRs,
+record useful evidence, and fail closed when ownership, state, credentials, or
+scope are unclear.
 
-## Features
+## What It Does
 
-- Linear project polling with Ready/In Progress/Human Review/Done lanes.
-- Fresh per-issue workspaces and run locks.
-- One implementation Agent run plus a separate review pass.
-- GitHub App authentication for bot-authored PR handoff, merge gates, squash merge, and branch cleanup.
-- Structured run/evaluation artifacts with usage, review status, blockers, and next action.
-- Conservative merge gating: approval, green checks/statuses, correct base/head, run evidence, and review pass required.
+- Polls a configured Linear project for runnable issues.
+- Creates one isolated workspace per issue under `.symphony/workspaces/`.
+- Runs an implementation Agent through a configured runtime provider.
+- Runs validation hooks before and after the Agent attempt.
+- Performs runner-owned GitHub handoff: branch, commit, push, PR create/update,
+  PR identity validation, and deterministic handoff comments.
+- Optionally runs a separate review pass before moving the Linear issue to
+  Human Review.
+- Records local SQLite state, progress snapshots, run records, evaluation
+  artifacts, review classifications, cleanup decisions, and worker results.
+- Merges only when conservative gates pass: expected branch/base/repository,
+  approval, green checks, review evidence, app/author ownership, and clean state.
+
+## Current Status
+
+Pi Symphony is extracted from `pennywise-investments/compound-web`. This repo
+owns the runner implementation, tests, specs, GitHub/Linear integrations, CLI,
+and dogfood configuration. Consumer repos should keep only their
+`symphony.yaml`, `symphony.agent.md`, and ignored `.symphony/` runtime state.
 
 ## Requirements
 
-- Go 1.23+ installed through `mise` (`mise install` in this repository, then use `mise exec go -- ...` for validation)
-- `codex` CLI available on `PATH` for the default `codex_cli` runtime
-- Optional: `pi` CLI available on `PATH` when `runtime.provider: pi_cli` is configured
-- Linear API token
-- GitHub token or GitHub App credentials with repository access
+- Go through `mise` (`mise install`, then `mise exec go -- ...`).
+- `codex` CLI on `PATH` for the default `codex_cli` runtime.
+- Optional: `pi` CLI on `PATH` when `runtime.provider: pi_cli` is configured.
+- A Linear API token.
+- Either `GITHUB_TOKEN` / `GH_TOKEN`, or GitHub App credentials with repository
+  access.
 
-## Configuration
+## Quick Start
 
-Create two files in the target repository:
+Install tool versions:
 
-- `symphony.yaml` for tracker, repository, workspace, runtime, hook, budget, GitHub, and lane settings.
-- `symphony.agent.md` for the target-repository prompt template and agent instructions.
+```bash
+mise install
+```
 
-See `symphony.example.yaml` and `symphony.agent.example.md`.
+Create the two project files in the target repository:
 
-This repository also has its own `symphony.yaml` for Pi Symphony runner work. It uses the CAG / Compound Agents team with the `Pi Symphony Runner` Linear project and targets the `main` branch.
+```bash
+cp symphony.example.yaml /path/to/target/symphony.yaml
+cp symphony.agent.example.md /path/to/target/symphony.agent.md
+```
 
-Set `repository.remote` when new workspaces should be bootstrapped by cloning the target repository. Use `agent.prompt_path` when the prompt file is not named `symphony.agent.md`.
+Edit `/path/to/target/symphony.yaml`:
 
-Secrets can be exported in the process environment, loaded with `--env-file`, or placed in `.env.local` next to the selected `symphony.yaml`. Process environment values win over `.env.local` values:
+- `repository.remote`: clone URL for new workspaces.
+- `tracker.project_slug`: Linear project slug.
+- `workspace.root`: workspace directory, usually `.symphony/workspaces`.
+- `workspace.base_branch`: PR base branch, for example `main` or `develop`.
+- `runtime.provider`: usually `codex_cli`; use `pi_cli` only for the legacy Pi
+  CLI runtime.
+- `compound.*`: Linear lane names for running, handoff, needs-info, and done.
 
-- `LINEAR_API_KEY`
-- `GITHUB_TOKEN` / `GH_TOKEN`, or GitHub App credentials:
-  - `GITHUB_APP_ID`
-  - `GITHUB_APP_INSTALLATION_ID`
-  - `GITHUB_APP_PRIVATE_KEY_PATH`
+Put secrets in the process environment, an explicit `--env-file`, or
+`.env.local` next to the selected `symphony.yaml`:
 
-Keep `.env.local` local-only. Do not commit tokens, private keys, absolute credential paths, or copied environment files; commit only placeholder examples such as `symphony.example.yaml`.
+```bash
+LINEAR_API_KEY=lin_...
+GITHUB_TOKEN=ghp_...
+```
 
-For local runner development, a minimal `.env.local` usually contains `LINEAR_API_KEY` plus either `GITHUB_TOKEN`/`GH_TOKEN` or the three `GITHUB_APP_*` values. Prefer GitHub App credentials for bot-authored PR handoff and merge-lane testing.
+For GitHub App auth, use:
+
+```bash
+GITHUB_APP_ID=...
+GITHUB_APP_INSTALLATION_ID=...
+GITHUB_APP_PRIVATE_KEY_PATH=./path/to/private-key.pem
+```
+
+Process environment values win over `.env.local` values. Do not commit tokens,
+private keys, absolute credential paths, or copied local env files.
+
+Check the resolved config without contacting Linear or GitHub:
+
+```bash
+mise exec go -- go run . config print --config /path/to/target/symphony.yaml
+```
+
+Inspect current runner status:
+
+```bash
+mise exec go -- go run . status --config /path/to/target/symphony.yaml
+```
+
+Run one controlled implementation worker:
+
+```bash
+mise exec go -- go run . worker implementation --config /path/to/target/symphony.yaml
+```
+
+Run the production loop:
+
+```bash
+mise exec go -- go run . start --config /path/to/target/symphony.yaml
+```
+
+## Project Files
+
+`symphony.yaml` is plain YAML for deterministic runner settings:
+
+- repository clone remote;
+- Linear tracker details and active states;
+- workspace root and base branch;
+- hooks and budgets;
+- runtime provider and command overrides;
+- review guidance;
+- GitHub app/author ownership;
+- lane names and required validation.
+
+`symphony.agent.md` is the target-repository prompt template. It should explain
+the repo’s domain, validation expectations, allowed ticket shape, and handoff
+rules. It can use issue placeholders such as:
+
+```markdown
+- Identifier: {{issue.identifier}}
+- Title: {{issue.title}}
+- URL: {{issue.url}}
+- State: {{issue.state}}
+- Attempt: {{attempt}}
+```
+
+Use `agent.prompt_path` when the prompt file has a different name.
 
 ## Commands
 
-From this repository:
+Run commands from this repository. `--config` defaults to `symphony.yaml`.
 
-```bash
-go run . config print
-go run . status
-go run . run-status CAG-123
-go run . surface snapshot
-go run . explain
-go run . start
-go run . status --config /path/to/target/symphony.yaml
-go run . start --config /path/to/target/symphony.yaml
-go run . worker implementation --config /path/to/target/symphony.yaml
-go run . merge-approved --config /path/to/target/symphony.yaml
-go run . cleanup-workspaces --apply --config /path/to/target/symphony.yaml
-go run . repair-artifacts --config /path/to/target/symphony.yaml
+| Command | Purpose |
+| --- | --- |
+| `go run . config print` | Print the resolved, redacted config. No Linear/GitHub access required. |
+| `go run . status` | Print Linear, PR, workspace, SQLite, and artifact status. |
+| `go run . run-status CAG-123` | Print one local progress line for an issue. No Linear/GitHub access required. |
+| `go run . explain` | Print the next scheduling decision, merge blockers, and cleanup eligibility without mutating state. |
+| `go run . start` | Run scheduler, cleanup, merge, handoff, review, and implementation lanes. |
+| `go run . worker implementation` | Run one selected implementation worker process. |
+| `go run . worker review` | Run one selected review worker process. |
+| `go run . worker handoff` | Run one selected handoff worker process. |
+| `go run . merge-approved` | Merge eligible Symphony-owned PRs whose gates pass. |
+| `go run . cleanup-workspaces` | Inspect cleanup eligibility. Add `--apply` to delete eligible workspaces. |
+| `go run . repair-artifacts` | Repair local Symphony artifacts. |
+| `go run . surface snapshot` | Print the read-only JSON snapshot used by product surfaces. |
+
+Legacy flag forms such as `--status`, `--explain`, `--continuous`,
+`--worker=implementation`, and `--merge-approved` are still accepted, but new
+docs should prefer command forms.
+
+## Runtime Providers
+
+The default runtime is `codex_cli`. It shells out to a locally installed
+`codex exec` command and passes the prepared prompt through stdin.
+
+The legacy `pi_cli` runtime shells out to the Pi CLI and passes the prompt path
+as an `@file` argument. Select it explicitly:
+
+```yaml
+runtime:
+  provider: pi_cli
 ```
 
-`explain` (also available as `--explain` or `--dry-run`) prints structured JSON describing the next candidate Symphony would run, merge blockers for open Symphony PRs, and cleanup eligibility. It does not claim issues, merge PRs, delete workspaces, or update local orchestration state.
+Runtime command overrides are available when a repository needs them:
 
-`run-status <issue>` prints a single compact local progress line from `.symphony/state/run-progress/<issue>/progress.json` and does not require Linear or GitHub access.
-
-`surface snapshot` prints the read-only JSON contract used by product surfaces. It reads local orchestration state, locks, and artifacts without requiring Linear or GitHub access.
-
-The first product surface is an OpenTUI adapter over that snapshot:
-
-```bash
-cd tui
-bun install
-bun run start -- --config ../symphony.yaml
+```yaml
+runtime:
+  provider: codex_cli
+  command: codex --ask-for-approval never exec --sandbox workspace-write
+  review_command: codex --ask-for-approval never exec --sandbox read-only
 ```
+
+The selected implementation and review commands are preflighted before the
+runner claims an issue or mutates a workspace.
+
+## Local State And Artifacts
+
+Pi Symphony stores runtime data under the configured workspace root:
+
+- `.symphony/workspaces/<issue>`: isolated git workspace for one issue.
+- `.symphony/state/pi-symphony.db`: SQLite orchestration state.
+- `.symphony/state/run-progress/<issue>/progress.json`: compact progress
+  snapshots for operators.
+- `.pi-symphony-run.json`: attempt record written in the issue workspace.
+- `.pi-symphony-evaluation.json`: evaluation and merge-readiness summary.
+- `.symphony/debug/<issue>/`: capped raw debug output when enabled.
+
+SQLite state is the local source of truth for claims, leases, retries, worker
+tasks, PR mappings, cleanup decisions, and terminal outcomes where implemented.
+Artifacts are evidence exports and compatibility inputs; they should not be used
+as the only authority for destructive or externally visible decisions.
 
 ## Development
 
-Start with the project docs when planning behavior or architecture work:
+Start with the project docs before changing behavior or architecture:
 
-- `docs/vision/pi-symphony-v1.md` for the north star and V1 milestones.
-- `docs/agents/development-loop.md` for the spec-first, TDD-oriented agent workflow.
-- `docs/agents/implementation.md` and `docs/agents/review.md` for agent-session expectations.
-- `CONTEXT.md` and `LANGUAGE.md` for shared domain and architecture vocabulary.
+- `CONTEXT.md` and `LANGUAGE.md` for vocabulary.
+- `docs/vision/pi-symphony-v1.md` for the north star.
+- `docs/agents/development-loop.md` for the spec-first development loop.
+- `docs/agents/implementation.md` and `docs/agents/review.md` for agent-session
+  expectations.
 - `docs/specs/` and `docs/adr/` for behavior contracts and durable decisions.
+
+Validation:
 
 ```bash
 make fmt        # apply gofmt/goimports
@@ -96,27 +220,36 @@ make vet        # run go vet ./...
 make lint       # run golangci-lint with the repository baseline
 mise exec go -- go test ./...
 make test       # run go test ./...
-make ci         # run format, vet, lint, and tests
+mise exec go -- make ci
 git diff --check
 ```
 
-Use `make ci` and `git diff --check` before handing off a runner change. When validating config/status/cleanup/merge behavior, also run a safe status smoke check against the intended config file, for example:
+Before handoff, run:
 
 ```bash
-mise exec go -- go run . status --config symphony.yaml
+mise exec go -- make ci
+git diff --check
 ```
 
-### Opt-in live smoke harness
+For config or status changes, also run a safe local smoke:
 
-`cmd/pi-symphony-live-smoke` creates or uses disposable Linear issues and runs them through a generated, isolated config plus prompt file. It is off by default, uses a deterministic fake Agent by default, and is not part of `make ci`.
+```bash
+mise exec go -- go run . config print --config symphony.yaml
+```
+
+## Live Smoke Harness
+
+`cmd/pi-symphony-live-smoke` is an opt-in operator harness. It creates or reuses
+disposable Linear issues, generates an isolated config and prompt file, and runs
+them with a deterministic fake Agent. It is not part of `make ci`.
 
 Required gates:
 
 - `LIVE_LINEAR=1`
-- `LINEAR_API_KEY` exported or present in `.env.local`
-- GitHub credentials accepted by the runner, usually the local GitHub App variables from `.env.local`
+- `LINEAR_API_KEY`
+- GitHub credentials accepted by the runner
 
-Basic fake-agent smoke:
+Create one disposable issue and run the fake-agent path:
 
 ```bash
 LIVE_LINEAR=1 mise exec go -- go run ./cmd/pi-symphony-live-smoke \
@@ -124,7 +257,7 @@ LIVE_LINEAR=1 mise exec go -- go run ./cmd/pi-symphony-live-smoke \
   --count 1
 ```
 
-Concurrency-oriented setup without running the merge lane:
+Run a concurrency-oriented smoke without merge:
 
 ```bash
 LIVE_LINEAR=1 mise exec go -- go run ./cmd/pi-symphony-live-smoke \
@@ -133,9 +266,8 @@ LIVE_LINEAR=1 mise exec go -- go run ./cmd/pi-symphony-live-smoke \
   --concurrency 2
 ```
 
-The harness prints every created issue identifier/URL and writes a JSON report under `.symphony/live-smoke/`. It refuses to create issues when unrelated `Ready for Agent` issues already exist, and its generated config only treats `Ready for Agent` as active so human `In Progress` work is not claimed.
-
-The harness never runs merge-approved unless both controls are present:
+The harness writes a JSON report under `.symphony/live-smoke/`. Merge checks are
+disabled unless both controls are present:
 
 ```bash
 LIVE_LINEAR=1 LIVE_SMOKE_APPLY=1 mise exec go -- go run ./cmd/pi-symphony-live-smoke \
@@ -144,22 +276,48 @@ LIVE_LINEAR=1 LIVE_SMOKE_APPLY=1 mise exec go -- go run ./cmd/pi-symphony-live-s
   --apply-merge
 ```
 
-Use `--from-report` for follow-up merge checks so the harness reuses the original smoke workspace root and artifact evidence. Supplying only `--issue` with a fresh workspace root is intentionally rejected for `--apply-merge` because merge gates need the original run artifacts.
+Use `--from-report` for follow-up merge checks so the harness reuses the
+original workspace root and artifact evidence.
 
-Architecture and behavior docs live in `CONTEXT.md`, `LANGUAGE.md`, `docs/adr/`, and `docs/specs/`. Broad refactors should cite the relevant specs/ADRs in PR handoff notes, update specs when observable behavior changes, or state that no spec changes were needed for a mechanical move.
+## Dogfood Loop
 
-## Symphony dogfood loop
+Use small, reviewable Linear tickets when evaluating Pi Symphony against itself
+or another target repository.
 
-Use small, reviewable Linear tickets when evaluating the runner against itself or another target repository:
+1. Write tickets with `Goal`, `Scope`, `Requirements`, `Acceptance Criteria`,
+   and `Validation`.
+2. Move exactly one ticket into `Ready for Agent` when it is safe to run.
+3. Run `go run . start --config symphony.yaml`, or use
+   `go run . worker implementation --config symphony.yaml` for a controlled
+   single-worker pass.
+4. Review the PR before activating the next ticket.
+5. Move unclear, unsafe, or credential-blocked work to `Needs Info` instead of
+   guessing.
 
-1. Write each ticket with the standard `Goal`, `Scope`, `Requirements`, `Acceptance Criteria`, and `Validation` sections.
-2. Move exactly one ticket into `Ready for Agent` when it is safe for the runner to start it. Keep future dogfood tickets out of active states until the current PR is reviewed.
-3. Run the production loop with `go run . start --config symphony.yaml`, or run one implementation worker process with `go run . worker implementation --config symphony.yaml` when doing a controlled dogfood pass. The runner treats `Ready for Agent` and `In Progress` as active states by default; it moves claimed work to the configured running state and hands completed implementation PRs to `Human Review`.
-4. Review the PR before activating the next ticket. Objective review signals are: scoped diff, no secrets, required validation recorded, `make ci`/tests green, `git diff --check` clean, review pass or clear blocker notes, and a PR from the expected `symphony/<issue>-workspace` branch into the configured base branch.
-5. Only after the PR is accepted or the ticket is moved to a non-active lane should the next dogfood ticket be moved into `Ready for Agent`.
+Objective review signals are scoped diff, no secrets, required validation,
+passing CI/tests, clean `git diff --check`, review evidence or clear blocker
+notes, and an expected `symphony/<issue>-workspace` PR into the configured base
+branch.
 
-Do not use the dogfood loop to batch unrelated work. If a ticket needs missing credentials, unclear scope, or unsafe production changes, move it to `Needs Info` instead of guessing.
+## Repository Map
 
-## Current extraction status
+- `cmd/pi-symphony-live-smoke/`: live smoke harness.
+- `cmd/pi-symphony-live-smoke-agent/`: deterministic fake smoke Agent.
+- `internal/agentruntime/`: runtime provider adapters.
+- `internal/cli/`: command parsing, config loading, env loading.
+- `internal/config/`: `symphony.yaml` parsing and defaults.
+- `internal/state/`: SQLite orchestration state.
+- `docs/agents/`: repository-specific agent guidance.
+- `docs/specs/`: observable behavior contracts.
+- `docs/adr/`: durable architecture decisions.
+- `examples/`: consumer repository config examples.
 
-This repository owns the Pi Symphony runner implementation, tests, GitHub/Linear integrations, review/merge/status/cleanup behavior, and runner project config. `compound-web` is now a consumer that keeps only its `symphony.yaml`, `symphony.agent.md`, and ignored `.symphony/` runtime state.
+## Safety Notes
+
+- Do not commit `.env.local`, private keys, copied env files, or generated
+  `.symphony/` runtime state.
+- Do not batch unrelated work through one Linear issue.
+- Do not run mutating cleanup with `--apply` unless status/explain output makes
+  the cleanup reason clear.
+- Treat missing Linear/GitHub credentials, ambiguous tickets, stale locks,
+  conflicting SQLite/artifact facts, and unexpected PR ownership as blockers.

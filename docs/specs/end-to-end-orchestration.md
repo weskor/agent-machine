@@ -135,7 +135,7 @@ Terminal failure must include the failing phase, evidence pointer, and side effe
 ### Scheduler parameter contract (runtime semantics)
 
 - `max_concurrent_agents`:
-  - Current CLI runtime behavior: one work lane deterministically claims up to `agent.max_concurrent_agents` distinct runnable attempts per scheduler cycle, then executes the claimed attempts concurrently.
+  - Current CLI runtime behavior: the implementation lane deterministically claims up to `agent.max_concurrent_agents` distinct runnable attempts per scheduler cycle, then executes the claimed attempts concurrently.
   - Default of `1` preserves current behavior.
   - Invalid/zero handling is delegated to configuration parsing, which currently falls back to `1` for missing/malformed/negative values.
   - Duplicate dispatch protection remains authoritative in candidate selection, reusable terminal artifact checks, run locks, and SQLite leases before Agent execution starts; increasing capacity must not intentionally bypass those protections.

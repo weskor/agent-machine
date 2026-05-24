@@ -7,9 +7,26 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	sh "github.com/weskor/pi-symphony/internal/shell"
 )
+
+const runProgressPhasePRHandoffPending = "pr_handoff_pending"
+
+type prHandoffPendingPayload struct {
+	SchemaVersion    int       `json:"schema_version"`
+	IssueID          string    `json:"issue_id,omitempty"`
+	IssueIdentifier  string    `json:"issue_identifier"`
+	IssueTitle       string    `json:"issue_title,omitempty"`
+	IssueURL         string    `json:"issue_url,omitempty"`
+	IssueDescription string    `json:"issue_description,omitempty"`
+	TeamID           string    `json:"team_id,omitempty"`
+	Workspace        string    `json:"workspace"`
+	Branch           string    `json:"branch,omitempty"`
+	AgentPRURL       string    `json:"agent_pr_url,omitempty"`
+	StartedAt        time.Time `json:"started_at"`
+}
 
 func hasUnresolvedReviewFailure(workspaceRoot, identifier string) bool {
 	data, err := os.ReadFile(filepath.Join(workspaceRoot, identifier, ".pi-symphony-run.json"))
@@ -176,6 +193,22 @@ func validatePRForHandoff(config runnerConfig, candidate *issue, prURL string) (
 }
 
 func ensureRunnerPRHandoff(config runnerConfig, candidate *issue, workspace, agentPRURL string, githubEnv map[string]string) (string, error) {
+	if err := writePRHandoffPendingState(config, candidate, workspace, agentPRURL); err != nil {
+		return "", err
+	}
+	payload, err := readPRHandoffPendingPayloadForExecution(config.WorkspaceRoot, candidate.Identifier)
+	if err != nil {
+		return "", err
+	}
+	return executePRHandoffPendingPayload(config, payload, githubEnv)
+}
+
+func executePRHandoffPendingPayload(config runnerConfig, payload prHandoffPendingPayload, githubEnv map[string]string) (string, error) {
+	candidate := payload.Issue()
+	return executeRunnerPRHandoff(config, candidate, payload.Workspace, payload.AgentPRURL, githubEnv)
+}
+
+func executeRunnerPRHandoff(config runnerConfig, candidate *issue, workspace, agentPRURL string, githubEnv map[string]string) (string, error) {
 	branch := expectedWorkspaceBranch(candidate.Identifier)
 	current, err := currentGitBranch(workspace)
 	if err != nil {
@@ -247,6 +280,93 @@ func ensureRunnerPRHandoff(config runnerConfig, candidate *issue, workspace, age
 	}
 	return details.URL, nil
 }
+
+func prHandoffPendingPayloadFromInput(candidate *issue, workspace, agentPRURL string) prHandoffPendingPayload {
+	payload := prHandoffPendingPayload{
+		SchemaVersion: 1,
+		Workspace:     workspace,
+		AgentPRURL:    agentPRURL,
+		StartedAt:     time.Now().UTC(),
+	}
+	if candidate != nil {
+		payload.IssueID = candidate.ID
+		payload.IssueIdentifier = candidate.Identifier
+		payload.IssueTitle = candidate.Title
+		payload.IssueURL = candidate.URL
+		payload.IssueDescription = candidate.Description
+		payload.TeamID = candidate.Team.ID
+		payload.Branch = expectedWorkspaceBranch(candidate.Identifier)
+	}
+	return payload
+}
+
+func (p prHandoffPendingPayload) Issue() *issue {
+	candidate := &issue{ID: p.IssueID, Identifier: p.IssueIdentifier, Title: p.IssueTitle, URL: p.IssueURL, Description: p.IssueDescription}
+	candidate.Team.ID = p.TeamID
+	return candidate
+}
+
+func writePRHandoffPendingState(config runnerConfig, candidate *issue, workspace, agentPRURL string) error {
+	payload := prHandoffPendingPayloadFromInput(candidate, workspace, agentPRURL)
+	if err := writePRHandoffPendingPayload(config.WorkspaceRoot, payload); err != nil {
+		return err
+	}
+	progress := runProgressForIssue(candidate, workspace, runProgressPhasePRHandoffPending, payload.StartedAt)
+	progress.Branch = payload.Branch
+	progress.PRURL = agentPRURL
+	progress.Status = runProgressPhasePRHandoffPending
+	progress.NextAction = "complete_runner_pr_handoff"
+	if path, err := prHandoffPendingPayloadPath(config.WorkspaceRoot, candidate.Identifier); err == nil {
+		progress.PRHandoffPayloadPath = path
+	}
+	return writeRunProgressResult(config.WorkspaceRoot, progress)
+}
+
+func writePRHandoffPendingPayload(workspaceRoot string, payload prHandoffPendingPayload) error {
+	if payload.SchemaVersion == 0 {
+		payload.SchemaVersion = 1
+	}
+	if strings.TrimSpace(payload.IssueIdentifier) == "" {
+		return fmt.Errorf("PR handoff pending payload issue identifier is required")
+	}
+	path, err := prHandoffPendingPayloadPath(workspaceRoot, payload.IssueIdentifier)
+	if err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func readPRHandoffPendingPayload(workspaceRoot, issueIdentifier string) (prHandoffPendingPayload, error) {
+	path, err := prHandoffPendingPayloadPath(workspaceRoot, issueIdentifier)
+	if err != nil {
+		return prHandoffPendingPayload{}, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return prHandoffPendingPayload{}, err
+	}
+	var payload prHandoffPendingPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return prHandoffPendingPayload{}, err
+	}
+	if payload.SchemaVersion != 1 {
+		return prHandoffPendingPayload{}, fmt.Errorf("unsupported PR handoff pending payload schema_version %d", payload.SchemaVersion)
+	}
+	return payload, nil
+}
+
+var readPRHandoffPendingPayloadForExecution = readPRHandoffPendingPayload
 
 func validateAdvisoryPRForHandoff(ctx context.Context, github githubAPI, config runnerConfig, candidate *issue, prURL string) (string, string, bool, error) {
 	owner, repo, ok := parseGitHubPRRepository(prURL)

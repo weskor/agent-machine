@@ -30,6 +30,70 @@ func TestEnsureRunnerPRHandoffCreatesPRWhenAgentEmitsNoURL(t *testing.T) {
 	}
 }
 
+func TestEnsureRunnerPRHandoffExecutesPersistedPayloadBoundary(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	workspace := runnerHandoffGitWorkspace(t, "main")
+	candidate := testIssue("CAG-179", "In Progress")
+	branch := expectedWorkspaceBranch(candidate.Identifier)
+	if err := sh.Run("git switch -q -C "+sh.Quote(branch)+" && echo change > handoff.go", workspace); err != nil {
+		t.Fatal(err)
+	}
+	config := testRunnerConfig(filepath.Dir(workspace))
+	config.BaseBranch = "main"
+	rewrittenURL := "https://github.com/weskor/pi-symphony/pull/179"
+	withFakeGitHubAPI(t, fakeGitHubAPI{
+		handoffDetailsByURL: map[string]prHandoffDetails{
+			rewrittenURL: {Number: 179, URL: rewrittenURL, BaseRefName: "main", HeadRefName: branch},
+		},
+	})
+	previous := readPRHandoffPendingPayloadForExecution
+	readPRHandoffPendingPayloadForExecution = func(workspaceRoot, issueIdentifier string) (prHandoffPendingPayload, error) {
+		payload, err := readPRHandoffPendingPayload(workspaceRoot, issueIdentifier)
+		if err != nil {
+			return prHandoffPendingPayload{}, err
+		}
+		snapshot, err := readRunProgress(workspaceRoot, issueIdentifier)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snapshot.Phase != runProgressPhasePRHandoffPending || snapshot.Status != runProgressPhasePRHandoffPending || snapshot.NextAction != "complete_runner_pr_handoff" || snapshot.PRHandoffPayloadPath == "" {
+			t.Fatalf("progress before PR handoff side effects = %+v; want pr_handoff_pending", snapshot)
+		}
+		payload.AgentPRURL = rewrittenURL
+		return payload, nil
+	}
+	t.Cleanup(func() { readPRHandoffPendingPayloadForExecution = previous })
+
+	prURL, err := ensureRunnerPRHandoff(config, &candidate, workspace, "", nil)
+	if err != nil {
+		t.Fatalf("ensureRunnerPRHandoff returned error: %v", err)
+	}
+	if prURL != rewrittenURL {
+		t.Fatalf("PR URL = %q; want side effects from persisted payload read %q", prURL, rewrittenURL)
+	}
+}
+
+func TestPRHandoffPendingPayloadRoundTripsInput(t *testing.T) {
+	root := t.TempDir()
+	candidate := testIssue("CAG-180", "In Progress")
+	candidate.URL = "https://linear.app/acme/issue/CAG-180"
+	candidate.Description = "Implement handoff payload."
+	candidate.Team.ID = "team-180"
+	workspace := filepath.Join(root, candidate.Identifier)
+	input := prHandoffPendingPayloadFromInput(&candidate, workspace, "https://github.com/weskor/pi-symphony/pull/180")
+	if err := writePRHandoffPendingPayload(root, input); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := readPRHandoffPendingPayload(root, candidate.Identifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip := payload.Issue()
+	if roundTrip.Identifier != candidate.Identifier || roundTrip.ID != candidate.ID || roundTrip.URL != candidate.URL || roundTrip.Description != candidate.Description || roundTrip.Team.ID != "team-180" || payload.Workspace != workspace || payload.AgentPRURL != input.AgentPRURL || payload.Branch != expectedWorkspaceBranch(candidate.Identifier) {
+		t.Fatalf("payload = %+v issue=%+v; want PR handoff input round trip", payload, roundTrip)
+	}
+}
+
 func TestEnsureRunnerPRHandoffCreatesPRWhenAgentEmitsStaleMissingURL(t *testing.T) {
 	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
 	workspace := runnerHandoffGitWorkspace(t, "main")

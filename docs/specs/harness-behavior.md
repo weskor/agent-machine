@@ -129,7 +129,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
   - `implementation` claims fresh runnable attempts and skips review-ready resumes owned by `review`.
   - `handoff` claims existing `pr_handoff_pending` progress before final `handoff_pending` progress; it executes PR handoff from the bounded PR handoff payload, queues review/final handoff output, and completes final handoff side effects without implementation or semantic review.
   - `linear-status` claims queued Linear transition intents and applies workflow-state moves without implementation, review, handoff, merge, cleanup, or planning work.
-  - `work` runs the existing claim/attempt batch with capacity from `agent.max_concurrent_agents`.
+  - `work` is a compatibility alias for implementation-domain claim/execution with capacity from `agent.max_concurrent_agents`; it does not run review, handoff, merge, cleanup, or Linear status work.
 - `--merge-approved`: merge eligible Symphony-owned PRs whose gates pass.
 - `--cleanup-workspaces`: inspect workspace cleanup eligibility; `--apply` deletes eligible workspaces.
 - `--repair-artifacts`: repair local Symphony artifacts.

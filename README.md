@@ -170,6 +170,14 @@ bun install
 bun run start -- --config ../symphony.yaml
 ```
 
+Layout:
+
+- Header: project, SQLite health, and snapshot timestamp or refresh error.
+- Summary: issue, active-lock, lane, task, and reconciliation counts.
+- Views rail: Overview, Issues, Lanes, Tasks, and Events.
+- List: rows for the selected view.
+- Details: the selected row's key fields.
+
 Controls:
 
 - `tab`, `h`/`l`, or left/right arrows: switch views.
@@ -177,6 +185,9 @@ Controls:
 - `1`-`5`: jump to Overview, Issues, Lanes, Tasks, or Events.
 - `r`: refresh the local snapshot.
 - `q`: quit.
+
+The TUI shells out to the local runner by default. Set `PI_SYMPHONY_BIN` to use
+an already-built binary instead of `go run .`.
 
 ## Runtime Providers
 

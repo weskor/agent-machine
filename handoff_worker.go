@@ -52,11 +52,9 @@ func (w handoffWorker) Execute(ctx context.Context) (handoffWorkerResult, error)
 		log("failed to post GitHub handoff comment for %s: %v", w.prURL, err)
 	}
 	linearStatus := linearStatusWorker{client: w.client, candidate: w.candidate, states: w.states}
-	if stateID(w.states, w.config.HandoffState) != "" {
-		if _, err := linearStatus.MoveTo(w.config.HandoffState); err != nil {
-			writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, w.review, w.prURL, runAttemptStatusFailed, err.Error(), w.config.Budget.Active(), ""))
-			return handoffWorkerResult{Summary: &summary, Terminal: true}, err
-		}
+	if _, err := linearStatus.MoveTo(w.config.HandoffState); err != nil {
+		writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, w.review, w.prURL, runAttemptStatusFailed, err.Error(), w.config.Budget.Active(), ""))
+		return handoffWorkerResult{Summary: &summary, Terminal: true}, err
 	}
 	comment := renderLinearHandoffComment(summary)
 	if err := linearStatus.Comment(comment); err != nil {

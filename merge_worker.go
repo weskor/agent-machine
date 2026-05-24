@@ -45,10 +45,8 @@ func (w mergeWorker) HandlePullRequest(ctx context.Context, pr pullRequestSummar
 		if err := writePRFeedback(workspace, pr.Number, renderPRConflictFeedback(pr, reason)); err != nil {
 			return err
 		}
-		if stateID(states, w.config.ReadyState) != "" {
-			if _, err := linearStatus.MoveTo(w.config.ReadyState); err != nil {
-				return err
-			}
+		if _, err := linearStatus.MoveTo(w.config.ReadyState); err != nil {
+			return err
 		}
 		_ = linearStatus.Comment(fmt.Sprintf("PR merge blocked by conflicts; captured repair instructions and moved back to %s for pickup: %s", w.config.ReadyState, pr.URL))
 		log("blocked merge for %s: %s", candidate.Identifier, reason)
@@ -65,7 +63,7 @@ func (w mergeWorker) HandlePullRequest(ctx context.Context, pr pullRequestSummar
 	case "APPROVED":
 		return w.handleApprovedPR(ctx, candidate, states, linearStatus, pr, decision)
 	case "CHANGES_REQUESTED":
-		return w.handleChangesRequestedPR(candidate, states, linearStatus, pr)
+		return w.handleChangesRequestedPR(candidate, linearStatus, pr)
 	default:
 		log("%s waiting for approval; reviewDecision=%s", pr.URL, pr.ReviewDecision)
 		return nil
@@ -114,7 +112,7 @@ func (w mergeWorker) handleApprovedPR(ctx context.Context, candidate *issue, sta
 	return nil
 }
 
-func (w mergeWorker) handleChangesRequestedPR(candidate *issue, states []workflowState, linearStatus linearStatusWorker, pr pullRequestSummary) error {
+func (w mergeWorker) handleChangesRequestedPR(candidate *issue, linearStatus linearStatusWorker, pr pullRequestSummary) error {
 	feedback, err := collectPRFeedback(pr.Number)
 	if err != nil {
 		return err
@@ -130,10 +128,8 @@ func (w mergeWorker) handleChangesRequestedPR(candidate *issue, states []workflo
 	if err := writePRFeedback(workspace, pr.Number, feedback); err != nil {
 		return err
 	}
-	if stateID(states, w.config.ReadyState) != "" {
-		if _, err := linearStatus.MoveTo(w.config.ReadyState); err != nil {
-			return err
-		}
+	if _, err := linearStatus.MoveTo(w.config.ReadyState); err != nil {
+		return err
 	}
 	_ = linearStatus.Comment(fmt.Sprintf("PR changes requested; captured GitHub review feedback and moved back to %s for pickup: %s", w.config.ReadyState, pr.URL))
 	log("moved %s back to %s after requested changes; feedback captured", candidate.Identifier, w.config.ReadyState)

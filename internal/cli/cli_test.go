@@ -221,6 +221,30 @@ func TestLoadWorkflowConfigParsesDefaultsAndWorkflowValues(t *testing.T) {
 	}
 }
 
+func TestLoadWorkflowConfigDefaultsToCodexWithoutLegacyPiCommand(t *testing.T) {
+	dir := t.TempDir()
+	workflowPath := filepath.Join(dir, "WORKFLOW.md")
+	content := `---
+tracker:
+  project_slug: CAG
+  api_key: test-linear-key
+workspace:
+  root: /tmp/pi-symphony-test-workspaces
+---
+# Workflow
+`
+	if err := os.WriteFile(workflowPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, config, err := LoadWorkflowConfig(workflowPath)
+	if err != nil {
+		t.Fatalf("LoadWorkflowConfig() error = %v", err)
+	}
+	if config.RuntimeProvider != "codex_cli" || !strings.Contains(config.RuntimeCommand, "codex") {
+		t.Fatalf("runtime config = provider %q command %q, want default codex runtime", config.RuntimeProvider, config.RuntimeCommand)
+	}
+}
+
 func TestLoadWorkflowConfigParsesRuntimeProvider(t *testing.T) {
 	workflowPath := writeWorkflow(t, "runtime:\n  provider: codex_cli\n  command: codex exec\n  review_command: codex exec review\n")
 	_, config, err := LoadWorkflowConfig(workflowPath)

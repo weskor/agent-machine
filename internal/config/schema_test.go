@@ -36,6 +36,26 @@ pi:
 	}
 }
 
+func TestParseConfigDefaultsToCodexRuntime(t *testing.T) {
+	config, err := ParseConfig(`tracker:
+  project_slug: CAG
+workspace:
+  root: /tmp/workspaces
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Runtime.Provider != "codex_cli" || config.Agent.RuntimeProvider != "codex_cli" {
+		t.Fatalf("runtime provider = runtime %q agent %q, want codex_cli", config.Runtime.Provider, config.Agent.RuntimeProvider)
+	}
+	if !strings.Contains(config.Runtime.Command, "codex") || !strings.Contains(config.Runtime.Command, "--ignore-user-config") {
+		t.Fatalf("runtime command = %q, want clean codex command", config.Runtime.Command)
+	}
+	if config.Pi.Command != config.Runtime.Command {
+		t.Fatalf("legacy pi command mirror = %q, want %q", config.Pi.Command, config.Runtime.Command)
+	}
+}
+
 func TestParseConfigAgentRuntimeProvider(t *testing.T) {
 	config, err := ParseConfig(`tracker:
   project_slug: CAG
@@ -76,6 +96,22 @@ pi:
 	}
 	if config.Runtime.Provider != "codex_cli" || config.Runtime.Command != "codex exec" || config.Runtime.ReviewCommand != "codex exec review" {
 		t.Fatalf("runtime aliases not applied: %+v", config.Runtime)
+	}
+}
+
+func TestParseConfigExplicitPiProviderKeepsPiCommandDefault(t *testing.T) {
+	config, err := ParseConfig(`tracker:
+  project_slug: CAG
+workspace:
+  root: /tmp/workspaces
+runtime:
+  provider: pi_cli
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Runtime.Provider != "pi_cli" || config.Runtime.Command != "pi --print --no-session --thinking low" {
+		t.Fatalf("runtime config = %+v, want explicit pi_cli with pi command default", config.Runtime)
 	}
 }
 

@@ -52,11 +52,12 @@ Use the vocabulary in `LANGUAGE.md`. Favor Modules whose Interfaces hide real be
 
 ### Runtime providers as Adapters
 
-The current local runtime provider is `pi_cli`: Pi Symphony shells to a locally
-installed and configured `pi` CLI. That dependency is acceptable for the first
-local Adapter, but V1 should treat it as a provider choice rather than the
-runner architecture. The same AgentRuntime seam should support a deterministic
-fake/test provider and future API, app-server, ACP-style, or MCP-style providers.
+The default local runtime provider is `codex_cli`: Pi Symphony shells to a
+locally installed and configured `codex exec` command with clean per-run
+configuration. The legacy `pi_cli` provider remains an explicit Adapter choice,
+but V1 should treat both as providers rather than the runner architecture. The
+same AgentRuntime seam should support a deterministic fake/test provider and
+future API, app-server, ACP-style, or MCP-style providers.
 
 Provider preflight should fail early before claiming or mutating work when the
 selected runtime is unavailable or not configured. Runtime capabilities such as
@@ -146,4 +147,3 @@ Pi Symphony reaches the intended V1 quality when we can point it at a medium-siz
 - Human Review because automation found ambiguity or missing evidence.
 - Reconciliation-needed because local, Linear, GitHub, or workspace facts conflict.
 - Terminal failure with evidence and no unsafe side effects hidden as success.
-

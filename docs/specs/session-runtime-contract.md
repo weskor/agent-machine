@@ -27,6 +27,11 @@ The app-server provider is distinct from `codex_cli`. `codex_cli` uses
 `codex exec` as a one-shot command and must continue to reject
 `agent.max_turns > 1` during preflight.
 
+Until the production app-server stdio client can wait for a completed turn and
+project typed results into the runner, `codex_app_server` must fail closed during
+preflight in normal runner execution. Tests may inject an app-server client to
+exercise the Adapter seam without claiming Linear work.
+
 ## Turn Semantics
 
 For one implementation attempt, the runner starts exactly one runtime thread.

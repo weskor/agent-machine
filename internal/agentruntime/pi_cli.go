@@ -59,26 +59,30 @@ func (a PiCLIAdapter) Preflight(_ context.Context, input PreflightInput) (Prefli
 }
 
 func preflightCommand(name, command string) PreflightCheck {
+	return preflightCommandForProvider("pi_cli", name, command)
+}
+
+func preflightCommandForProvider(provider, name, command string) PreflightCheck {
 	check := PreflightCheck{Name: name, Command: command}
 	trimmed := strings.TrimSpace(command)
 	if trimmed == "" {
-		check.Message = fmt.Sprintf("provider pi_cli requires a non-empty %s", name)
+		check.Message = fmt.Sprintf("provider %s requires a non-empty %s", provider, name)
 		return check
 	}
 	executable := firstCommandToken(trimmed)
 	check.Executable = executable
 	if executable == "" {
-		check.Message = fmt.Sprintf("provider pi_cli could not parse executable for %s", name)
+		check.Message = fmt.Sprintf("provider %s could not parse executable for %s", provider, name)
 		return check
 	}
 	resolved, err := resolveExecutable(executable)
 	if err != nil {
-		check.Message = fmt.Sprintf("provider pi_cli could not resolve executable %q for %s on PATH or as an executable path", executable, name)
+		check.Message = fmt.Sprintf("provider %s could not resolve executable %q for %s on PATH or as an executable path", provider, executable, name)
 		return check
 	}
 	check.OK = true
 	check.Resolved = resolved
-	check.Message = fmt.Sprintf("provider pi_cli resolved executable %q for %s", executable, name)
+	check.Message = fmt.Sprintf("provider %s resolved executable %q for %s", provider, executable, name)
 	return check
 }
 

@@ -256,6 +256,11 @@ type SessionRuntime interface {
 	RunSessionTurn(ctx context.Context, session SessionContext, input SessionTurnInput, events EventSink) (SessionTurnResult, error)
 }
 
+type SessionClient interface {
+	StartThread(ctx context.Context, input SessionStartInput) (SessionContext, error)
+	StartTurn(ctx context.Context, session SessionContext, input SessionTurnInput) (SessionTurnResult, error)
+}
+
 type ReviewAttemptInput struct {
 	Command     string
 	WorkingDir  string

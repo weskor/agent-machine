@@ -513,18 +513,18 @@ func TestLinearStatusWorkerProcessClaimsTaskRunsTransitionIntentAndRecordsHeartb
 	}
 }
 
-func TestWorkWorkerProcessClaimsTaskRunsAttemptBatchAndRecordsHeartbeat(t *testing.T) {
+func TestWorkWorkerProcessClaimsTaskRunsImplementationBatchAndRecordsHeartbeat(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 5, 23, 12, 15, 0, 0, time.UTC)
-	oldRunClaimedAttemptBatch := runClaimedAttemptBatchForWorker
+	oldRunImplementationAttemptBatch := runImplementationAttemptBatchForWorkWorker
 	oldStateNow := stateNow
 	t.Cleanup(func() {
-		runClaimedAttemptBatchForWorker = oldRunClaimedAttemptBatch
+		runImplementationAttemptBatchForWorkWorker = oldRunImplementationAttemptBatch
 		stateNow = oldStateNow
 	})
 	stateNow = func() time.Time { return now }
 	batchCalled := false
-	runClaimedAttemptBatchForWorker = func(client linearClient, wf workflow, config runnerConfig, store *state.Store, capacity int) (bool, error) {
+	runImplementationAttemptBatchForWorkWorker = func(client linearClient, wf workflow, config runnerConfig, store *state.Store, capacity int) (bool, error) {
 		batchCalled = true
 		if config.WorkspaceRoot != root || config.ProjectSlug != "CAG" || store == nil || capacity != 3 {
 			t.Fatalf("work batch input = config %+v store=%v capacity=%d; want root/project/store/capacity=3", config, store != nil, capacity)
@@ -537,7 +537,7 @@ func TestWorkWorkerProcessClaimsTaskRunsAttemptBatchAndRecordsHeartbeat(t *testi
 		t.Fatalf("runWorkWorkerProcess() error = %v", err)
 	}
 	if !batchCalled {
-		t.Fatal("work worker did not run attempt batch")
+		t.Fatal("work worker did not run implementation batch")
 	}
 
 	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
@@ -545,7 +545,7 @@ func TestWorkWorkerProcessClaimsTaskRunsAttemptBatchAndRecordsHeartbeat(t *testi
 		t.Fatal(err)
 	}
 	defer store.Close()
-	tasks, err := store.WorkerTasks(context.Background(), "scheduler")
+	tasks, err := store.WorkerTasks(context.Background(), implementationWorkerRole)
 	if err != nil {
 		t.Fatal(err)
 	}

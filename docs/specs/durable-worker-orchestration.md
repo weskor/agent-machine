@@ -207,10 +207,13 @@ cleanup prepass. The `review` process only
 claims existing `review_pending` payloads before falling back to review-not-ready
 attempts whose current GitHub checks are successful. The `implementation`
 process claims fresh runnable attempts and skips review-ready resumes owned by
-`review`. The `handoff` process claims `pr_handoff_pending` progress before
-`handoff_pending` progress through the run lease, executes PR handoff from the
-persisted PR handoff payload, and completes final handoff side effects from the
-persisted handoff payload. The `linear-status` process claims queued Linear
+`review`; the compatibility `work` process is constrained to the same
+implementation-domain batch execution and does not run review, handoff, merge,
+cleanup, or Linear status work. The `handoff` process claims
+`pr_handoff_pending` progress before `handoff_pending` progress through the run
+lease, executes PR handoff from the persisted PR handoff payload, and completes
+final handoff side effects from the persisted handoff payload. The
+`linear-status` process claims queued Linear
 transition intents and applies workflow moves after refreshing workflow states.
 Mutating roles use existing worker modules and lane behavior after their
 fresh-fact, lease, and fail-closed contracts are covered by focused tests.

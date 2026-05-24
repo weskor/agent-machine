@@ -83,7 +83,7 @@ var runReviewReadyAttemptForWorker = runReviewReadyAttempt
 var runImplementationAttemptForWorker = runImplementationAttempt
 var runHandoffPendingAttemptForWorker = runHandoffPendingAttempt
 var runLinearStatusTransitionTaskForWorker = runLinearStatusTransitionTask
-var runClaimedAttemptBatchForWorker = runClaimedAttemptBatch
+var runImplementationAttemptBatchForWorkWorker = runImplementationAttemptBatch
 
 func runPlanWorkerProcess(client linearClient, config runnerConfig) error {
 	ctx := context.Background()
@@ -274,12 +274,12 @@ func runWorkWorkerProcess(client linearClient, wf workflow, config runnerConfig)
 	recordHeartbeat := daemonHeartbeatRecorder(ctx, config, stateStore)
 	didWork, err := runContinuousWorkerTask(ctx, stateStore, continuousWorkerTask{
 		TaskKey:   "process:work",
-		Role:      "scheduler",
+		Role:      implementationWorkerRole,
 		LaneName:  "worker:work",
 		LeaseName: "worker:work",
-		Payload:   map[string]any{"project_slug": config.ProjectSlug, "max_concurrent_agents": maxConcurrentAgents},
+		Payload:   map[string]any{"project_slug": config.ProjectSlug, "max_concurrent_agents": maxConcurrentAgents, "compatibility_role": workWorkerRole},
 	}, func() (bool, error) {
-		return runClaimedAttemptBatchForWorker(client, wf, config, stateStore, maxConcurrentAgents)
+		return runImplementationAttemptBatchForWorkWorker(client, wf, config, stateStore, maxConcurrentAgents)
 	})
 	recordContinuousHeartbeat(recordHeartbeat, continuousHeartbeat{LaneName: "worker:work", CycleNumber: 1, Success: err == nil && didWork, Err: err, At: stateNow()})
 	return err

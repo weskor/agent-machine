@@ -60,7 +60,7 @@ func TestPiCLIAdapterPreflightRejectsUnsupportedMaxTurns(t *testing.T) {
 	if len(result.Checks) == 0 || result.Checks[0].Name != "max_turns" || result.Checks[0].OK {
 		t.Fatalf("max_turns check was not first actionable failure: %+v", result)
 	}
-	if !strings.Contains(err.Error(), "agent.max_turns=2") || !strings.Contains(err.Error(), "session runtime") || !strings.Contains(err.Error(), "agent.max_turns: 1") {
+	if !strings.Contains(err.Error(), "agent.max_turns=2") || !strings.Contains(err.Error(), "proven multi-turn contract") || !strings.Contains(err.Error(), "agent.max_turns: 1") {
 		t.Fatalf("error was not actionable: %v", err)
 	}
 }

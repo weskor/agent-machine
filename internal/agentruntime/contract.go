@@ -19,7 +19,6 @@ const (
 	AttemptOutcomeReviewFailed   AttemptOutcome = "review_failed"
 	AttemptOutcomeNeedsInfo      AttemptOutcome = "needs_info"
 	AttemptOutcomeNeedsInfoFail  AttemptOutcome = "needs_info_failed"
-	AttemptOutcomeContinuation   AttemptOutcome = "needs_continuation"
 	AttemptOutcomeTimeout        AttemptOutcome = "timeout"
 	AttemptOutcomeBudgetExceeded AttemptOutcome = "budget_exceeded"
 )
@@ -109,16 +108,9 @@ func IsUnsupportedOperation(err error) bool {
 
 // RuntimeCapabilities declares which optional operations are implemented.
 type RuntimeCapabilities struct {
-	SupportsReview           bool
-	SupportsCancel           bool
-	SupportsStop             bool
-	SupportsSessions         bool
-	SupportsTurnContinuation bool
-	SupportsMaxTurns         bool
-}
-
-func (c RuntimeCapabilities) CanRunMultipleTurns() bool {
-	return c.SupportsSessions && c.SupportsTurnContinuation && c.SupportsMaxTurns
+	SupportsReview bool
+	SupportsCancel bool
+	SupportsStop   bool
 }
 
 // PreflightInput describes runtime commands that must be available before the
@@ -165,16 +157,14 @@ type AttemptTimeouts struct {
 
 // AttemptContext identifies an active session/attempt at runtime level.
 type AttemptContext struct {
-	ID               string          `json:"id"`
-	IssueID          string          `json:"issue_id"`
-	IssueIdentifier  string          `json:"issue_identifier"`
-	Workspace        string          `json:"workspace"`
-	ExpectedBranch   string          `json:"expected_branch,omitempty"`
-	Branch           string          `json:"branch,omitempty"`
-	Attempt          int             `json:"attempt"`
-	MaxTurns         int             `json:"max_turns,omitempty"`
-	RuntimeSessionID string          `json:"runtime_session_id,omitempty"`
-	RunTimeouts      AttemptTimeouts `json:"run_timeouts"`
+	ID              string          `json:"id"`
+	IssueID         string          `json:"issue_id"`
+	IssueIdentifier string          `json:"issue_identifier"`
+	Workspace       string          `json:"workspace"`
+	ExpectedBranch  string          `json:"expected_branch,omitempty"`
+	Branch          string          `json:"branch,omitempty"`
+	Attempt         int             `json:"attempt"`
+	RunTimeouts     AttemptTimeouts `json:"run_timeouts"`
 }
 
 // AttemptUsage holds parsed usage telemetry that can be surfaced for audit and
@@ -196,7 +186,6 @@ type StartAttemptInput struct {
 	Branch          string
 	ExpectedBranch  string
 	Attempt         int
-	MaxTurns        int
 	WorkingDir      string
 	Command         string
 	PromptPath      string
@@ -209,7 +198,6 @@ type RunAttemptInput struct {
 	PromptPath  string
 	WorkingDir  string
 	Timeout     time.Duration
-	MaxTurns    int
 	Environment map[string]string
 }
 
@@ -237,9 +225,6 @@ type AttemptOutcomeEnvelope struct {
 	RuntimeOutcome     AttemptOutcome   `json:"runtime_outcome"`
 	PRURL              string           `json:"pr_url,omitempty"`
 	NeedsInfoQuestions []string         `json:"needs_info_questions,omitempty"`
-	ContinuationPrompt string           `json:"continuation_prompt,omitempty"`
-	ContinuationReason string           `json:"reason,omitempty"`
-	ChangedFiles       []string         `json:"changed_files,omitempty"`
 	Validation         []string         `json:"validation,omitempty"`
 	Usage              *AttemptUsage    `json:"usage,omitempty"`
 	RawOutput          string           `json:"raw_output,omitempty"`
@@ -263,7 +248,8 @@ type AttemptResult struct {
 }
 
 // AgentRuntime defines the execution contract for agent processes (including
-// future adapters such as app-server, MCP, ACP) without encoding orchestration.
+// future adapters such as API, MCP, or ACP transports) without encoding
+// orchestration.
 //
 // Orchestration remains in the runner; it decides scheduling, retries,
 // handoff state transitions, and workspace lease rules.

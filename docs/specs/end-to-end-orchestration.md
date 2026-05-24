@@ -5,8 +5,8 @@ This spec describes the target end-to-end Pi Symphony behavior for V1. It does n
 ## Goals
 
 - Make the Linear issue to GitHub PR loop smooth, observable, and recoverable.
-- Ensure every Agent session outcome is explicit: success, retry, Needs Info, Human Review, reconciliation-needed, or terminal failure.
-- Support multiple Agent sessions without duplicate issue claims, unsafe workspace mutation, or unclear ownership.
+- Ensure every Agent attempt outcome is explicit: success, retry, Needs Info, Human Review, reconciliation-needed, or terminal failure.
+- Support multiple Agent attempts without duplicate issue claims, unsafe workspace mutation, or unclear ownership.
 - Make quality evidence durable enough for a human reviewer to trust the PR without reconstructing the run from logs.
 - Keep future editor, MCP, web, and cloud surfaces as Adapters over the same orchestration Modules.
 
@@ -16,7 +16,7 @@ This spec describes the target end-to-end Pi Symphony behavior for V1. It does n
 - **GitHub** is the external system of record for repository state, PR identity, review decision, checks, mergeability, authorship, branches, and merge result.
 - **SQLite orchestration state** is the intended local source of truth for Pi Symphony decisions once the SQLite behavior contract is implemented.
 - **Workspace artifacts** are audit and evidence exports. They may seed backfill or repair, but after SQLite adoption they must not silently override newer local state.
-- **Agent sessions** perform bounded implementation or review attempts in isolated workspaces through a selected AgentRuntime provider.
+- **Agent attempts** perform bounded implementation or review work in isolated workspaces through a selected AgentRuntime provider.
 - **Operators** configure workflows, inspect status, answer Needs Info, review PRs, and approve merge policy.
 
 The authority matrix in [SQLite Orchestration State Contract](./sqlite-orchestration-state.md#authority-matrix) defines which system owns each runner decision during the SQLite transition. Later implementation tickets must cite that matrix instead of re-deciding precedence between SQLite, Linear, GitHub, artifacts, and operator input.
@@ -32,7 +32,7 @@ of implementing independent state machines.
 The V1 orchestration target follows the boundary in [Harness Behavior Spec: Runner and Agent responsibility boundary](./harness-behavior.md#runner-and-agent-responsibility-boundary): the Agent handles ambiguity; the runner owns invariants.
 
 - Runner Modules should compute issue contract parsing, path scope, branch/PR ownership, PR URL resolution, lifecycle transitions, outcome classification, leases, merge gates, cleanup eligibility, artifact/debug locations, and evidence schema validity from typed state and external system facts.
-- Agent sessions should make implementation choices, edit code/tests/docs, perform semantic review, judge abstraction quality, and explain ambiguous repair options.
+- Agent attempts should make implementation choices, edit code/tests/docs, perform semantic review, judge abstraction quality, and explain ambiguous repair options.
 - Future Adapters, including ACP, MCP, web, and cloud surfaces, must not move orchestration policy into Adapter-specific prompts. They should call the same runner Modules and surface typed runner decisions.
 - When an LLM repeatedly makes the same check from parseable facts, treat that as a signal to add or prioritize a deterministic runner invariant slice.
 
@@ -48,12 +48,10 @@ provider is the runner architecture itself.
 Supported vocabulary:
 
 - `codex_cli`: default local shell Adapter for clean `codex exec` sessions.
-- `codex_app_server`: target session Adapter for one persistent Codex app-server
-  thread per attempt; see [Session Runtime Contract](./session-runtime-contract.md).
 - `pi_cli`: legacy local shell Adapter for the Pi CLI, selected explicitly with
   `runtime.provider: pi_cli` or by legacy `pi.command`-only workflows.
 - `fake`: deterministic fake/test Adapter for parity tests and contract coverage.
-- Future API, app-server, ACP-style, or MCP-style Adapters: transport choices
+- Future API, ACP-style, or MCP-style Adapters: transport choices
   that must reuse runner Modules instead of owning orchestration policy.
 
 Before claiming or mutating work, the selected provider preflights command
@@ -64,8 +62,7 @@ pre-claim failures.
 
 Provider capabilities should be explicit for implementation runs, review runs,
 usage/cost reporting, timeout/cancellation, `max_turns`/iteration limits,
-session continuation, structured output, raw debug capture, and deterministic
-handoff support.
+structured output, raw debug capture, and deterministic handoff support.
 
 ## Happy path
 
@@ -73,9 +70,9 @@ handoff support.
 2. The Candidate reconciliation Module determines that the issue is runnable and not blocked by active attempts, open PRs, stale artifacts, or missing external facts. After the relevant SQLite rollout phase, it uses SQLite for local claim/retry/reconciliation decisions, fresh Linear/GitHub for their external facts, and artifacts only as evidence exports or verified backfill inputs.
 3. Pi Symphony claims the issue by recording a lease and heartbeat before mutating external state.
 4. Pi Symphony creates or refreshes an isolated Workspace for the attempt.
-5. The Agent session reads `AGENTS.md`, `CONTEXT.md`, `LANGUAGE.md`, relevant specs, relevant ADRs, and the Linear issue contract.
-6. The Agent session writes or updates tests first when behavior is changed or characterized.
-7. The Agent session implements the smallest scoped change that satisfies the issue.
+5. The Agent attempt reads `AGENTS.md`, `CONTEXT.md`, `LANGUAGE.md`, relevant specs, relevant ADRs, and the Linear issue contract.
+6. The Agent attempt writes or updates tests first when behavior is changed or characterized.
+7. The Agent attempt implements the smallest scoped change that satisfies the issue.
 8. Validation runs in the Workspace using the workflow-configured commands.
 9. Pi Symphony owns Git/PR handoff: commit or validate the exact scoped diff, push the expected branch, create or update exactly one PR, validate the PR URL, and record artifacts. Before those side effects, Pi Symphony writes and re-reads a bounded `pr_handoff_pending` payload so PR handoff has an explicit runner-owned input contract. The selected `handoff` worker can recover that payload, execute PR handoff, and queue the next review/final-handoff payload without rerunning implementation. The Agent stops after the scoped diff and validation notes; any Agent-emitted PR URL remains advisory compatibility input.
    - When retrying the same issue, Pi Symphony may update only the exact expected `symphony/<issue>-workspace` remote branch with a lease-protected push so stale failed-attempt branches do not require manual deletion.
@@ -101,7 +98,7 @@ A successful implementation attempt must have a valid PR URL unless an explicit 
 
 ### Needs Info
 
-An Agent session may ask for Needs Info only when required requirements are missing or unsafe to infer. Needs Info must include the blocking question and enough context for the operator to answer.
+An Agent attempt may ask for Needs Info only when required requirements are missing or unsafe to infer. Needs Info must include the blocking question and enough context for the operator to answer.
 
 ### Human Review
 
@@ -121,11 +118,11 @@ Terminal failure must include the failing phase, evidence pointer, and side effe
 
 ## Multi-agent behavior
 
-- Each Agent session has a durable attempt identity, lease owner, heartbeat, workspace, branch, budget, and terminal outcome.
-- Two Agent sessions must not claim the same Linear issue unless a future spec defines cooperative sub-attempts.
-- Two Agent sessions must not mutate the same Workspace concurrently.
+- Each Agent attempt has a durable attempt identity, lease owner, heartbeat, workspace, branch, budget, and terminal outcome.
+- Two Agent attempts must not claim the same Linear issue unless a future spec defines cooperative sub-attempts.
+- Two Agent attempts must not mutate the same Workspace concurrently.
 - A stale lease may be reclaimed only after heartbeat evidence and process/owner checks satisfy the configured stale policy.
-- Parallel Agent sessions must share no implicit state through logs alone; status must report durable state.
+- Parallel Agent attempts must share no implicit state through logs alone; status must report durable state.
 - Merge and cleanup lanes must respect active leases and reconciliation-needed blockers.
 - Worker roles may run in one process, goroutines, or future separate OS
   processes, but each worker must claim durable state, acquire required leases,
@@ -140,10 +137,10 @@ Terminal failure must include the failing phase, evidence pointer, and side effe
   - Invalid/zero handling is delegated to configuration parsing, which currently falls back to `1` for missing/malformed/negative values.
   - Duplicate dispatch protection remains authoritative in candidate selection, reusable terminal artifact checks, run locks, and SQLite leases before Agent execution starts; increasing capacity must not intentionally bypass those protections.
 - `max_turns`:
-  - Current one-shot shell CLI runtime behavior: no continuation/session loop exists today, so missing, invalid, zero, or `1` resolves to exactly one implementation attempt for the selected issue.
+  - Current one-shot shell CLI runtime behavior: no multi-turn loop exists today, so missing, invalid, zero, or `1` resolves to exactly one implementation attempt for the selected issue.
   - A normalized value greater than `1` is unsupported for `codex_cli` and `pi_cli` and fails runtime preflight before claim, lease acquisition, workspace mutation, Linear state movement, or Agent execution.
-  - The failure is an operator-facing configuration error that names the selected provider, the configured value, and the remediation: set `agent.max_turns: 1` or use a future session runtime with continuation support.
-  - Future session-runtime Adapters may support this by declaring session, turn-continuation, and `max_turns` capabilities and enforcing turns inside one durable session; the runner must not approximate multi-turn behavior by issuing multiple independent one-shot CLI attempts.
+  - The failure is an operator-facing configuration error that names the selected provider, the configured value, and the remediation: set `agent.max_turns: 1` or use a future provider with a proven multi-turn contract.
+  - The runner must not approximate multi-turn behavior by issuing multiple independent one-shot CLI attempts.
 - `max_retry_backoff_ms`:
   - Current CLI runtime behavior: parsed for configuration storage only; no scheduler delay/backoff is applied before retry.
   - Default is `300000` ms.
@@ -156,7 +153,7 @@ Terminal failure must include the failing phase, evidence pointer, and side effe
   - `.pi-symphony-feedback.md` is the source for whether a retry can continue on captured feedback.
 - There is no persisted backoff timer state in the current runner that survives restart.
 - A restart may still continue or re-attempt work based on preserved artifacts, but timing/backoff policy is not yet durable/portable across restarts.
-- Session runtimes should interpret this as "retry timing is a no-op today"; when implemented, backoff state should move to durable local state (SQLite in the v1 orchestration target).
+- Future retry/backoff implementations should move backoff state to durable local state (SQLite in the v1 orchestration target).
 
 ## Quality evidence
 
@@ -186,7 +183,7 @@ The Adapter should:
 
 - run as a separate agent process suitable for ACP-compatible clients;
 - communicate through the Agent Client Protocol transport expected by the client;
-- map editor turns to existing Pi Symphony command or session Modules;
+- map editor turns to existing Pi Symphony command Modules;
 - preserve workflow configuration, leases, budgets, validation, review, and state reconciliation;
 - surface status, plans, diffs, validation output, and Handoff evidence in editor-friendly content;
 - avoid editor-specific orchestration policy.

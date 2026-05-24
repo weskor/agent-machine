@@ -687,7 +687,7 @@ func TestRunOneUnsupportedPiCLIMaxTurnsFailsBeforeClaimOrWorkspaceMutation(t *te
 	config := testRunnerConfig(root)
 	config.PiCommand = "sh"
 	didWork, err := runOne(linearClient{apiKey: "test-key", endpoint: server.URL}, workflow{YAML: "agent:\n  max_turns: 2\n", Body: "# Test workflow"}, config)
-	if err == nil || !strings.Contains(err.Error(), "pi_cli") || !strings.Contains(err.Error(), "agent.max_turns=2") || !strings.Contains(err.Error(), "session runtime") {
+	if err == nil || !strings.Contains(err.Error(), "pi_cli") || !strings.Contains(err.Error(), "agent.max_turns=2") || !strings.Contains(err.Error(), "proven multi-turn contract") {
 		t.Fatalf("expected actionable max_turns preflight error, got %v", err)
 	}
 	if !didWork {

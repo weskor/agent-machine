@@ -34,7 +34,7 @@ func (a CodexCLIAdapter) Preflight(_ context.Context, input PreflightInput) (Pre
 		result.Checks = append(result.Checks, PreflightCheck{
 			Name:    "max_turns",
 			OK:      false,
-			Message: fmt.Sprintf("provider codex_cli supports exactly one exec attempt; agent.max_turns=%d requires a future session runtime with continuation support or agent.max_turns: 1", input.MaxTurns),
+			Message: fmt.Sprintf("provider codex_cli supports exactly one exec attempt; agent.max_turns=%d requires a provider with a proven multi-turn contract or agent.max_turns: 1", input.MaxTurns),
 		})
 	}
 	result.Checks = append(result.Checks, preflightCommand("implementation_command", input.ImplementationCommand))

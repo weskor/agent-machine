@@ -34,7 +34,7 @@ func TestRunRecordJSONRoundTripPreservesArtifactFields(t *testing.T) {
 		OriginalStatus:       "In Progress",
 		ManualRepair:         "none",
 		Error:                "",
-		Budget:               &Budget{WallClockText: "2h", MaxTokens: 1000, MaxCost: 1.5, CommandText: "10m", PiText: "90m", ReviewText: "30m", MergeText: "10m", GitHubText: "2m"},
+		Budget:               &Budget{WallClockText: "2h", MaxTokens: 1000, MaxCost: 1.5, CommandText: "10m", RuntimeText: "90m", PiText: "90m", ReviewText: "30m", MergeText: "10m", GitHubText: "2m"},
 		BudgetExceeded:       "",
 		BehaviorContractEvidence: []string{
 			"docs/specs/harness-behavior.md: run record remains an audit export",

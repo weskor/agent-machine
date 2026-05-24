@@ -204,7 +204,8 @@ func TestParseConfigInvalidDurationsReturnFieldPaths(t *testing.T) {
 		yaml string
 		want string
 	}{
-		{name: "budget", yaml: "budgets:\n  pi_timeout: tomorrow\n", want: "budgets.pi_timeout"},
+		{name: "budget", yaml: "budgets:\n  runtime_timeout: tomorrow\n", want: "budgets.runtime_timeout"},
+		{name: "legacy budget", yaml: "budgets:\n  pi_timeout: tomorrow\n", want: "budgets.pi_timeout"},
 		{name: "polling", yaml: "polling:\n  interval_ms: soon\n", want: "polling.interval_ms"},
 		{name: "hooks", yaml: "hooks:\n  timeout_ms: -1\n", want: "hooks.timeout_ms"},
 		{name: "agent", yaml: "agent:\n  max_retry_backoff_ms: later\n", want: "agent.max_retry_backoff_ms"},

@@ -59,7 +59,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 1. **Typed issue-contract parser and scope model** — allowed paths: `docs/specs/*.md`, parser code, and focused tests. Convert ticket sections, MUST/MUST NOT constraints, allowed/out-of-scope paths, and validation commands into typed evidence used by prompts and runner checks.
 2. **Runtime doctor/preflight** — validate selected provider, `pi` binary availability for `pi_cli`, auth/config/model visibility where feasible, and actionable pre-claim failure messages.
 3. **Runner-owned PR create/update and artifact recording** — move commit/push/PR create-update/URL recording toward typed runner operations while preserving current prompt-driven behavior until implemented.
-4. **Configurable runtime provider evidence** — persist selected provider/model evidence for supported local providers (`codex_cli` default, explicit `pi_cli`) and future fake/API/app-server/ACP-style Adapters.
+4. **Configurable runtime provider evidence** — persist selected provider/model evidence for supported local providers (`codex_cli` default, explicit `pi_cli`) and future fake/API/ACP-style Adapters.
 5. **Fake runtime parity tests** — prove fake/test runtime behavior covers implementation, review, usage, timeout/cancellation, structured output, raw debug, and handoff evidence paths without needing an installed `pi`.
 6. **GitHub-first PR resolver** — resolve the attempt PR by configured repository, workspace branch, base branch, issue identifier, and ownership before falling back to agent-output URL parsing.
 7. **Structured attempt outcome envelope** — require implementation/review adapters to emit typed outcomes for PR handoff, Needs Info, validation failure, missing PR, retryable failure, and terminal failure; keep legacy text parsing as compatibility input.
@@ -75,7 +75,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 - `LINEAR_API_KEY` is required.
 - `tracker.project_slug` and `workspace.root` are required in the workflow.
 - GitHub repository context is configured from the workflow before GitHub API use.
-- Budget settings from the workflow control command, Pi, review, merge, GitHub, token, cost, and wall-clock limits.
+- Budget settings from the workflow control command, runtime, review, merge, GitHub, token, cost, and wall-clock limits.
 - `agent.max_concurrent_agents` and `agent.max_turns` are parsed from workflow YAML, defaulting to `1` when omitted.
 - `agent.max_retry_backoff_ms` is parsed as a non-negative integer millisecond duration, defaulting to `300000`.
 - Invalid values are handled per parser behavior:
@@ -95,7 +95,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 - Live dogfood smoke test CAG-131 validated that the claim-first split still lets a `Ready for Agent` issue enter the normal isolated workspace flow; no scheduler or state-machine policy changed as part of that smoke test.
 - `agent.max_concurrent_agents` controls only implementation-lane claim capacity. Duplicate work prevention remains enforced before Agent execution by candidate reconciliation, reusable terminal run artifacts, run locks, and SQLite leases.
 - `agent.max_turns` is enforced at the AgentRuntime/config preflight boundary for one-shot shell CLI runtimes: normalized `1` preserves the single implementation attempt, while values greater than `1` fail before claim, lease acquisition, workspace mutation, Linear state movement, or Agent execution.
-- `codex_cli` and `pi_cli` do not gate or stop an in-flight attempt by turn count; future session-runtime Adapters must declare session, turn-continuation, and `max_turns` capabilities rather than relying on scheduler guesses.
+- `codex_cli` and `pi_cli` do not gate or stop an in-flight attempt by turn count; future providers must prove a concrete multi-turn contract before accepting `agent.max_turns > 1`.
 - `max_retry_backoff_ms` gates retry timing for durable retry decisions: retryable failed or blocked attempts write retry metadata to SQLite, candidate selection skips the issue until the exponential backoff delay elapses, and the delay is capped by the configured maximum.
 - Duplicate dispatch prevention relies on workspace-level run lock artifacts and SQLite lease acquisition when available.
 - For duplicate-claim safety, the runner:

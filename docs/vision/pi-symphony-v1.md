@@ -57,7 +57,7 @@ locally installed and configured `codex exec` command with clean per-run
 configuration. The legacy `pi_cli` provider remains an explicit Adapter choice,
 but V1 should treat both as providers rather than the runner architecture. The
 same AgentRuntime seam should support a deterministic fake/test provider and
-future API, app-server, ACP-style, or MCP-style providers.
+future API, ACP-style, or MCP-style providers.
 
 Provider preflight should fail early before claiming or mutating work when the
 selected runtime is unavailable or not configured. Runtime capabilities such as

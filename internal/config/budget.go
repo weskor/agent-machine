@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -14,6 +15,8 @@ type Budget struct {
 	MaxCost        float64       `json:"max_cost,omitempty"`
 	CommandTimeout time.Duration `json:"-"`
 	CommandText    string        `json:"command_timeout,omitempty"`
+	RuntimeTimeout time.Duration `json:"-"`
+	RuntimeText    string        `json:"runtime_timeout,omitempty"`
 	PiTimeout      time.Duration `json:"-"`
 	PiText         string        `json:"pi_timeout,omitempty"`
 	ReviewTimeout  time.Duration `json:"-"`
@@ -25,8 +28,88 @@ type Budget struct {
 }
 
 func (b Budget) Active() *Budget {
-	if b.WallClock > 0 || b.MaxTokens > 0 || b.MaxCost > 0 || b.CommandTimeout > 0 || b.PiTimeout > 0 || b.ReviewTimeout > 0 || b.MergeTimeout > 0 || b.GitHubTimeout > 0 {
+	if b.RuntimeTimeout == 0 && b.PiTimeout > 0 {
+		b.RuntimeTimeout = b.PiTimeout
+	}
+	if b.RuntimeText == "" && b.PiText != "" {
+		b.RuntimeText = b.PiText
+	}
+	if b.PiTimeout == 0 && b.RuntimeTimeout > 0 {
+		b.PiTimeout = b.RuntimeTimeout
+	}
+	if b.PiText == "" && b.RuntimeText != "" {
+		b.PiText = b.RuntimeText
+	}
+	if b.WallClock > 0 || b.MaxTokens > 0 || b.MaxCost > 0 || b.CommandTimeout > 0 || b.RuntimeTimeout > 0 || b.PiTimeout > 0 || b.ReviewTimeout > 0 || b.MergeTimeout > 0 || b.GitHubTimeout > 0 {
 		return &b
+	}
+	return nil
+}
+
+func (b Budget) RuntimeDuration() time.Duration {
+	if b.RuntimeTimeout > 0 || b.PiTimeout == 0 {
+		return b.RuntimeTimeout
+	}
+	return b.PiTimeout
+}
+
+func (b Budget) MarshalJSON() ([]byte, error) {
+	type budgetJSON struct {
+		WallClockText string  `json:"wall_clock,omitempty"`
+		MaxTokens     float64 `json:"max_tokens,omitempty"`
+		MaxCost       float64 `json:"max_cost,omitempty"`
+		CommandText   string  `json:"command_timeout,omitempty"`
+		RuntimeText   string  `json:"runtime_timeout,omitempty"`
+		ReviewText    string  `json:"review_timeout,omitempty"`
+		MergeText     string  `json:"merge_timeout,omitempty"`
+		GitHubText    string  `json:"github_timeout,omitempty"`
+	}
+	runtimeText := b.RuntimeText
+	if runtimeText == "" {
+		runtimeText = b.PiText
+	}
+	return json.Marshal(budgetJSON{
+		WallClockText: b.WallClockText,
+		MaxTokens:     b.MaxTokens,
+		MaxCost:       b.MaxCost,
+		CommandText:   b.CommandText,
+		RuntimeText:   runtimeText,
+		ReviewText:    b.ReviewText,
+		MergeText:     b.MergeText,
+		GitHubText:    b.GitHubText,
+	})
+}
+
+func (b *Budget) UnmarshalJSON(data []byte) error {
+	type budgetJSON struct {
+		WallClockText string  `json:"wall_clock,omitempty"`
+		MaxTokens     float64 `json:"max_tokens,omitempty"`
+		MaxCost       float64 `json:"max_cost,omitempty"`
+		CommandText   string  `json:"command_timeout,omitempty"`
+		RuntimeText   string  `json:"runtime_timeout,omitempty"`
+		PiText        string  `json:"pi_timeout,omitempty"`
+		ReviewText    string  `json:"review_timeout,omitempty"`
+		MergeText     string  `json:"merge_timeout,omitempty"`
+		GitHubText    string  `json:"github_timeout,omitempty"`
+	}
+	var decoded budgetJSON
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	runtimeText := decoded.RuntimeText
+	if runtimeText == "" {
+		runtimeText = decoded.PiText
+	}
+	*b = Budget{
+		WallClockText: decoded.WallClockText,
+		MaxTokens:     decoded.MaxTokens,
+		MaxCost:       decoded.MaxCost,
+		CommandText:   decoded.CommandText,
+		RuntimeText:   runtimeText,
+		PiText:        runtimeText,
+		ReviewText:    decoded.ReviewText,
+		MergeText:     decoded.MergeText,
+		GitHubText:    decoded.GitHubText,
 	}
 	return nil
 }
@@ -50,6 +133,8 @@ func parseBudget(yaml string, strict bool) (Budget, error) {
 		WallClockText:  "2h",
 		CommandTimeout: 10 * time.Minute,
 		CommandText:    "10m",
+		RuntimeTimeout: 90 * time.Minute,
+		RuntimeText:    "90m",
 		PiTimeout:      90 * time.Minute,
 		PiText:         "90m",
 		ReviewTimeout:  30 * time.Minute,
@@ -69,6 +154,11 @@ func parseBudget(yaml string, strict bool) (Budget, error) {
 	if budget.PiTimeout, budget.PiText, err = durationFromYAML(budgetYAML, "pi_timeout", budget.PiTimeout, budget.PiText, strict); err != nil {
 		return Budget{}, err
 	}
+	if budget.RuntimeTimeout, budget.RuntimeText, err = durationFromYAML(budgetYAML, "runtime_timeout", budget.PiTimeout, budget.PiText, strict); err != nil {
+		return Budget{}, err
+	}
+	budget.PiTimeout = budget.RuntimeTimeout
+	budget.PiText = budget.RuntimeText
 	if budget.ReviewTimeout, budget.ReviewText, err = durationFromYAML(budgetYAML, "review_timeout", budget.ReviewTimeout, budget.ReviewText, strict); err != nil {
 		return Budget{}, err
 	}

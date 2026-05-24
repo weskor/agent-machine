@@ -31,7 +31,7 @@ func TestCorrectedPRURLNoFinding(t *testing.T) {
 func TestWriteRunRecordPersistsBudgetTerminalStatus(t *testing.T) {
 	workspace := t.TempDir()
 	now := time.Now()
-	record := runRecordFor(&issue{ID: "issue-id", Identifier: "CAG-1", Title: "title"}, workspace, "pi", "", now, now, nil, nil, "", "timeout", "command timed out", (&runBudget{PiText: "1s", PiTimeout: time.Second}).Active(), "command timed out")
+	record := runRecordFor(&issue{ID: "issue-id", Identifier: "CAG-1", Title: "title"}, workspace, "pi", "", now, now, nil, nil, "", "timeout", "command timed out", (&runBudget{RuntimeText: "1s", RuntimeTimeout: time.Second}).Active(), "command timed out")
 	writeRunRecord(workspace, record)
 
 	data, err := os.ReadFile(filepath.Join(workspace, ".pi-symphony-run.json"))
@@ -42,7 +42,7 @@ func TestWriteRunRecordPersistsBudgetTerminalStatus(t *testing.T) {
 	if err := json.Unmarshal(data, &persisted); err != nil {
 		t.Fatal(err)
 	}
-	if persisted.Status != "timeout" || persisted.BudgetExceeded == "" || persisted.Budget == nil || persisted.Budget.PiText != "1s" {
+	if persisted.Status != "timeout" || persisted.BudgetExceeded == "" || persisted.Budget == nil || persisted.Budget.RuntimeText != "1s" || persisted.Budget.PiText != "1s" {
 		t.Fatalf("unexpected persisted run record: %#v", persisted)
 	}
 	if !terminalRunStatus(persisted.Status) {

@@ -9,7 +9,7 @@ func TestRunAttemptOutcomeRecordCharacterizesTerminalCases(t *testing.T) {
 	now := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
 	candidate := &issue{ID: "issue-id", Identifier: "CAG-68", Title: "Extract outcomes", URL: "https://linear.app/acme/issue/CAG-68/extract-outcomes"}
 	usage := &usage{TotalTokens: 42}
-	budget := (&runBudget{PiText: "1s", PiTimeout: time.Second}).Active()
+	budget := (&runBudget{RuntimeText: "1s", RuntimeTimeout: time.Second}).Active()
 
 	tests := []struct {
 		name       string
@@ -118,7 +118,7 @@ func TestRunRecordForCharacterizesExistingOutcomeProjection(t *testing.T) {
 	now := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
 	candidate := &issue{ID: "issue-id", Identifier: "CAG-68", Title: "Extract outcomes", URL: "https://linear.app/acme/issue/CAG-68/extract-outcomes"}
 	sampleUsage := &usage{Input: 10, Output: 5, TotalTokens: 15}
-	budget := (&runBudget{PiText: "1s", PiTimeout: time.Second}).Active()
+	budget := (&runBudget{RuntimeText: "1s", RuntimeTimeout: time.Second}).Active()
 
 	tests := []struct {
 		name           string

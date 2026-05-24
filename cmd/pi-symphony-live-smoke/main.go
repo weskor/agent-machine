@@ -301,7 +301,7 @@ budgets:
   max_tokens: 0
   max_cost: 0
   command_timeout: 10m
-  pi_timeout: 20m
+  runtime_timeout: 20m
   review_timeout: 10m
   merge_timeout: 10m
   github_timeout: 2m

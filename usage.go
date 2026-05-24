@@ -17,9 +17,8 @@ var prURLPattern = regexp.MustCompile(`https://github\.com/([^/\s"'<>]+)/([^/\s"
 var codexTokensUsedPattern = regexp.MustCompile(`(?im)^tokens used\s*\n\s*([0-9][0-9,]*)\s*$`)
 
 const (
-	runtimeProviderPiCLI     = "pi_cli"
-	runtimeProviderCodexCLI  = "codex_cli"
-	runtimeProviderAppServer = agentruntime.CodexAppServerProvider
+	runtimeProviderPiCLI    = "pi_cli"
+	runtimeProviderCodexCLI = "codex_cli"
 )
 
 func parseUsage(output string) *usage {
@@ -49,20 +48,14 @@ func newCodexCLIRuntime() agentruntime.AgentRuntime {
 	}
 }
 
-func newCodexAppServerRuntime() agentruntime.AgentRuntime {
-	return agentruntime.CodexAppServerAdapter{}
-}
-
 func newAgentRuntime(provider string) (agentruntime.AgentRuntime, error) {
 	switch strings.TrimSpace(provider) {
 	case "", runtimeProviderPiCLI:
 		return newPiCLIRuntime(), nil
 	case runtimeProviderCodexCLI:
 		return newCodexCLIRuntime(), nil
-	case runtimeProviderAppServer:
-		return newCodexAppServerRuntime(), nil
 	default:
-		return nil, fmt.Errorf("unsupported runtime.provider %q; supported providers: %s, %s, %s", provider, runtimeProviderPiCLI, runtimeProviderCodexCLI, runtimeProviderAppServer)
+		return nil, fmt.Errorf("unsupported runtime.provider %q; supported providers: %s, %s", provider, runtimeProviderPiCLI, runtimeProviderCodexCLI)
 	}
 }
 

@@ -39,18 +39,17 @@ func TestCodexUsageToRuntimeParsesTokensUsedSummary(t *testing.T) {
 }
 
 func TestNewAgentRuntimeRejectsUnsupportedProvider(t *testing.T) {
-	if _, err := newAgentRuntime("mystery"); err == nil || !strings.Contains(err.Error(), "unsupported runtime.provider") || !strings.Contains(err.Error(), "codex_app_server") {
+	removedSessionProvider := "codex_" + "app_server"
+	_, err := newAgentRuntime(removedSessionProvider)
+	if err == nil || !strings.Contains(err.Error(), "unsupported runtime.provider") || !strings.Contains(err.Error(), "codex_cli") {
 		t.Fatalf("expected unsupported provider error, got %v", err)
 	}
-}
-
-func TestNewAgentRuntimeRecognizesCodexAppServerProvider(t *testing.T) {
-	runtime, err := newAgentRuntime("codex_app_server")
-	if err != nil {
-		t.Fatalf("newAgentRuntime() error = %v", err)
+	supportedList := err.Error()
+	if marker := strings.Index(supportedList, "supported providers:"); marker >= 0 {
+		supportedList = supportedList[marker:]
 	}
-	if !runtime.Capabilities().CanRunMultipleTurns() {
-		t.Fatalf("codex_app_server capabilities = %+v, want multi-turn session support", runtime.Capabilities())
+	if strings.Contains(supportedList, removedSessionProvider) {
+		t.Fatalf("removed provider should not be advertised as supported, got %v", err)
 	}
 }
 

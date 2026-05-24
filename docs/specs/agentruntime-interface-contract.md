@@ -3,8 +3,8 @@
 ## Goal
 
 Provide a machine-readable contract that allows Pi Symphony to drive Pi CLI today
-and future runtime adapters (fake/test, API, app-server, ACP-style, or MCP-style)
-without embedding orchestration logic in runtime execution code.
+and future runtime adapters (fake/test, API, ACP-style, or MCP-style) without
+embedding orchestration logic in runtime execution code.
 
 ## Scope
 
@@ -36,17 +36,13 @@ must not be used as architecture names for the runner itself.
   `codex` installed and configured on `PATH` for the default production runtime.
   That dependency should fail during runner preflight before claiming or mutating
   work, not after a workspace or Linear issue has been changed.
-- `codex_app_server`: the target session Adapter for a persistent Codex
-  app-server thread. It is specified in
-  [Session Runtime Contract](./session-runtime-contract.md) and is the first
-  provider shape that may support `agent.max_turns > 1`.
 - `pi_cli`: the legacy local Adapter. It shells to the local `pi` executable and
   remains available as an explicit runtime provider for operators that opt into
   it.
 - `fake`: deterministic fake/test runtime used by tests and characterization
   scenarios. It should exercise the same AgentRuntime contract and handoff
   evidence paths without requiring network, auth, or an installed Agent CLI.
-- Future provider names may include `api`, `app_server`, `acp`, or `mcp` style
+- Future provider names may include `api`, `acp`, or `mcp` style
   Adapters. Those names describe transport or process shape only; they must call
   the same runner Modules for orchestration, ownership, validation, and handoff.
 
@@ -83,7 +79,7 @@ The runtime adapter must implement:
 
 1. Runtime preflight (`Preflight`) before claim, lease, workspace mutation, or
    Agent execution.
-2. Session/attempt lifecycle start (`StartAttempt`).
+2. Attempt lifecycle start (`StartAttempt`).
 3. Attempt execution (`RunAttempt`) that produces a terminal outcome, usage, and
    optional PR URL.
 4. Review execution (`ReviewAttempt`) when available.
@@ -99,8 +95,6 @@ Runtime providers declare capabilities instead of relying on caller guesses:
 | `usage_cost_reporting` | Can report token, cost, or other usage telemetry. |
 | `timeout_cancellation` | Can enforce timeout and/or cancellation signals. |
 | `max_turns` | Can enforce turn/iteration limits inside one attempt. |
-| `sessions` | Can keep one runtime session alive across runner turns. |
-| `turn_continuation` | Can accept a typed continuation turn in the same runtime session. |
 | `structured_output` | Can emit typed outcomes/events without text scraping. |
 | `raw_debug_capture` | Can expose raw streams for capped debug artifacts. |
 | `deterministic_handoff_support` | Can provide machine-readable PR/handoff hints, while the runner still validates and owns handoff. |
@@ -114,12 +108,9 @@ missing, invalid, zero, or `1` resolves to the historical single implementation
 attempt for `codex_cli` and `pi_cli`, and any normalized value greater than `1`
 is a runtime configuration preflight failure before claim, lease acquisition,
 workspace mutation, or Linear state movement. The actionable failure must tell
-the operator to use `agent.max_turns: 1` or a future session runtime that
-supports continuation.
-A future app-server/session-runtime Adapter may support `max_turns` by declaring
-session, turn-continuation, and max-turns capabilities and enforcing
-continuation inside the session lifecycle; the runner must not emulate
-continuation by repeatedly shelling out to a one-shot CLI runtime.
+the operator to use `agent.max_turns: 1` or a future provider with a proven
+multi-turn contract. The runner must not emulate multi-turn behavior by
+repeatedly shelling out to a one-shot CLI runtime.
 
 ### Deterministic handoff boundary
 
@@ -146,7 +137,7 @@ example `cancel` on a runtime that has no cancellation primitive).
 
 ### Data contract
 
-- `AttemptContext`: identifies a single logical session/attempt.
+- `AttemptContext`: identifies a single logical attempt.
 - `AttemptTimeouts`: wall-clock / command / review timeout budgets.
 - `AttemptResult`: terminal outcome, PR URL, usage telemetry, error text, and
   timing.
@@ -200,7 +191,7 @@ The current Pi CLI flow in `run_one.go` maps to the contract as follows:
 | `AttemptContext` | Workspace path, branch, issue id/identifier, attempt number, and
   timeout budget (`config.Budget`). |
 | `RunAttempt` | `captureAgentOutput(...)` with the configured runtime command and
-  timeout `Budget.PiTimeout`. |
+  timeout `Budget.RuntimeTimeout` (`Budget.PiTimeout` remains a legacy alias). |
 | `RuntimeEvent` | Structured event equivalents for command start, finished, timeout,
   and terminal outcome (to be produced by adapter implementation). |
 | `AttemptUsage` | `parseUsage(piOutput)` output currently stored on

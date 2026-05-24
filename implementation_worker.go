@@ -106,7 +106,7 @@ func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]stri
 	implementing := runProgressForIssue(w.candidate, w.workspace, "implementing", w.progressStarted)
 	implementing.Branch = w.branch
 	writeRunProgress(w.config.WorkspaceRoot, implementing)
-	piResult, err := runtime.RunAttempt(ctx, attempt.ID, agentruntime.RunAttemptInput{Command: configuredRuntimeCommand(w.config), PromptPath: promptPath, WorkingDir: w.workspace, Timeout: w.config.Budget.PiTimeout, Environment: githubEnv}, agentruntime.NoopSink{})
+	piResult, err := runtime.RunAttempt(ctx, attempt.ID, agentruntime.RunAttemptInput{Command: configuredRuntimeCommand(w.config), PromptPath: promptPath, WorkingDir: w.workspace, Timeout: w.config.Budget.RuntimeDuration(), Environment: githubEnv}, agentruntime.NoopSink{})
 	piEnvelope := normalizedAttemptEnvelope(piResult)
 	piStart := piResult.StartedAt
 	piEnded := piResult.EndedAt

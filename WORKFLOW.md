@@ -28,7 +28,7 @@ hooks:
 agent:
   max_concurrent_agents: 1
   # Shell CLI runtimes support only the default single implementation attempt; values >1
-  # require a future session runtime with continuation support.
+  # require a provider with a proven multi-turn contract.
   max_turns: 1
   max_retry_backoff_ms: 300000
 runtime:
@@ -51,7 +51,7 @@ budgets:
   max_tokens: 0
   max_cost: 0
   command_timeout: 10m
-  pi_timeout: 90m
+  runtime_timeout: 90m
   review_timeout: 45m
   merge_timeout: 10m
   github_timeout: 2m

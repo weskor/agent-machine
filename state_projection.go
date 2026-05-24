@@ -200,7 +200,7 @@ func (stateProjection) DaemonHeartbeat(processID string, config runnerConfig, he
 	return state.DaemonHeartbeat{
 		ProcessID:           processID,
 		LaneName:            heartbeat.LaneName,
-		WorkflowPath:        config.WorkflowPath,
+		WorkflowPath:        config.ConfigPath,
 		CycleNumber:         heartbeat.CycleNumber,
 		LastSuccessAt:       lastSuccessAt,
 		LastError:           lastError,

@@ -134,8 +134,8 @@ review:
 	}
 }
 
-func TestCompoundWorkflowExampleRelocatesDomainReviewGuidance(t *testing.T) {
-	content, err := os.ReadFile(filepath.Join("..", "..", "examples", "compound-web.WORKFLOW.md"))
+func TestCompoundConfigExampleRelocatesDomainReviewGuidance(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "examples", "compound-web.symphony.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestCompoundWorkflowExampleRelocatesDomainReviewGuidance(t *testing.T) {
 		"non-authoritative domain sources",
 	} {
 		if !strings.Contains(config.Review.Guidance, expected) {
-			t.Fatalf("compound workflow review guidance missing %q:\n%s", expected, config.Review.Guidance)
+			t.Fatalf("compound project review guidance missing %q:\n%s", expected, config.Review.Guidance)
 		}
 	}
 }
@@ -230,30 +230,30 @@ compound:
 	}
 }
 
-func TestParseConfigWorkflowExamples(t *testing.T) {
-	for _, path := range []string{"../../WORKFLOW.example.md", "../../examples/compound-web.WORKFLOW.md"} {
+func TestParseConfigExamples(t *testing.T) {
+	for _, path := range []string{"../../symphony.example.yaml", "../../examples/compound-web.symphony.yaml"} {
 		t.Run(filepath.Base(path), func(t *testing.T) {
-			wf, err := ReadWorkflow(path)
+			proj, err := ReadProject(path)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := ParseConfig(wf.YAML); err != nil {
+			if _, err := ParseConfig(proj.YAML); err != nil {
 				t.Fatal(err)
 			}
 		})
 	}
 }
 
-func TestParseConfigCurrentWorkflowWhenAvailable(t *testing.T) {
-	path := "../../WORKFLOW.md"
+func TestParseConfigCurrentConfigWhenAvailable(t *testing.T) {
+	path := "../../symphony.yaml"
 	if _, err := os.Stat(path); err != nil {
 		t.Skip(err)
 	}
-	wf, err := ReadWorkflow(path)
+	proj, err := ReadProject(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ParseConfig(wf.YAML); err != nil {
+	if _, err := ParseConfig(proj.YAML); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -8,7 +8,7 @@ The desired V1 experience is boring in the best way: operators can let Pi Sympho
 
 ## V1 promise
 
-Given a configured `WORKFLOW.md`, a repository with clear agent guidance, and a queue of well-specified Linear issues, Pi Symphony should:
+Given a configured `symphony.yaml`, a matching agent prompt, repository guidance, and a queue of well-specified Linear issues, Pi Symphony should:
 
 1. Select eligible Candidates deterministically.
 2. Claim work with durable coordination.

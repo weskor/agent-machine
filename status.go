@@ -382,6 +382,9 @@ func workspaceArtifactSummaries(workspaceRoot string) ([]artifactSummary, error)
 		if strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
+		if entry.Name() == "state" {
+			continue
+		}
 		workspace := filepath.Join(workspaceRoot, entry.Name())
 		summary := artifactSummary{Issue: entry.Name()}
 		data, err := os.ReadFile(filepath.Join(workspace, ".pi-symphony-run.json"))

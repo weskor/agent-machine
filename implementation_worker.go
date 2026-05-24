@@ -16,7 +16,7 @@ import (
 
 type implementationWorker struct {
 	client          linearClient
-	workflow        workflow
+	project         project
 	config          runnerConfig
 	stateStore      *state.Store
 	candidate       *issue
@@ -48,14 +48,20 @@ func (w implementationWorker) Prepare(ctx context.Context) error {
 	prepared := runProgressForIssue(w.candidate, w.workspace, "workspace_prepared", w.progressStarted)
 	prepared.Branch = w.branch
 	writeRunProgress(w.config.WorkspaceRoot, prepared)
-	if isEmptyIgnoringRunLock(w.workspace) && strings.TrimSpace(w.config.AfterCreate) != "" {
-		if err := sh.RunWithContextTimeout(ctx, w.config.AfterCreate, w.workspace, w.config.Budget.CommandTimeout); err != nil {
-			if errors.Is(err, sh.ErrCommandTimeout) {
-				decision := commandFailureLifecycleDecision(attemptLifecyclePhaseWorkspace, err, true)
-				_ = linearStatus.CommentContext(ctx, renderBudgetFailureComment(err.Error()))
-				writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), "", w.runStarted, time.Now(), nil, nil, "", decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
+	if isEmptyIgnoringRunLock(w.workspace) {
+		bootstrapCommand := strings.TrimSpace(w.config.AfterCreate)
+		if bootstrapCommand == "" && strings.TrimSpace(w.config.RepositoryRemote) != "" {
+			bootstrapCommand = fmt.Sprintf("git clone --branch %s %s .", sh.Quote(w.config.BaseBranch), sh.Quote(w.config.RepositoryRemote))
+		}
+		if bootstrapCommand != "" {
+			if err := sh.RunWithContextTimeout(ctx, bootstrapCommand, w.workspace, w.config.Budget.CommandTimeout); err != nil {
+				if errors.Is(err, sh.ErrCommandTimeout) {
+					decision := commandFailureLifecycleDecision(attemptLifecyclePhaseWorkspace, err, true)
+					_ = linearStatus.CommentContext(ctx, renderBudgetFailureComment(err.Error()))
+					writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), "", w.runStarted, time.Now(), nil, nil, "", decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
+				}
+				return err
 			}
-			return err
 		}
 	}
 	if err := ensureIsolatedWorkspaceContext(ctx, w.config.WorkspaceRoot, w.workspace, w.candidate.Identifier); err != nil {
@@ -87,7 +93,7 @@ func (w implementationWorker) Prepare(ctx context.Context) error {
 		return err
 	}
 	feedback = repairReviewFailedPromptFeedback(w.stateStore, w.candidate.Identifier, feedback)
-	prompt := implementationPrompt(w.workflow.Body, w.candidate, feedback, w.config)
+	prompt := implementationPrompt(w.project.Prompt, w.candidate, feedback, w.config)
 	promptPath := filepath.Join(w.workspace, ".pi-symphony-prompt.md")
 	if err := os.WriteFile(promptPath, []byte(prompt), 0o600); err != nil {
 		return err
@@ -188,10 +194,10 @@ func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]stri
 	return result, nil
 }
 
-func implementationPrompt(workflowBody string, candidate *issue, feedback string, config runnerConfig) string {
+func implementationPrompt(projectPrompt string, candidate *issue, feedback string, config runnerConfig) string {
 	feedbackBlock := ""
 	if strings.TrimSpace(feedback) != "" {
 		feedbackBlock = fmt.Sprintf("\n\nGitHub PR feedback to address before handoff:\n%s\n", feedback)
 	}
-	return renderPrompt(workflowBody, *candidate, 1) + fmt.Sprintf("\n\nLinear issue description:\n%s%s\n\n%s\n\n%s\n\nPi Symphony runner constraints:\n- Follow the Linear issue description exactly; do not infer broader implementation work from the title alone.\n- If GitHub PR feedback is present, address that feedback in the existing PR branch rather than starting unrelated work.\n- If required information is missing or the ticket is ambiguous/unsafe to implement, output NEEDS_INFO followed by numbered questions instead of guessing.\n- Run exactly once; do not ask for continuation.\n- Keep context usage minimal.\n- Leave scoped code/test/doc changes in this workspace and include validation notes.\n- Do not create, update, push, or comment on a GitHub PR; the Pi Symphony runner will commit, push, create or update exactly one PR from branch %s into base branch %s, and post deterministic handoff comments.\n- Before finishing, perform a focused self-review of the final diff for scope, secrets, validation, tenant/security risk, unrelated files, and behavior-contract evidence; fix any clear findings.\n- Stop after the scoped diff and validation notes.\n- The runner will move the Linear issue to %s after runner PR handoff, or to %s when NEEDS_INFO is detected.\n", candidate.Description, feedbackBlock, ticketContractPrompt(), behaviorContractPreflightPrompt(), expectedWorkspaceBranch(candidate.Identifier), config.BaseBranch, config.HandoffState, config.NeedsInfoState)
+	return renderPrompt(projectPrompt, *candidate, 1) + fmt.Sprintf("\n\nLinear issue description:\n%s%s\n\n%s\n\n%s\n\nPi Symphony runner constraints:\n- Follow the Linear issue description exactly; do not infer broader implementation work from the title alone.\n- If GitHub PR feedback is present, address that feedback in the existing PR branch rather than starting unrelated work.\n- If required information is missing or the ticket is ambiguous/unsafe to implement, output NEEDS_INFO followed by numbered questions instead of guessing.\n- Run exactly once; do not ask for continuation.\n- Keep context usage minimal.\n- Leave scoped code/test/doc changes in this workspace and include validation notes.\n- Do not create, update, push, or comment on a GitHub PR; the Pi Symphony runner will commit, push, create or update exactly one PR from branch %s into base branch %s, and post deterministic handoff comments.\n- Before finishing, perform a focused self-review of the final diff for scope, secrets, validation, tenant/security risk, unrelated files, and behavior-contract evidence; fix any clear findings.\n- Stop after the scoped diff and validation notes.\n- The runner will move the Linear issue to %s after runner PR handoff, or to %s when NEEDS_INFO is detected.\n", candidate.Description, feedbackBlock, ticketContractPrompt(), behaviorContractPreflightPrompt(), expectedWorkspaceBranch(candidate.Identifier), config.BaseBranch, config.HandoffState, config.NeedsInfoState)
 }

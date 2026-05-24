@@ -109,7 +109,7 @@ must not be approximated by repeatedly shelling out to a one-shot CLI runtime.
 AgentRuntime output may include a PR URL, branch name, summary, usage, and debug
 evidence, but those are inputs to runner validation, not authority. Wherever the
 runner can perform the operation with configured Git/GitHub credentials and typed
-workflow facts, the runner owns:
+project facts, the runner owns:
 
 - commit creation or validation of the exact diff to hand off;
 - push to the expected `symphony/<issue>-workspace` branch;

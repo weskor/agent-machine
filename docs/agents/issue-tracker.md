@@ -7,7 +7,7 @@ Issues and PRDs for this repo live in Linear, not GitHub Issues.
 - Linear team: CAG / Compound Agents
 - Linear project: Pi Symphony Runner
 - Project slug: `c08e7f84bb75`
-- Local workflow config: `WORKFLOW.md`
+- Local project config: `symphony.yaml`
 
 ## Conventions
 

@@ -16,7 +16,7 @@ type fakeClient struct {
 }
 
 func TestRunDispatchesRepresentativeArgCombinations(t *testing.T) {
-	workflowPath := writeWorkflow(t, "")
+	configPath := writeConfig(t, "")
 	tests := []struct {
 		name       string
 		args       []string
@@ -24,24 +24,28 @@ func TestRunDispatchesRepresentativeArgCombinations(t *testing.T) {
 		wantApply  bool
 		wantCycles int
 	}{
-		{name: "status", args: []string{"--status", workflowPath}, wantMode: modeStatus},
-		{name: "run status", args: []string{"--run-status=CAG-119", workflowPath}, wantMode: modeRunStatus},
-		{name: "explain", args: []string{"--explain", workflowPath}, wantMode: modeExplain},
-		{name: "dry run alias", args: []string{"--dry-run", workflowPath}, wantMode: modeExplain},
-		{name: "continuous cycles", args: []string{"--continuous", "--cycles=3", workflowPath}, wantMode: modeContinuous, wantCycles: 3},
-		{name: "daemon alias", args: []string{"--daemon", workflowPath}, wantMode: modeContinuous},
-		{name: "merge approved", args: []string{"--merge-approved", workflowPath}, wantMode: modeMerge},
-		{name: "repair artifacts", args: []string{"--repair-artifacts", workflowPath}, wantMode: modeRepair},
-		{name: "repair worker task", args: []string{"--repair-worker-task=merge:CAG-1:7", workflowPath}, wantMode: modeRepairTask},
-		{name: "cleanup apply", args: []string{"--cleanup-workspaces", "--apply", workflowPath}, wantMode: modeCleanup, wantApply: true},
-		{name: "backfill", args: []string{"--backfill-state", workflowPath}, wantMode: modeBackfill},
-		{name: "worker", args: []string{"--worker=status", workflowPath}, wantMode: modeWorker},
-		{name: "status wins over later merge approved", args: []string{"--status", "--merge-approved", workflowPath}, wantMode: modeStatus},
-		{name: "repair wins over later status", args: []string{"--status", "--repair-artifacts", workflowPath}, wantMode: modeRepair},
-		{name: "cleanup wins over later daemon", args: []string{"--daemon", "--cleanup-workspaces", workflowPath}, wantMode: modeCleanup},
-		{name: "backfill wins over repair", args: []string{"--repair-artifacts", "--backfill-state", workflowPath}, wantMode: modeBackfill},
-		{name: "explain wins over backfill", args: []string{"--backfill-state", "--explain", workflowPath}, wantMode: modeExplain},
-		{name: "backfill wins over run status", args: []string{"--run-status=CAG-119", "--backfill-state", workflowPath}, wantMode: modeBackfill},
+		{name: "status", args: []string{"--status", configPath}, wantMode: modeStatus},
+		{name: "run status", args: []string{"--run-status=CAG-119", configPath}, wantMode: modeRunStatus},
+		{name: "run status command", args: []string{"run-status", "CAG-119", "--config", configPath}, wantMode: modeRunStatus},
+		{name: "explain", args: []string{"--explain", configPath}, wantMode: modeExplain},
+		{name: "surface snapshot", args: []string{"surface", "snapshot", "--config", configPath}, wantMode: modeSurface},
+		{name: "snapshot alias", args: []string{"snapshot", "--config", configPath}, wantMode: modeSurface},
+		{name: "surface snapshot flag", args: []string{"--surface-snapshot", configPath}, wantMode: modeSurface},
+		{name: "dry run alias", args: []string{"--dry-run", configPath}, wantMode: modeExplain},
+		{name: "continuous cycles", args: []string{"--continuous", "--cycles=3", configPath}, wantMode: modeContinuous, wantCycles: 3},
+		{name: "daemon alias", args: []string{"--daemon", configPath}, wantMode: modeContinuous},
+		{name: "merge approved", args: []string{"--merge-approved", configPath}, wantMode: modeMerge},
+		{name: "repair artifacts", args: []string{"--repair-artifacts", configPath}, wantMode: modeRepair},
+		{name: "repair worker task", args: []string{"--repair-worker-task=merge:CAG-1:7", configPath}, wantMode: modeRepairTask},
+		{name: "cleanup apply", args: []string{"--cleanup-workspaces", "--apply", configPath}, wantMode: modeCleanup, wantApply: true},
+		{name: "backfill", args: []string{"--backfill-state", configPath}, wantMode: modeBackfill},
+		{name: "worker", args: []string{"--worker=status", configPath}, wantMode: modeWorker},
+		{name: "status wins over later merge approved", args: []string{"--status", "--merge-approved", configPath}, wantMode: modeStatus},
+		{name: "repair wins over later status", args: []string{"--status", "--repair-artifacts", configPath}, wantMode: modeRepair},
+		{name: "cleanup wins over later daemon", args: []string{"--daemon", "--cleanup-workspaces", configPath}, wantMode: modeCleanup},
+		{name: "backfill wins over repair", args: []string{"--repair-artifacts", "--backfill-state", configPath}, wantMode: modeBackfill},
+		{name: "explain wins over backfill", args: []string{"--backfill-state", "--explain", configPath}, wantMode: modeExplain},
+		{name: "backfill wins over run status", args: []string{"--run-status=CAG-119", "--backfill-state", configPath}, wantMode: modeBackfill},
 	}
 
 	for _, tt := range tests {
@@ -67,15 +71,15 @@ func TestRunDispatchesRepresentativeArgCombinations(t *testing.T) {
 }
 
 func TestRunRejectsRemovedOnceMode(t *testing.T) {
-	workflowPath := writeWorkflow(t, "")
-	err := Run([]string{"--once", workflowPath}, testDeps(t, nil, nil, nil))
+	configPath := writeConfig(t, "")
+	err := Run([]string{"--once", configPath}, testDeps(t, nil, nil, nil))
 	if err == nil || !strings.Contains(err.Error(), "--once has been removed") {
 		t.Fatalf("Run() error = %v, want removed once mode error", err)
 	}
 }
 
 func TestRunRejectsMissingModeWithoutLinearClient(t *testing.T) {
-	workflowPath := writeWorkflow(t, "tracker:\n  api_key: \"\"\n")
+	configPath := writeConfig(t, "tracker:\n  api_key: \"\"\n")
 	calledClient := false
 	deps := testDeps(t, nil, nil, nil)
 	deps.NewLinearClient = func(apiKey, endpoint string) fakeClient {
@@ -83,7 +87,7 @@ func TestRunRejectsMissingModeWithoutLinearClient(t *testing.T) {
 		return fakeClient{}
 	}
 
-	err := Run([]string{workflowPath}, deps)
+	err := Run([]string{configPath}, deps)
 	if err == nil || !strings.Contains(err.Error(), "no CLI mode selected") {
 		t.Fatalf("Run() error = %v, want missing mode error", err)
 	}
@@ -93,7 +97,7 @@ func TestRunRejectsMissingModeWithoutLinearClient(t *testing.T) {
 }
 
 func TestRunStatusDoesNotRequireLinearClient(t *testing.T) {
-	workflowPath := writeWorkflow(t, "tracker:\n  api_key: \"\"\n")
+	configPath := writeConfig(t, "tracker:\n  api_key: \"\"\n")
 	calledClient := false
 	var gotRoot string
 	var gotIssue string
@@ -108,7 +112,7 @@ func TestRunStatusDoesNotRequireLinearClient(t *testing.T) {
 		return nil
 	}
 
-	if err := Run([]string{"--run-status=CAG-119", workflowPath}, deps); err != nil {
+	if err := Run([]string{"--run-status=CAG-119", configPath}, deps); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
 	if calledClient {
@@ -119,8 +123,33 @@ func TestRunStatusDoesNotRequireLinearClient(t *testing.T) {
 	}
 }
 
+func TestSurfaceSnapshotDoesNotRequireLinearClient(t *testing.T) {
+	configPath := writeConfig(t, "tracker:\n  api_key: \"\"\n")
+	calledClient := false
+	var gotConfig Config
+	deps := testDeps(t, nil, nil, nil)
+	deps.NewLinearClient = func(apiKey, endpoint string) fakeClient {
+		calledClient = true
+		return fakeClient{}
+	}
+	deps.SurfaceSnapshot = func(config Config) error {
+		gotConfig = config
+		return nil
+	}
+
+	if err := Run([]string{"surface", "snapshot", "--config", configPath}, deps); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if calledClient {
+		t.Fatal("NewLinearClient called for surface snapshot")
+	}
+	if gotConfig.WorkspaceRoot != "/tmp/pi-symphony-test-workspaces" || gotConfig.ProjectSlug != "CAG" {
+		t.Fatalf("SurfaceSnapshot config = %+v", gotConfig)
+	}
+}
+
 func TestRunValidatesConfigBeforeLinearClient(t *testing.T) {
-	workflowPath := writeWorkflow(t, "workspace:\n  root: \"\"\n")
+	configPath := writeConfig(t, "workspace:\n  root: \"\"\n")
 	calledClient := false
 	deps := testDeps(t, nil, nil, nil)
 	deps.NewLinearClient = func(apiKey, endpoint string) fakeClient {
@@ -128,8 +157,8 @@ func TestRunValidatesConfigBeforeLinearClient(t *testing.T) {
 		return fakeClient{}
 	}
 
-	err := Run([]string{"--status", workflowPath}, deps)
-	if err == nil || !strings.Contains(err.Error(), "WORKFLOW.md must configure tracker.project_slug and workspace.root") {
+	err := Run([]string{"--status", configPath}, deps)
+	if err == nil || !strings.Contains(err.Error(), "symphony.yaml must configure tracker.project_slug and workspace.root") {
 		t.Fatalf("Run() error = %v, want config validation error", err)
 	}
 	if calledClient {
@@ -138,7 +167,7 @@ func TestRunValidatesConfigBeforeLinearClient(t *testing.T) {
 }
 
 func TestRunValidatesLinearAPIKeyBeforeNetworkModes(t *testing.T) {
-	workflowPath := writeWorkflow(t, "tracker:\n  api_key: \"\"\n")
+	configPath := writeConfig(t, "tracker:\n  api_key: \"\"\n")
 	calledClient := false
 	deps := testDeps(t, nil, nil, nil)
 	deps.NewLinearClient = func(apiKey, endpoint string) fakeClient {
@@ -146,7 +175,7 @@ func TestRunValidatesLinearAPIKeyBeforeNetworkModes(t *testing.T) {
 		return fakeClient{}
 	}
 
-	err := Run([]string{"--status", workflowPath}, deps)
+	err := Run([]string{"--status", configPath}, deps)
 	if err == nil || !strings.Contains(err.Error(), "LINEAR_API_KEY is required") {
 		t.Fatalf("Run() error = %v, want api key validation error", err)
 	}
@@ -156,7 +185,7 @@ func TestRunValidatesLinearAPIKeyBeforeNetworkModes(t *testing.T) {
 }
 
 func TestRunExplainDispatchesNoMutatingOperations(t *testing.T) {
-	workflowPath := writeWorkflow(t, "")
+	configPath := writeConfig(t, "")
 	deps := testDeps(t, nil, nil, nil)
 	deps.BackfillStateFromArtifacts = func(string) (BackfillSummary, error) {
 		t.Fatal("explain dispatched backfill mutation")
@@ -174,11 +203,11 @@ func TestRunExplainDispatchesNoMutatingOperations(t *testing.T) {
 		t.Fatal("explain dispatched merge mutation")
 		return nil
 	}
-	deps.RunContinuous = func(fakeClient, cfg.Workflow, Config, int) error {
+	deps.RunContinuous = func(fakeClient, cfg.Project, Config, int) error {
 		t.Fatal("explain dispatched continuous mutation")
 		return nil
 	}
-	deps.RunWorker = func(fakeClient, cfg.Workflow, Config, string) error {
+	deps.RunWorker = func(fakeClient, cfg.Project, Config, string) error {
 		t.Fatal("explain dispatched worker process")
 		return nil
 	}
@@ -188,7 +217,7 @@ func TestRunExplainDispatchesNoMutatingOperations(t *testing.T) {
 		return nil
 	}
 
-	if err := Run([]string{"--dry-run", workflowPath}, deps); err != nil {
+	if err := Run([]string{"--dry-run", configPath}, deps); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
 	if !calledExplain {
@@ -197,7 +226,7 @@ func TestRunExplainDispatchesNoMutatingOperations(t *testing.T) {
 }
 
 func TestRunUsesSchemaTrackerCredentials(t *testing.T) {
-	workflowPath := writeWorkflow(t, "tracker:\n  endpoint: https://linear.test/graphql\n")
+	configPath := writeConfig(t, "tracker:\n  endpoint: https://linear.test/graphql\n")
 	var gotClient fakeClient
 	deps := testDeps(t, nil, nil, nil)
 	deps.NewLinearClient = func(apiKey, endpoint string) fakeClient {
@@ -205,7 +234,7 @@ func TestRunUsesSchemaTrackerCredentials(t *testing.T) {
 		return gotClient
 	}
 
-	if err := Run([]string{"--status", workflowPath}, deps); err != nil {
+	if err := Run([]string{"--status", configPath}, deps); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
 	if gotClient.apiKey != "test-linear-key" || gotClient.endpoint != "https://linear.test/graphql" {
@@ -213,14 +242,14 @@ func TestRunUsesSchemaTrackerCredentials(t *testing.T) {
 	}
 }
 
-func TestLoadWorkflowConfigParsesDefaultsAndWorkflowValues(t *testing.T) {
-	workflowPath := writeWorkflow(t, "")
-	_, config, err := LoadWorkflowConfig(workflowPath)
+func TestLoadProjectConfigParsesDefaultsAndConfigValues(t *testing.T) {
+	configPath := writeConfig(t, "")
+	_, config, err := LoadProjectConfig(configPath)
 	if err != nil {
-		t.Fatalf("LoadWorkflowConfig() error = %v", err)
+		t.Fatalf("LoadProjectConfig() error = %v", err)
 	}
-	if config.WorkflowPath != workflowPath {
-		t.Fatalf("workflow path not preserved")
+	if config.ConfigPath != configPath {
+		t.Fatalf("project path not preserved")
 	}
 	if config.ProjectSlug != "CAG" || config.WorkspaceRoot != "/tmp/pi-symphony-test-workspaces" {
 		t.Fatalf("config = %+v", config)
@@ -242,46 +271,47 @@ func TestLoadWorkflowConfigParsesDefaultsAndWorkflowValues(t *testing.T) {
 	}
 }
 
-func TestLoadWorkflowConfigDefaultsToCodexWithoutLegacyPiCommand(t *testing.T) {
+func TestLoadProjectConfigDefaultsToCodexWithoutLegacyPiCommand(t *testing.T) {
 	dir := t.TempDir()
-	workflowPath := filepath.Join(dir, "WORKFLOW.md")
-	content := `---
+	configPath := filepath.Join(dir, "symphony.yaml")
+	content := `
 tracker:
   project_slug: CAG
   api_key: test-linear-key
 workspace:
   root: /tmp/pi-symphony-test-workspaces
----
-# Workflow
 `
-	if err := os.WriteFile(workflowPath, []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, config, err := LoadWorkflowConfig(workflowPath)
+	if err := os.WriteFile(filepath.Join(dir, "symphony.agent.md"), []byte("# Agent\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, config, err := LoadProjectConfig(configPath)
 	if err != nil {
-		t.Fatalf("LoadWorkflowConfig() error = %v", err)
+		t.Fatalf("LoadProjectConfig() error = %v", err)
 	}
 	if config.RuntimeProvider != "codex_cli" || !strings.Contains(config.RuntimeCommand, "codex") {
 		t.Fatalf("runtime config = provider %q command %q, want default codex runtime", config.RuntimeProvider, config.RuntimeCommand)
 	}
 }
 
-func TestLoadWorkflowConfigParsesRuntimeProvider(t *testing.T) {
-	workflowPath := writeWorkflow(t, "runtime:\n  provider: codex_cli\n  command: codex exec\n  review_command: codex exec review\n")
-	_, config, err := LoadWorkflowConfig(workflowPath)
+func TestLoadProjectConfigParsesRuntimeProvider(t *testing.T) {
+	configPath := writeConfig(t, "runtime:\n  provider: codex_cli\n  command: codex exec\n  review_command: codex exec review\n")
+	_, config, err := LoadProjectConfig(configPath)
 	if err != nil {
-		t.Fatalf("LoadWorkflowConfig() error = %v", err)
+		t.Fatalf("LoadProjectConfig() error = %v", err)
 	}
 	if config.RuntimeProvider != "codex_cli" || config.RuntimeCommand != "codex exec" || config.ReviewCommand != "codex exec review" {
 		t.Fatalf("runtime config = provider %q command %q review %q, want codex_cli commands", config.RuntimeProvider, config.RuntimeCommand, config.ReviewCommand)
 	}
 }
 
-func TestLoadWorkflowConfigParsesReviewGuidance(t *testing.T) {
-	workflowPath := writeWorkflow(t, "review:\n  guidance: |\n    Check target repository docs.\n    Verify ownership boundaries.\n")
-	_, config, err := LoadWorkflowConfig(workflowPath)
+func TestLoadProjectConfigParsesReviewGuidance(t *testing.T) {
+	configPath := writeConfig(t, "review:\n  guidance: |\n    Check target repository docs.\n    Verify ownership boundaries.\n")
+	_, config, err := LoadProjectConfig(configPath)
 	if err != nil {
-		t.Fatalf("LoadWorkflowConfig() error = %v", err)
+		t.Fatalf("LoadProjectConfig() error = %v", err)
 	}
 	want := "Check target repository docs.\nVerify ownership boundaries."
 	if config.ReviewGuidance != want {
@@ -289,11 +319,11 @@ func TestLoadWorkflowConfigParsesReviewGuidance(t *testing.T) {
 	}
 }
 
-func TestLoadWorkflowConfigParsesGitHubOwnership(t *testing.T) {
-	workflowPath := writeWorkflow(t, "github:\n  app_slug: pi-symphony-bot\n  pr_author_override: other-bot[bot]\n")
-	_, config, err := LoadWorkflowConfig(workflowPath)
+func TestLoadProjectConfigParsesGitHubOwnership(t *testing.T) {
+	configPath := writeConfig(t, "github:\n  app_slug: pi-symphony-bot\n  pr_author_override: other-bot[bot]\n")
+	_, config, err := LoadProjectConfig(configPath)
 	if err != nil {
-		t.Fatalf("LoadWorkflowConfig() error = %v", err)
+		t.Fatalf("LoadProjectConfig() error = %v", err)
 	}
 	if config.GitHubAppSlug != "pi-symphony-bot" || config.GitHubPRAuthorOverride != "other-bot[bot]" {
 		t.Fatalf("unexpected GitHub ownership config: %+v", config)
@@ -308,8 +338,8 @@ func testDeps(t *testing.T, gotMode *string, gotApply *bool, gotCycles *int) Dep
 		}
 	}
 	return Dependencies[fakeClient]{
-		ConfigureGitHubRepositoryFromWorkflow: func(string) {},
-		SetGitHubTimeout:                      func(cfg.Budget) {},
+		ConfigureGitHubRepositoryFromConfig: func(string) {},
+		SetGitHubTimeout:                    func(cfg.Budget) {},
 		NewLinearClient: func(apiKey, endpoint string) fakeClient {
 			return fakeClient{apiKey: apiKey, endpoint: endpoint}
 		},
@@ -349,28 +379,32 @@ func testDeps(t *testing.T, gotMode *string, gotApply *bool, gotCycles *int) Dep
 			setMode(modeExplain)
 			return nil
 		},
+		SurfaceSnapshot: func(Config) error {
+			setMode(modeSurface)
+			return nil
+		},
 		MergeApprovedPRs: func(fakeClient, Config) error {
 			setMode(modeMerge)
 			return nil
 		},
-		RunContinuous: func(_ fakeClient, _ cfg.Workflow, _ Config, maxCycles int) error {
+		RunContinuous: func(_ fakeClient, _ cfg.Project, _ Config, maxCycles int) error {
 			setMode(modeContinuous)
 			if gotCycles != nil {
 				*gotCycles = maxCycles
 			}
 			return nil
 		},
-		RunWorker: func(_ fakeClient, _ cfg.Workflow, _ Config, _ string) error {
+		RunWorker: func(_ fakeClient, _ cfg.Project, _ Config, _ string) error {
 			setMode(modeWorker)
 			return nil
 		},
 	}
 }
 
-func writeWorkflow(t *testing.T, overrides string) string {
+func writeConfig(t *testing.T, overrides string) string {
 	t.Helper()
 	dir := t.TempDir()
-	workflowPath := filepath.Join(dir, "WORKFLOW.md")
+	configPath := filepath.Join(dir, "symphony.yaml")
 	yaml := `tracker:
   project_slug: CAG
   api_key: test-linear-key
@@ -383,16 +417,18 @@ pi:
   command: pi --print
 `
 	if overrides != "" {
-		yaml = mergeSimpleWorkflowOverride(yaml, overrides)
+		yaml = mergeSimpleConfigOverride(yaml, overrides)
 	}
-	content := "---\n" + yaml + "---\n# Workflow\n"
-	if err := os.WriteFile(workflowPath, []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(yaml), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return workflowPath
+	if err := os.WriteFile(filepath.Join(dir, "symphony.agent.md"), []byte("# Agent\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return configPath
 }
 
-func mergeSimpleWorkflowOverride(base, overrides string) string {
+func mergeSimpleConfigOverride(base, overrides string) string {
 	switch overrides {
 	case "workspace:\n  root: \"\"\n":
 		return strings.Replace(base, "  root: /tmp/pi-symphony-test-workspaces", "  root: \"\"", 1)

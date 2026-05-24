@@ -8,7 +8,7 @@ CAG-105 adds the SQLite authority matrix and rollout plan to that contract. Curr
 
 ## Runner and Agent responsibility boundary
 
-Principle: the Agent handles ambiguity; the runner owns invariants. A runner invariant is a fact or transition Pi Symphony can compute from the workflow, Linear, GitHub, SQLite, workspace metadata, or typed artifacts without asking an LLM to judge intent. Agent output may provide evidence, explanations, and edits, but it must not be the only authority for runner-owned invariants.
+Principle: the Agent handles ambiguity; the runner owns invariants. A runner invariant is a fact or transition Pi Symphony can compute from the project config, Linear, GitHub, SQLite, workspace metadata, or typed artifacts without asking an LLM to judge intent. Agent output may provide evidence, explanations, and edits, but it must not be the only authority for runner-owned invariants.
 
 ### Runner-owned deterministic invariants
 
@@ -22,7 +22,7 @@ The runner owns these checks and should fail closed, route to Needs Info/Human R
 - **Lifecycle state transitions:** compute legal Linear state moves for claimed, running, Needs Info, review failed, Human Review, Done, retry, reconciliation-needed, and terminal failure outcomes.
 - **Run outcome classification:** classify missing PR, NEEDS_INFO, validation failure, review failure, missing-evidence-only review failure, timeout, budget exhaustion, operational failure, success with PR handoff, and terminal failure from typed evidence.
 - **SQLite lease authority:** acquire, heartbeat, renew, release, and reclaim leases according to durable owner/process/heartbeat evidence instead of agent assertions.
-- **Merge gates:** evaluate PR state, mergeability, review decision, checks, branch/issue mapping, repository ownership, app author forms, commit author policy, active leases, and workflow ownership expectations.
+- **Merge gates:** evaluate PR state, mergeability, review decision, checks, branch/issue mapping, repository ownership, app author forms, commit author policy, active leases, and project ownership expectations.
 - **Cleanup eligibility:** delete only workspaces whose Linear/GitHub/SQLite/workspace facts satisfy the cleanup policy; conflicts or missing durable rows are reconciliation blockers, not agent judgment calls. For a Done issue with a non-terminal local attempt artifact, a verified merged PR for the expected issue branch is terminal cleanup evidence; missing PR mappings, wrong branches, closed-unmerged PRs, or failed GitHub refreshes remain non-destructive reconciliation blockers.
 - **Artifact and debug locations:** write run records, evaluation artifacts, feedback files, deterministic comments, and capped raw debug output to the specified workspace or `.symphony/debug/<issue>/` locations.
 - **Evidence artifact schema validation:** validate run records, evaluation artifacts, handoff evidence, review classifications, and debug artifact metadata against typed schemas before using them for runner decisions.
@@ -32,7 +32,7 @@ The runner owns these checks and should fail closed, route to Needs Info/Human R
 Agent sessions own work that requires judgment, design taste, or semantic understanding:
 
 - choose the implementation approach within the issue contract;
-- make code, test, workflow example, and documentation edits;
+- make code, test, config example, and documentation edits;
 - decide where characterization or TDD gives the best behavior evidence;
 - evaluate semantic correctness, abstraction quality, naming, depth, locality, and maintainability;
 - explain ambiguous repair options, trade-offs, and why Needs Info or Human Review is appropriate;
@@ -70,17 +70,19 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 
 ## Configuration loading
 
-- The CLI defaults to `WORKFLOW.md` unless another workflow path is supplied.
-- The runner loads `.env.local` from the current directory, then the nearest `.env.local` for the workflow path.
+- The CLI defaults to `symphony.yaml` unless another config path is supplied with `--config` or `-c`.
+- The runner loads explicit `--env-file` paths first, then `.env.local` next to the selected `symphony.yaml`; environment files only fill missing variables, so process environment values win.
 - `LINEAR_API_KEY` is required.
-- `tracker.project_slug` and `workspace.root` are required in the workflow.
-- GitHub repository context is configured from the workflow before GitHub API use.
-- Budget settings from the workflow control command, runtime, review, merge, GitHub, token, cost, and wall-clock limits.
-- `agent.max_concurrent_agents` is parsed from workflow YAML, defaulting to `1` when omitted.
+- `tracker.project_slug` and `workspace.root` are required in the project config.
+- `agent.prompt_path` defaults to `symphony.agent.md` next to the selected `symphony.yaml`.
+- `repository.remote` enables typed clone setup for empty workspaces; `hooks.after_create` remains an optional setup hook.
+- GitHub repository context is configured from the project config before GitHub API use.
+- Budget settings from the project config control command, runtime, review, merge, GitHub, token, cost, and wall-clock limits.
+- `agent.max_concurrent_agents` is parsed from config YAML, defaulting to `1` when omitted.
 - `agent.max_retry_backoff_ms` is parsed as a non-negative integer millisecond duration, defaulting to `300000`.
 - Invalid values are handled per parser behavior:
   - `max_concurrent_agents`: missing, malformed, or negative values fall back to `1` without failing CLI startup.
-  - `max_retry_backoff_ms`: missing values default to `300000`; malformed or negative values fail workflow load with `non-negative millisecond integer` validation error.
+  - `max_retry_backoff_ms`: missing values default to `300000`; malformed or negative values fail config load with `non-negative millisecond integer` validation error.
 
 ### Scheduler parameter behavior (current runnable contract)
 
@@ -133,13 +135,14 @@ These seams still rely too much on Agent or reviewer interpretation and should b
   - `handoff` claims existing SQLite `pr_handoff_pending` payload refs before final `handoff_pending` payload refs; it executes PR handoff from the bounded PR handoff payload, queues review/final handoff output, and completes final handoff side effects without implementation or semantic review.
   - `linear-status` claims queued Linear transition intents and applies workflow-state moves without implementation, review, handoff, merge, cleanup, or planning work.
   - `work` is a compatibility alias for implementation-domain claim/execution with capacity from `agent.max_concurrent_agents`; it does not run review, handoff, merge, cleanup, or Linear status work.
-- `--merge-approved`: merge eligible Symphony-owned PRs whose gates pass.
-- `--cleanup-workspaces`: inspect workspace cleanup eligibility; `--apply` deletes eligible workspaces.
-- `--repair-artifacts`: repair local Symphony artifacts.
+- `merge-approved` / `--merge-approved`: merge eligible Symphony-owned PRs whose gates pass.
+- `cleanup-workspaces` / `--cleanup-workspaces`: inspect workspace cleanup eligibility; `--apply` deletes eligible workspaces.
+- `repair-artifacts` / `--repair-artifacts`: repair local Symphony artifacts.
 - `--repair-worker-task=<task_key>`: operator-triggered repair for a durable worker task that is currently `reconciliation_needed`; it requeues that exact task through SQLite and records a repair event instead of requiring manual database edits.
-- `--status`: print runner/workspace status for the workflow.
-- `--run-status=<issue>`: print one compact progress line for an active or recently terminal run from the runner-owned progress snapshot under `.symphony/state/run-progress/<issue>/progress.json`. This command is local/read-only and must not require Linear or GitHub access.
-- `--explain` / `--dry-run`: print structured JSON for the next scheduling decision, merge blockers, and cleanup eligibility without mutating Linear, GitHub, workspaces, artifacts, or orchestration state.
+- `status` / `--status`: print runner/workspace status for the project config.
+- `run-status <issue>` / `--run-status=<issue>`: print one compact progress line for an active or recently terminal run from the runner-owned progress snapshot under `.symphony/state/run-progress/<issue>/progress.json`. This command is local/read-only and must not require Linear or GitHub access.
+- `explain` / `--explain` / `--dry-run`: print structured JSON for the next scheduling decision, merge blockers, and cleanup eligibility without mutating Linear, GitHub, workspaces, artifacts, or orchestration state.
+- `config print`: print the resolved, redacted config and does not require Linear or GitHub access.
 - `--status` includes SQLite event-log counts and recent event summaries when the durable orchestration event schema is available; these diagnostics do not replace artifact summaries or lifecycle decisions.
 - `--status` includes durable worker task and worker result rows when available. Worker result rows are the latest typed status for each continuous/selected worker task and are preferred over reconstructing worker outcomes from logs or event streams.
 
@@ -148,8 +151,8 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 - The live smoke harness is an operator tool, not part of normal `make ci` or daemon startup.
 - The harness must require `LIVE_LINEAR=1` and `LINEAR_API_KEY` before reading or mutating Linear.
 - The harness may create disposable Linear issues only when explicitly invoked and must print issue identifiers and URLs for manual cleanup.
-- The harness must generate an isolated workflow/workspace root instead of editing the tracked `WORKFLOW.md`.
-- The generated workflow defaults to a deterministic fake Agent command so operators can exercise Linear, workspace, GitHub PR handoff, review, status, artifacts, and cleanup evidence without spending real Pi budget.
+- The harness must generate an isolated config/workspace root instead of editing the tracked `symphony.yaml`.
+- The generated config defaults to a deterministic fake Agent command so operators can exercise Linear, workspace, GitHub PR handoff, review, status, artifacts, and cleanup evidence without spending real Pi budget.
 - The harness must not invoke merge or mutating cleanup behavior unless the operator passes an apply flag and sets `LIVE_SMOKE_APPLY=1`.
 - Normal offline/local validation must remain unaffected; `make ci` must not require Linear, GitHub, Pi, or live smoke credentials.
 
@@ -173,7 +176,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 
 ## Candidate selection and state movement
 
-- Active states come from the workflow and usually include `Ready for Agent` and `In Progress`.
+- Active states come from the project config and usually include `Ready for Agent` and `In Progress`.
 - `Ready for Agent` candidates rank before other active states.
 - Safety labels rank before unlabeled work: runner-safety/harness first, docs-only/low-risk next, all others after.
 - Priority and older creation time break ties after state and safety ranking.
@@ -209,8 +212,8 @@ or review classification.
 | --- | --- | --- | --- | --- |
 | Selected | Candidate ordering and reconciliation select a runnable Linear issue. | Write `selected` progress and run runtime preflight before claim, Linear movement, workspace mutation, or Agent execution. | Linear candidate facts, fresh GitHub open PR facts, run locks, and SQLite reconciliation facts. Run artifacts and progress are evidence only when SQLite is available. | SQLite owns active attempts, leases, retry blocks, reconciliation blockers, and prior attempt facts; Linear/GitHub remain authoritative for their current external facts. |
 | Implementation task claimed | A selected issue passes runtime preflight and no current implementation task already owns it. | Queue and claim `implementation:<issue>:<attempt>` in SQLite before acquiring the run lock or mutating the workspace. A currently claimed task skips duplicate dispatch. | SQLite worker task state plus current candidate/reconciliation facts. | Worker task state is the durable implementation dispatch record during the scheduler transition; progress snapshots and terminal artifacts do not dispatch implementation work. |
-| Preflight failed | Selected `AgentRuntime` cannot satisfy command requirements. | Leave the issue in Ready, avoid workspace mutation and Linear state movement, write failed progress with `fix_runtime_configuration_before_retry`, and return an operational configuration error. | AgentRuntime preflight result plus workflow configuration. No run record is required before claim. | SQLite records the fail-closed pre-claim decision when the relevant decision class is authoritative. |
-| Claimed | Preflight succeeds and run lock/lease acquisition succeeds. | Write `claimed` progress, emit attempt-started evidence, and move a Ready issue to the configured running state. | On-disk run lock plus SQLite lease mirror when available; Linear current state for workflow transition. | SQLite lease and heartbeat are authoritative for claim ownership; JSON lock is compatibility/debug evidence. |
+| Preflight failed | Selected `AgentRuntime` cannot satisfy command requirements. | Leave the issue in Ready, avoid workspace mutation and Linear state movement, write failed progress with `fix_runtime_configuration_before_retry`, and return an operational configuration error. | AgentRuntime preflight result plus project configuration. No run record is required before claim. | SQLite records the fail-closed pre-claim decision when the relevant decision class is authoritative. |
+| Claimed | Preflight succeeds and run lock/lease acquisition succeeds. | Write `claimed` progress, emit attempt-started evidence, and move a Ready issue to the configured running state. | On-disk run lock plus SQLite lease mirror when available; Linear current state for state transition. | SQLite lease and heartbeat are authoritative for claim ownership; JSON lock is compatibility/debug evidence. |
 | Workspace prepared | Workspace directory exists, optional `after_create` runs for a new workspace, isolated clone/branch is ready, and optional `before_run` validation passes. | Continue to implementation; command timeout writes a `timeout` run record and budget comment when possible. | Workspace filesystem/git facts, configured hook command results, and run lock/lease ownership. | SQLite attempt and workspace lease must be current before mutation; hook outcomes are recorded as attempt evidence. |
 | Implementation failed | AgentRuntime implementation command exits with error. | Write a `failed` run record, except command timeout writes `timeout`; include usage/PR hint when available. | AgentRuntime execution result and shell timeout classification; runner-owned record writer. | SQLite attempt outcome is committed before artifact export once the attempt decision class is authoritative. |
 | GitHub App auth failed | GitHub App environment or commit identity setup fails before handoff can proceed. | Write status `failed` with `github_app_error` in auth evidence, stop the attempt, and return the error. `github_app_error` is also accepted as a terminal cleanup-policy status for legacy/repair paths. | Environment/GitHub App configuration checks and runner-owned artifact writing. | SQLite records the failed attempt and auth blocker before artifact export. |
@@ -225,13 +228,13 @@ or review classification.
 | Missing-evidence review failure | Review command returns `REVIEW_FAIL` classified as `missing_evidence_only` and a valid PR exists. | Route to Human Review while preserving failed review classification, merge-ineligible evaluation, and no-retry human-review next action. | Review output classification plus runner-owned PR validation and Linear transition. | SQLite stores failed review classification and merge-ineligible/human-review routing before artifact export. |
 | Success with PR handoff | Valid PR exists, validation passed, scope guard passed or warned, and configured review is absent or passed. | Post/update deterministic PR and Linear handoff comments, move the issue to Human Review, and write status `success`. | Runner-owned validation, PR identity, review status, comments, Linear transition, and run/evaluation artifacts. | SQLite records attempt success, PR mapping, handoff state, review classification, and merge blockers before artifacts/comments act as exports. |
 | Timeout | Hook, implementation, or review command exceeds configured timeout. | Write status `timeout`, post a budget failure comment when possible, and stop the current path. | Shell timeout classification and budget configuration. | SQLite records timeout as terminal attempt state with evidence pointer. |
-| Budget exceeded | Usage or wall-clock budget exceeds configured limit after implementation or review evidence is available. | Write status `budget_exceeded`, post a budget failure comment when possible, and stop before further handoff/merge eligibility. | Runner-owned budget calculation from workflow config, timing, and parsed usage. | SQLite records budget state and terminal attempt evidence before artifact export. |
+| Budget exceeded | Usage or wall-clock budget exceeds configured limit after implementation or review evidence is available. | Write status `budget_exceeded`, post a budget failure comment when possible, and stop before further handoff/merge eligibility. | Runner-owned budget calculation from project config, timing, and parsed usage. | SQLite records budget state and terminal attempt evidence before artifact export. |
 
 ## Pi implementation attempt
 
-- The implementation prompt includes the workflow body, Linear issue description, ticket-contract preflight, behavior-contract preflight, current PR feedback when present, SQLite-backed prior review state for review-failed repairs, and runner constraints. State-backed implementation retries do not read prior review findings from `.pi-symphony-run.json`.
+- The implementation prompt includes the project config and prompt, Linear issue description, ticket-contract preflight, behavior-contract preflight, current PR feedback when present, SQLite-backed prior review state for review-failed repairs, and runner constraints. State-backed implementation retries do not read prior review findings from `.pi-symphony-run.json`.
 - The agent leaves the scoped code/test/doc diff and validation notes in the workspace; the runner creates or updates exactly one PR from the expected workspace branch into the configured base branch.
-- Current production behavior defaults to the local clean `codex exec` shell Adapter (`codex_cli` provider). Workflows may explicitly select the legacy local `pi` CLI with `runtime.provider: pi_cli`, and legacy workflows that only configure `pi.command` continue to resolve to `pi_cli`. Operators must have the configured implementation command installed, discoverable on `PATH` or as an executable path, and configured for the desired auth/provider/model. When review is configured, the configured review command executable must also resolve. Missing command setup fails during preflight before claim or workspace mutation.
+- Current production behavior defaults to the local clean `codex exec` shell Adapter (`codex_cli` provider). Project configs may explicitly select the legacy local `pi` CLI with `runtime.provider: pi_cli`, and legacy configs that only configure `pi.command` continue to resolve to `pi_cli`. Operators must have the configured implementation command installed, discoverable on `PATH` or as an executable path, and configured for the desired auth/provider/model. When review is configured, the configured review command executable must also resolve. Missing command setup fails during preflight before claim or workspace mutation.
 - Runtime commands are configured with `runtime.command` and optional `runtime.review_command`; legacy `pi.command` and `pi.review_command` remain accepted as compatibility aliases.
 - Current run records write `runtime_command` and `runtime_usage`; legacy `pi_command` and `pi_usage` are still read and normalized during artifact repair, backfill, status, and evaluation paths.
 - The agent should stop after scoped diff and validation notes. Any Agent-emitted PR URL is advisory compatibility input only.
@@ -261,9 +264,9 @@ or review classification.
 ## Merge gates
 
 - Merge automation only considers Symphony-owned PRs.
-- Merge gates check PR state, mergeability/conflicts, review decision, status checks, branch/issue mapping, app author and commit author invariants, and configured workflow ownership expectations.
+- Merge gates check PR state, mergeability/conflicts, review decision, status checks, branch/issue mapping, app author and commit author invariants, and configured project ownership expectations.
 - A Human Review issue with a successful run artifact, `review_status=failed`, and `review_classification=missing_evidence_only` may merge only after GitHub reports explicit approval, green checks, mergeable state, and the other merge gates pass; behavior/spec/scope review failures remain blocked.
-- The PR author invariant derives accepted GitHub App author forms from the configured app slug (`app/<slug>` and `<slug>[bot]`) or an explicit workflow PR author override; if neither source is available, merge automation fails closed with a clear ownership blocker.
+- The PR author invariant derives accepted GitHub App author forms from the configured app slug (`app/<slug>` and `<slug>[bot]`) or an explicit project config PR author override; if neither source is available, merge automation fails closed with a clear ownership blocker.
 - Successful merge deletes the Symphony workspace branch and moves the Linear issue to Done.
 - Blocked merges should explain the gate reason instead of forcing a merge.
 - Pull-request merge gates produce a deterministic gate result with domain, subject, status, blocker codes, reason text, and next action when available. Merge automation, status/explain output, and merge-blocked events consume this shared shape rather than rebuilding independent blocker strings.

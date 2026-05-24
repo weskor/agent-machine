@@ -7,33 +7,37 @@ import (
 	"testing"
 )
 
-func TestReadWorkflowSplitsFrontMatterAndBody(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "WORKFLOW.md")
-	content := "---\ntitle: Test workflow\nstate: ready\n---\n\n# Body\n\nRun the worker.\n"
+func TestReadProjectLoadsYamlAndPrompt(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "symphony.yaml")
+	content := "title: Test project\nstate: ready\nagent:\n  prompt_path: agent.md\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-
-	wf, err := ReadWorkflow(path)
-	if err != nil {
-		t.Fatalf("ReadWorkflow returned error: %v", err)
-	}
-	if wf.YAML != "title: Test workflow\nstate: ready" {
-		t.Fatalf("unexpected YAML: %q", wf.YAML)
-	}
-	if wf.Body != "# Body\n\nRun the worker." {
-		t.Fatalf("unexpected body: %q", wf.Body)
-	}
-}
-
-func TestReadWorkflowRequiresFrontMatter(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "WORKFLOW.md")
-	if err := os.WriteFile(path, []byte("# Missing front matter\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "agent.md"), []byte("# Body\n\nRun the worker.\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := ReadWorkflow(path); err == nil {
-		t.Fatal("expected missing front matter to return an error")
+	proj, err := ReadProject(path)
+	if err != nil {
+		t.Fatalf("ReadProject returned error: %v", err)
+	}
+	if proj.YAML != "title: Test project\nstate: ready\nagent:\n  prompt_path: agent.md" {
+		t.Fatalf("unexpected YAML: %q", proj.YAML)
+	}
+	if proj.Prompt != "# Body\n\nRun the worker." {
+		t.Fatalf("unexpected prompt: %q", proj.Prompt)
+	}
+}
+
+func TestReadProjectRejectsFrontMatter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "symphony.yaml")
+	if err := os.WriteFile(path, []byte("---\n# old format\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ReadProject(path); err == nil {
+		t.Fatal("expected front matter to return an error")
 	}
 }
 
@@ -71,11 +75,11 @@ func TestScalarHandlesFallbacksQuotesAndEnvironment(t *testing.T) {
 	}
 }
 
-func TestBaseBranchFromWorkflowDefaultsToDevelopAndSupportsMain(t *testing.T) {
-	if got := BaseBranchFromWorkflow("workspace:\n  root: /tmp/workspaces\n"); got != "develop" {
+func TestBaseBranchFromConfigDefaultsToDevelopAndSupportsMain(t *testing.T) {
+	if got := BaseBranchFromConfig("workspace:\n  root: /tmp/workspaces\n"); got != "develop" {
 		t.Fatalf("default base branch = %q, want develop", got)
 	}
-	if got := BaseBranchFromWorkflow("workspace:\n  root: /tmp/workspaces\n  base_branch: main\n"); got != "main" {
+	if got := BaseBranchFromConfig("workspace:\n  root: /tmp/workspaces\n  base_branch: main\n"); got != "main" {
 		t.Fatalf("configured base branch = %q, want main", got)
 	}
 }

@@ -21,8 +21,8 @@ func githubAPITokenFromEnvironment() (string, error) {
 
 func currentGitHubRepo() (string, string, error) { return ghapi.CurrentRepository() }
 
-func configureGitHubRepositoryFromWorkflow(workflowPath string) {
-	ghapi.ConfigureRepositoryFromWorkflow(workflowPath)
+func configureGitHubRepositoryFromConfig(configPath string) {
+	ghapi.ConfigureRepositoryFromConfig(configPath)
 }
 
 func parseGitHubRepository(value string) (string, string, bool) { return ghapi.ParseRepository(value) }

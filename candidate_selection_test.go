@@ -20,7 +20,7 @@ func TestRetryBackoffDecisionFirstFailureWaitsThenRuns(t *testing.T) {
 	now := time.Date(2026, 5, 21, 10, 0, 0, 0, time.UTC)
 	upsertRetrySnapshot(t, store, candidate.Identifier, 1, now)
 
-	config := runnerConfig{WorkflowPath: writeRetryWorkflow(t, 10000), ReadyState: "Ready for Agent", NeedsInfoState: "Needs Info", DoneState: "Done"}
+	config := runnerConfig{ConfigPath: writeRetryConfig(t, 10000), ReadyState: "Ready for Agent", NeedsInfoState: "Needs Info", DoneState: "Done"}
 	decision, ok := retryBackoffDecision(context.Background(), store, candidate, config, now.Add(500*time.Millisecond))
 	if !ok || decision.runnable {
 		t.Fatalf("decision before backoff = %+v, %v; want blocked", decision, ok)
@@ -53,7 +53,7 @@ func TestRetryBackoffDecisionAllowsRetryableTerminalOutcomeAfterBackoff(t *testi
 		t.Fatalf("UpsertRunArtifact() error = %v", err)
 	}
 
-	config := runnerConfig{WorkflowPath: writeRetryWorkflow(t, 10000), ReadyState: "Ready for Agent", NeedsInfoState: "Needs Info", DoneState: "Done"}
+	config := runnerConfig{ConfigPath: writeRetryConfig(t, 10000), ReadyState: "Ready for Agent", NeedsInfoState: "Needs Info", DoneState: "Done"}
 	decision, ok := retryBackoffDecision(context.Background(), store, candidate, config, now.Add(time.Second))
 	if !ok || !decision.runnable {
 		t.Fatalf("decision after terminal retryable failure = %+v, %v; want runnable", decision, ok)
@@ -81,7 +81,7 @@ func TestRetryBackoffDecisionBlocksNoRetryState(t *testing.T) {
 		t.Fatalf("UpsertRunArtifact() error = %v", err)
 	}
 
-	config := runnerConfig{WorkflowPath: writeRetryWorkflow(t, 10000), ReadyState: "Ready for Agent", NeedsInfoState: "Needs Info", DoneState: "Done"}
+	config := runnerConfig{ConfigPath: writeRetryConfig(t, 10000), ReadyState: "Ready for Agent", NeedsInfoState: "Needs Info", DoneState: "Done"}
 	decision, ok := retryBackoffDecision(context.Background(), store, candidate, config, now.Add(time.Second))
 	if !ok || decision.runnable {
 		t.Fatalf("decision for no_retry = %+v, %v; want blocked", decision, ok)
@@ -107,7 +107,7 @@ func TestRetryBackoffDecisionRepeatedFailurePersistsAcrossRestart(t *testing.T) 
 		t.Fatalf("reopen state store: %v", err)
 	}
 	defer restarted.Close()
-	config := runnerConfig{WorkflowPath: writeRetryWorkflow(t, 10000), ReadyState: "Ready for Agent"}
+	config := runnerConfig{ConfigPath: writeRetryConfig(t, 10000), ReadyState: "Ready for Agent"}
 	decision, ok := retryBackoffDecision(context.Background(), restarted, candidate, config, now.Add(time.Second))
 	if !ok || decision.runnable {
 		t.Fatalf("decision after repeated persisted failure = %+v, %v; want blocked for doubled backoff", decision, ok)
@@ -124,7 +124,7 @@ func TestRetryBackoffDecisionSkipsNeedsInfoAndTerminal(t *testing.T) {
 	store := openCandidateTestStateStore(t)
 	now := time.Date(2026, 5, 21, 10, 0, 0, 0, time.UTC)
 	upsertRetrySnapshot(t, store, "CAG-99", 1, now)
-	config := runnerConfig{WorkflowPath: writeRetryWorkflow(t, 1000), NeedsInfoState: "Needs Info", DoneState: "Done"}
+	config := runnerConfig{ConfigPath: writeRetryConfig(t, 1000), NeedsInfoState: "Needs Info", DoneState: "Done"}
 
 	for _, stateName := range []string{"Needs Info", "Done"} {
 		candidate := issue{Identifier: "CAG-99", State: struct {
@@ -236,9 +236,9 @@ func TestClaimNextRunAttemptDispatchesRepairableReviewFailedPR(t *testing.T) {
 	config := testRunnerConfig(root)
 	config.BaseBranch = "develop"
 	config.PiCommand = "sh"
-	wf := workflow{Body: "# Test workflow"}
+	proj := project{Prompt: "# Test project"}
 
-	claim, didWork, err := claimNextRunAttempt(client, wf, config, store)
+	claim, didWork, err := claimNextRunAttempt(client, proj, config, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,21 +286,23 @@ func upsertRepairableReviewFailedAttempt(t *testing.T, store *state.Store, candi
 	}
 }
 
-func writeRetryWorkflow(t *testing.T, maxRetryBackoffMS int) string {
+func writeRetryConfig(t *testing.T, maxRetryBackoffMS int) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "WORKFLOW.md")
-	content := `---
+	dir := t.TempDir()
+	path := filepath.Join(dir, "symphony.yaml")
+	content := `
 tracker:
   project_slug: CAG
 workspace:
   root: /tmp/workspaces
 agent:
   max_retry_backoff_ms: ` + fmt.Sprint(maxRetryBackoffMS) + `
----
-# Test workflow
 `
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("write workflow: %v", err)
+		t.Fatalf("write project: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "symphony.agent.md"), []byte("# Test project\n"), 0o600); err != nil {
+		t.Fatalf("write prompt: %v", err)
 	}
 	return path
 }

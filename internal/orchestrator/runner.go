@@ -6,13 +6,13 @@ import (
 )
 
 // SetupDependencies are CLI-owned wiring hooks used before a mode enters the
-// runner facade. They keep parsing, environment loading, workflow loading, and
+// runner facade. They keep parsing, environment loading, project loading, and
 // client construction separate from orchestration execution.
 type SetupDependencies[Client any] struct {
-	ConfigureGitHubRepositoryFromWorkflow func(string)
-	SetGitHubTimeout                      func(cfg.Budget)
-	NewLinearClient                       func(apiKey, endpoint string) Client
-	IssueIdentifiersByState               func(Client, string, string) (map[string]bool, error)
+	ConfigureGitHubRepositoryFromConfig func(string)
+	SetGitHubTimeout                    func(cfg.Budget)
+	NewLinearClient                     func(apiKey, endpoint string) Client
+	IssueIdentifiersByState             func(Client, string, string) (map[string]bool, error)
 }
 
 // ModeRunner is the policy-preserving runner interface exposed to product
@@ -25,9 +25,10 @@ type ModeRunner[Client any, Config any] interface {
 	Status(Client, Config) error
 	RunStatus(string, string) error
 	Explain(Client, Config) error
+	SurfaceSnapshot(Config) error
 	Merge(Client, Config) error
-	Continuous(Client, cfg.Workflow, Config, int) error
-	Worker(Client, cfg.Workflow, Config, string) error
+	Continuous(Client, cfg.Project, Config, int) error
+	Worker(Client, cfg.Project, Config, string) error
 }
 
 // ModeOperationFuncs adapts the existing root runner functions to ModeRunner.
@@ -41,9 +42,10 @@ type ModeOperationFuncs[Client any, Config any] struct {
 	StatusFunc     func(Client, Config) error
 	RunStatusFunc  func(string, string) error
 	ExplainFunc    func(Client, Config) error
+	SnapshotFunc   func(Config) error
 	MergeFunc      func(Client, Config) error
-	ContinuousFunc func(Client, cfg.Workflow, Config, int) error
-	WorkerFunc     func(Client, cfg.Workflow, Config, string) error
+	ContinuousFunc func(Client, cfg.Project, Config, int) error
+	WorkerFunc     func(Client, cfg.Project, Config, string) error
 }
 
 func (m ModeOperationFuncs[Client, Config]) Backfill(root string) (cli.BackfillSummary, error) {
@@ -72,16 +74,20 @@ func (m ModeOperationFuncs[Client, Config]) Explain(client Client, config Config
 	return m.ExplainFunc(client, config)
 }
 
+func (m ModeOperationFuncs[Client, Config]) SurfaceSnapshot(config Config) error {
+	return m.SnapshotFunc(config)
+}
+
 func (m ModeOperationFuncs[Client, Config]) Merge(client Client, config Config) error {
 	return m.MergeFunc(client, config)
 }
 
-func (m ModeOperationFuncs[Client, Config]) Continuous(client Client, wf cfg.Workflow, config Config, maxCycles int) error {
-	return m.ContinuousFunc(client, wf, config, maxCycles)
+func (m ModeOperationFuncs[Client, Config]) Continuous(client Client, proj cfg.Project, config Config, maxCycles int) error {
+	return m.ContinuousFunc(client, proj, config, maxCycles)
 }
 
-func (m ModeOperationFuncs[Client, Config]) Worker(client Client, wf cfg.Workflow, config Config, role string) error {
-	return m.WorkerFunc(client, wf, config, role)
+func (m ModeOperationFuncs[Client, Config]) Worker(client Client, proj cfg.Project, config Config, role string) error {
+	return m.WorkerFunc(client, proj, config, role)
 }
 
 // Runner is the top-level orchestration facade. It composes extracted runner
@@ -101,19 +107,19 @@ func NewRunner[Client any, Config any](setup SetupDependencies[Client], modes Mo
 }
 
 // CLIDependencies adapts the orchestration facade to the existing CLI Module.
-// The CLI remains responsible for parsing, environment loading, workflow
+// The CLI remains responsible for parsing, environment loading, project
 // loading, validation, and mode dispatch; the facade owns the composed runner
 // operations behind those modes.
 func (r runner[Client, Config]) CLIDependencies() cli.Dependencies[Client] {
 	return cli.Dependencies[Client]{
-		ConfigureGitHubRepositoryFromWorkflow: r.setup.ConfigureGitHubRepositoryFromWorkflow,
-		SetGitHubTimeout:                      r.setup.SetGitHubTimeout,
-		NewLinearClient:                       r.setup.NewLinearClient,
-		IssueIdentifiersByState:               r.setup.IssueIdentifiersByState,
-		BackfillStateFromArtifacts:            r.modes.Backfill,
-		RepairArtifacts:                       r.modes.Repair,
-		RepairWorkerTask:                      r.modes.RepairWorkerTask,
-		CleanupWorkspaces:                     r.modes.Cleanup,
+		ConfigureGitHubRepositoryFromConfig: r.setup.ConfigureGitHubRepositoryFromConfig,
+		SetGitHubTimeout:                    r.setup.SetGitHubTimeout,
+		NewLinearClient:                     r.setup.NewLinearClient,
+		IssueIdentifiersByState:             r.setup.IssueIdentifiersByState,
+		BackfillStateFromArtifacts:          r.modes.Backfill,
+		RepairArtifacts:                     r.modes.Repair,
+		RepairWorkerTask:                    r.modes.RepairWorkerTask,
+		CleanupWorkspaces:                   r.modes.Cleanup,
 		PrintStatus: func(client Client, config cli.Config) error {
 			return r.modes.Status(client, r.fromCLIConfig(config))
 		},
@@ -121,14 +127,17 @@ func (r runner[Client, Config]) CLIDependencies() cli.Dependencies[Client] {
 		Explain: func(client Client, config cli.Config) error {
 			return r.modes.Explain(client, r.fromCLIConfig(config))
 		},
+		SurfaceSnapshot: func(config cli.Config) error {
+			return r.modes.SurfaceSnapshot(r.fromCLIConfig(config))
+		},
 		MergeApprovedPRs: func(client Client, config cli.Config) error {
 			return r.modes.Merge(client, r.fromCLIConfig(config))
 		},
-		RunContinuous: func(client Client, wf cfg.Workflow, config cli.Config, maxCycles int) error {
-			return r.modes.Continuous(client, wf, r.fromCLIConfig(config), maxCycles)
+		RunContinuous: func(client Client, proj cfg.Project, config cli.Config, maxCycles int) error {
+			return r.modes.Continuous(client, proj, r.fromCLIConfig(config), maxCycles)
 		},
-		RunWorker: func(client Client, wf cfg.Workflow, config cli.Config, role string) error {
-			return r.modes.Worker(client, wf, r.fromCLIConfig(config), role)
+		RunWorker: func(client Client, proj cfg.Project, config cli.Config, role string) error {
+			return r.modes.Worker(client, proj, r.fromCLIConfig(config), role)
 		},
 	}
 }

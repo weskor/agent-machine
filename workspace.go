@@ -199,11 +199,11 @@ func mirrorRunRecordToStateContext(ctx context.Context, store *state.Store, work
 }
 
 func baseBranchForWorkspace(workspace string) string {
-	wf, err := cfg.ReadWorkflow(filepath.Join(workspace, "WORKFLOW.md"))
+	proj, err := cfg.ReadProject(filepath.Join(workspace, cfg.DefaultConfigPath))
 	if err != nil {
 		return "main"
 	}
-	base := cfg.BaseBranchFromWorkflow(wf.YAML)
+	base := cfg.BaseBranchFromConfig(proj.YAML)
 	if strings.TrimSpace(base) == "" {
 		return "main"
 	}

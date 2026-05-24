@@ -91,10 +91,10 @@ func withFakeGitHubAppEnv(t interface{ Cleanup(func()) }, fn func() (map[string]
 	t.Cleanup(func() { AppEnvFromEnvironmentForAPI = previous })
 }
 
-func TestConfigureGitHubRepositoryFromWorkflowUsesWorkflowRepoRemote(t *testing.T) {
+func TestConfigureGitHubRepositoryFromConfigUsesConfigRepoRemote(t *testing.T) {
 	repo := t.TempDir()
-	workflowDir := filepath.Join(repo, ".symphony", "workspaces", "CAG-1")
-	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
+	configDir := filepath.Join(repo, ".symphony", "workspaces", "CAG-1")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
@@ -105,7 +105,7 @@ func TestConfigureGitHubRepositoryFromWorkflowUsesWorkflowRepoRemote(t *testing.
 	}
 
 	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
-	ConfigureRepositoryFromWorkflow(filepath.Join(workflowDir, "WORKFLOW.md"))
+	ConfigureRepositoryFromConfig(filepath.Join(configDir, "symphony.yaml"))
 
 	if got := os.Getenv("GITHUB_REPOSITORY"); got != "pennywise-investments/compound-web" {
 		t.Fatalf("GITHUB_REPOSITORY = %q, want pennywise-investments/compound-web", got)

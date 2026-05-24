@@ -205,11 +205,11 @@ func retryBackoffOverridesTerminalBlock(decision reconciliationDecision, retryDe
 }
 
 func configuredMaxRetryBackoff(config runnerConfig) time.Duration {
-	wf, err := cfg.ReadWorkflow(config.WorkflowPath)
+	proj, err := cfg.ReadProject(config.ConfigPath)
 	if err != nil {
 		return 0
 	}
-	schema, err := cfg.ParseConfig(wf.YAML)
+	schema, err := cfg.ParseConfig(proj.YAML)
 	if err != nil {
 		return 0
 	}

@@ -14,7 +14,7 @@ func cliDependencies() cli.Dependencies[linearClient] {
 
 func orchestratorRunner() orchestrator.Runner[linearClient, runnerConfig] {
 	setup := orchestrator.SetupDependencies[linearClient]{
-		ConfigureGitHubRepositoryFromWorkflow: configureGitHubRepositoryFromWorkflow,
+		ConfigureGitHubRepositoryFromConfig: configureGitHubRepositoryFromConfig,
 		SetGitHubTimeout: func(budget cfg.Budget) {
 			if budget.GitHubTimeout > 0 {
 				defaultGitHubCommandTimeout = budget.GitHubTimeout
@@ -57,14 +57,17 @@ func orchestratorRunner() orchestrator.Runner[linearClient, runnerConfig] {
 		ExplainFunc: func(client linearClient, config runnerConfig) error {
 			return printExplain(client, config)
 		},
+		SnapshotFunc: func(config runnerConfig) error {
+			return printSurfaceSnapshot(config)
+		},
 		MergeFunc: func(client linearClient, config runnerConfig) error {
 			return mergeApprovedPRs(client, config)
 		},
-		ContinuousFunc: func(client linearClient, wf cfg.Workflow, config runnerConfig, maxCycles int) error {
-			return runContinuous(client, wf, config, maxCycles)
+		ContinuousFunc: func(client linearClient, proj cfg.Project, config runnerConfig, maxCycles int) error {
+			return runContinuous(client, proj, config, maxCycles)
 		},
-		WorkerFunc: func(client linearClient, wf cfg.Workflow, config runnerConfig, role string) error {
-			return runSelectedWorker(client, wf, config, role)
+		WorkerFunc: func(client linearClient, proj cfg.Project, config runnerConfig, role string) error {
+			return runSelectedWorker(client, proj, config, role)
 		},
 	}
 	return orchestrator.NewRunner(setup, modes, runnerConfigFromCLI)
@@ -72,7 +75,8 @@ func orchestratorRunner() orchestrator.Runner[linearClient, runnerConfig] {
 
 func runnerConfigFromCLI(config cli.Config) runnerConfig {
 	return runnerConfig{
-		WorkflowPath:           config.WorkflowPath,
+		ConfigPath:             config.ConfigPath,
+		RepositoryRemote:       config.RepositoryRemote,
 		ProjectSlug:            config.ProjectSlug,
 		WorkspaceRoot:          config.WorkspaceRoot,
 		RunningState:           config.RunningState,

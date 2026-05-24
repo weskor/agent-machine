@@ -9,7 +9,7 @@ import (
 
 type Budget = config.Budget
 
-type Workflow = config.Workflow
+type Project = config.Project
 
 type RunRecord struct {
 	IssueIdentifier          string    `json:"issue_identifier"`
@@ -115,7 +115,8 @@ type WorkflowState struct {
 }
 
 type RunnerConfig struct {
-	WorkflowPath           string
+	ConfigPath             string
+	RepositoryRemote       string
 	ProjectSlug            string
 	WorkspaceRoot          string
 	RunningState           string

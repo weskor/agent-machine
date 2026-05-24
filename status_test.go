@@ -55,7 +55,7 @@ func TestSummarizeStateStoreReportsHealthyDB(t *testing.T) {
 	if err := store.UpsertRunArtifact(ctx, state.RunArtifactSnapshot{IssueKey: "CAG-62", Attempt: 1, BranchName: "symphony/CAG-62-workspace", BaseBranch: "main", Status: "success", Repository: "weskor/pi-symphony", PRNumber: 62, PRURL: "https://github.com/weskor/pi-symphony/pull/62", ReviewStatus: "passed", TerminalOutcome: "handoff_ready"}); err != nil {
 		t.Fatalf("UpsertRunArtifact() error = %v", err)
 	}
-	if err := store.UpsertDaemonHeartbeat(ctx, state.DaemonHeartbeat{ProcessID: "host:123", LaneName: "merge", WorkflowPath: "/repo/WORKFLOW.md", CycleNumber: 1}); err != nil {
+	if err := store.UpsertDaemonHeartbeat(ctx, state.DaemonHeartbeat{ProcessID: "host:123", LaneName: "merge", WorkflowPath: "/repo/symphony.yaml", CycleNumber: 1}); err != nil {
 		t.Fatalf("UpsertDaemonHeartbeat() error = %v", err)
 	}
 	if err := store.UpsertWorkerTask(ctx, state.WorkerTask{TaskKey: "review:CAG-62:1", Role: "review", IssueKey: "CAG-62", Attempt: 1, Status: "queued", Priority: 7}); err != nil {

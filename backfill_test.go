@@ -19,7 +19,10 @@ func TestBackfillStateFromArtifactsSeedsSQLiteIdempotently(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, "WORKFLOW.md"), []byte("---\nworkspace:\n  base_branch: integration\n---\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, "symphony.yaml"), []byte("workspace:\n  base_branch: integration\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "symphony.agent.md"), []byte("# Test\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)

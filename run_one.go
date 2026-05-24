@@ -22,19 +22,19 @@ type claimedRunAttempt struct {
 	ReleaseLock                 func()
 }
 
-func claimNextRunAttempt(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
-	return claimNextRunAttemptContext(context.Background(), client, wf, config, stateStore)
+func claimNextRunAttempt(client linearClient, proj project, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
+	return claimNextRunAttemptContext(context.Background(), client, proj, config, stateStore)
 }
 
-func claimNextRunAttemptContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
-	return claimNextRunAttemptWithOptionsContext(ctx, client, wf, config, stateStore, candidateSelectionOptions{})
+func claimNextRunAttemptContext(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
+	return claimNextRunAttemptWithOptionsContext(ctx, client, proj, config, stateStore, candidateSelectionOptions{})
 }
 
-func claimNextRunAttemptWithOptions(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, options candidateSelectionOptions) (*claimedRunAttempt, bool, error) {
-	return claimNextRunAttemptWithOptionsContext(context.Background(), client, wf, config, stateStore, options)
+func claimNextRunAttemptWithOptions(client linearClient, proj project, config runnerConfig, stateStore *state.Store, options candidateSelectionOptions) (*claimedRunAttempt, bool, error) {
+	return claimNextRunAttemptWithOptionsContext(context.Background(), client, proj, config, stateStore, options)
 }
 
-func claimNextRunAttemptWithOptionsContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, options candidateSelectionOptions) (*claimedRunAttempt, bool, error) {
+func claimNextRunAttemptWithOptionsContext(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store, options candidateSelectionOptions) (*claimedRunAttempt, bool, error) {
 	if removed, err := cleanupStaleRunLocksWithStateContext(ctx, stateStore, config.WorkspaceRoot, time.Now()); err != nil {
 		return nil, false, err
 	} else if removed > 0 {
@@ -95,7 +95,7 @@ func claimNextRunAttemptWithOptionsContext(ctx context.Context, client linearCli
 	return &claimedRunAttempt{Candidate: candidate, SelectedPR: selectedPR, Workspace: workspace, Branch: lock.Branch, ProgressStarted: progressStarted, ImplementationWorkerTaskKey: implementationTask.TaskKey, ReleaseLock: releaseLock}, true, nil
 }
 
-func executeClaimedRunAttempt(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, claimed claimedRunAttempt) (didWork bool, err error) {
+func executeClaimedRunAttempt(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store, claimed claimedRunAttempt) (didWork bool, err error) {
 	candidate := claimed.Candidate
 	selectedPR := claimed.SelectedPR
 	workspace := claimed.Workspace
@@ -136,7 +136,7 @@ func executeClaimedRunAttempt(ctx context.Context, client linearClient, wf workf
 		}
 	}
 	runStarted := time.Now()
-	implementation := implementationWorker{client: client, workflow: wf, config: config, stateStore: stateStore, candidate: candidate, selectedPR: selectedPR, states: states, workspace: workspace, branch: branch, progressStarted: progressStarted, runStarted: runStarted}
+	implementation := implementationWorker{client: client, project: proj, config: config, stateStore: stateStore, candidate: candidate, selectedPR: selectedPR, states: states, workspace: workspace, branch: branch, progressStarted: progressStarted, runStarted: runStarted}
 	if err := implementation.Prepare(ctx); err != nil {
 		return true, err
 	}

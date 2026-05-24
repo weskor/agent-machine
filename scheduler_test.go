@@ -150,14 +150,14 @@ func TestContinuousLanesSplitCleanupMergeReviewAndImplementationWork(t *testing.
 		}
 		return true, nil
 	}
-	runReviewReadyAttemptForWorker = func(ctx context.Context, client linearClient, wf workflow, config runnerConfig, store *state.Store) (bool, error) {
+	runReviewReadyAttemptForWorker = func(ctx context.Context, client linearClient, proj project, config runnerConfig, store *state.Store) (bool, error) {
 		calls = append(calls, "review")
 		if config.WorkspaceRoot != root || store == nil {
 			t.Fatalf("review lane input = config %+v store=%v; want root with shared store", config, store)
 		}
 		return true, nil
 	}
-	runImplementationAttemptBatchForContinuous = func(ctx context.Context, client linearClient, wf workflow, config runnerConfig, store *state.Store, capacity int) (bool, error) {
+	runImplementationAttemptBatchForContinuous = func(ctx context.Context, client linearClient, proj project, config runnerConfig, store *state.Store, capacity int) (bool, error) {
 		calls = append(calls, "implementation")
 		if config.WorkspaceRoot != root || store == nil || capacity != 4 {
 			t.Fatalf("implementation lane input = config %+v store=%v capacity=%d; want root with shared store capacity=4", config, store, capacity)
@@ -165,7 +165,7 @@ func TestContinuousLanesSplitCleanupMergeReviewAndImplementationWork(t *testing.
 		return true, nil
 	}
 
-	lanes := continuousLanes(context.Background(), linearClient{}, workflow{}, runnerConfig{ProjectSlug: "CAG", WorkspaceRoot: root, DoneState: "Done", ReviewCommand: "pi review"}, store, 4, nil)
+	lanes := continuousLanes(context.Background(), linearClient{}, project{}, runnerConfig{ProjectSlug: "CAG", WorkspaceRoot: root, DoneState: "Done", ReviewCommand: "pi review"}, store, 4, nil)
 	if len(lanes) != 6 || lanes[0].name != "scheduler" || lanes[1].name != "cleanup" || lanes[2].name != "merge" || lanes[3].name != "handoff" || lanes[4].name != "review" || lanes[5].name != "implementation" {
 		t.Fatalf("lanes = %+v; want scheduler, cleanup, merge, handoff, review, implementation", lanes)
 	}
@@ -194,7 +194,7 @@ func TestContinuousLanesSplitCleanupMergeReviewAndImplementationWork(t *testing.
 }
 
 func TestRunContinuousRequiresStateStore(t *testing.T) {
-	err := runContinuous(linearClient{}, workflow{}, runnerConfig{}, 1)
+	err := runContinuous(linearClient{}, project{}, runnerConfig{}, 1)
 	if err == nil || !strings.Contains(err.Error(), "SQLite state store unavailable for continuous mode") {
 		t.Fatalf("error = %v; want SQLite state store unavailable", err)
 	}
@@ -303,7 +303,7 @@ func TestContinuousWorkerTaskRenewsLeaseAndActiveHeartbeatWhileRunning(t *testin
 	workerTaskLeaseRenewInterval = 5 * time.Millisecond
 	defer func() { workerTaskLeaseRenewInterval = oldRenewInterval }()
 
-	recordHeartbeat := daemonHeartbeatRecorder(ctx, runnerConfig{WorkflowPath: "/repo/WORKFLOW.md"}, store)
+	recordHeartbeat := daemonHeartbeatRecorder(ctx, runnerConfig{ConfigPath: "/repo/symphony.yaml"}, store)
 	didWork, err := runContinuousWorkerTask(ctx, store, continuousWorkerTask{
 		TaskKey:         "continuous:implementation",
 		Role:            implementationWorkerRole,

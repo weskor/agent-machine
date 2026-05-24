@@ -180,7 +180,7 @@ func TestReviewPromptOmitsTargetRepositoryGuidanceByDefault(t *testing.T) {
 	prompt := reviewPrompt(&issue{Identifier: "CAG-14"}, "https://github.com/example/repo/pull/407", "/tmp/workspace", "", nil)
 
 	for _, unexpected := range []string{
-		"Target-repository review guidance from workflow configuration",
+		"Target-repository review guidance from project configuration",
 		"Review direct data writes against the repository domain docs.",
 		"Require tenant isolation evidence for billing mutations.",
 	} {
@@ -195,7 +195,7 @@ func TestReviewPromptIncludesConfiguredTargetRepositoryGuidance(t *testing.T) {
 	prompt := reviewPrompt(&issue{Identifier: "CAG-14"}, "https://github.com/example/repo/pull/407", "/tmp/workspace", guidance, nil)
 
 	for _, expected := range []string{
-		"Target-repository review guidance from workflow configuration",
+		"Target-repository review guidance from project configuration",
 		"Review direct data writes against the repository domain docs.",
 		"Require tenant isolation evidence for billing mutations.",
 	} {

@@ -25,44 +25,8 @@ func loadDotEnvLocal(path string) {
 		if key == "GITHUB_APP_PRIVATE_KEY_PATH" && value != "" && !filepath.IsAbs(value) {
 			value = filepath.Clean(filepath.Join(baseDir, value))
 		}
-		if isWorkflowLocalGitHubAppKey(key) {
-			_ = os.Setenv(key, value)
-			continue
-		}
 		if key != "" && os.Getenv(key) == "" {
 			_ = os.Setenv(key, value)
 		}
-	}
-}
-
-func isWorkflowLocalGitHubAppKey(key string) bool {
-	switch key {
-	case "GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_PRIVATE_KEY_PATH":
-		return true
-	default:
-		return false
-	}
-}
-
-func loadNearestDotEnvLocal(path string) {
-	dir := path
-	if filepath.Base(path) != ".env.local" {
-		dir = filepath.Dir(path)
-	}
-	absDir, err := filepath.Abs(dir)
-	if err == nil {
-		dir = absDir
-	}
-	for {
-		candidate := filepath.Join(dir, ".env.local")
-		if _, err := os.Stat(candidate); err == nil {
-			loadDotEnvLocal(candidate)
-			return
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return
-		}
-		dir = parent
 	}
 }

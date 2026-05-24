@@ -4,7 +4,7 @@ import "github.com/weskor/pi-symphony/internal/domain"
 
 type runBudget = domain.Budget
 
-type workflow = domain.Workflow
+type project = domain.Project
 
 type runRecord = domain.RunRecord
 

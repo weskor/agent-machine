@@ -45,9 +45,9 @@ func TestClaimNextImplementationAttemptSkipsReviewReadyResume(t *testing.T) {
 	config.BaseBranch = "develop"
 	config.PiCommand = "true"
 	config.ReviewCommand = "true"
-	wf := workflow{}
+	proj := project{}
 
-	claim, didWork, err := claimNextImplementationAttempt(client, wf, config, store)
+	claim, didWork, err := claimNextImplementationAttempt(client, proj, config, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestClaimNextImplementationAttemptClaimsIssueWorkerTaskBeforeRunLock(t *tes
 	config := testRunnerConfig(root)
 	config.PiCommand = "true"
 
-	claim, didWork, err := claimNextImplementationAttempt(client, workflow{}, config, store)
+	claim, didWork, err := claimNextImplementationAttempt(client, project{}, config, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestClaimNextImplementationAttemptSkipsAlreadyClaimedIssueWorkerTask(t *tes
 	config := testRunnerConfig(root)
 	config.PiCommand = "true"
 
-	claim, didWork, err := claimNextImplementationAttempt(client, workflow{}, config, store)
+	claim, didWork, err := claimNextImplementationAttempt(client, project{}, config, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestClaimNextImplementationAttemptClaimsQueuedTaskWithoutCandidateDiscovery
 	config := testRunnerConfig(root)
 	config.PiCommand = "true"
 
-	claim, didWork, err := claimNextImplementationAttempt(linearClient{apiKey: "test-key", endpoint: server.URL}, workflow{}, config, store)
+	claim, didWork, err := claimNextImplementationAttempt(linearClient{apiKey: "test-key", endpoint: server.URL}, project{}, config, store)
 	if err != nil {
 		t.Fatal(err)
 	}

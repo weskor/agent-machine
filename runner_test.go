@@ -276,9 +276,9 @@ func TestClaimNextRunAttemptClaimsDistinctCandidatesBeforeExecution(t *testing.T
 	})
 	config := testRunnerConfig(root)
 	config.PiCommand = "sh"
-	wf := workflow{Body: "# Test workflow"}
+	proj := project{Prompt: "# Test project"}
 
-	first, didWork, err := claimNextRunAttempt(client, wf, config, store)
+	first, didWork, err := claimNextRunAttempt(client, proj, config, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +287,7 @@ func TestClaimNextRunAttemptClaimsDistinctCandidatesBeforeExecution(t *testing.T
 	}
 	defer first.ReleaseLock()
 
-	second, didWork, err := claimNextRunAttempt(client, wf, config, store)
+	second, didWork, err := claimNextRunAttempt(client, proj, config, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +374,7 @@ func TestNextRunnableCandidateRetriesFailedArtifactAfterPersistedBackoff(t *test
 		t.Fatal(err)
 	}
 	config := testRunnerConfig(root)
-	config.WorkflowPath = writeRetryWorkflow(t, 10000)
+	config.ConfigPath = writeRetryConfig(t, 10000)
 	client := linearClientWithCandidates(t, []issue{testIssue("CAG-99", "Ready for Agent"), testIssue("CAG-100", "In Progress")})
 
 	selected, _, err := nextRunnableCandidate(client, config, store)
@@ -615,7 +615,7 @@ func TestRunOneMissingPiCommandFailsBeforeClaimOrWorkspaceMutation(t *testing.T)
 
 	config := testRunnerConfig(root)
 	config.PiCommand = "missing-implementation-binary"
-	didWork, err := runOne(linearClient{apiKey: "test-key", endpoint: server.URL}, workflow{Body: "# Test workflow"}, config)
+	didWork, err := runOne(linearClient{apiKey: "test-key", endpoint: server.URL}, project{Prompt: "# Test project"}, config)
 	if err == nil || !strings.Contains(err.Error(), "pi_cli") || !strings.Contains(err.Error(), "missing-implementation-binary") {
 		t.Fatalf("expected actionable pi_cli error, got %v", err)
 	}
@@ -656,7 +656,7 @@ func TestRunOneMissingReviewCommandFailsBeforeClaimOrWorkspaceMutation(t *testin
 	config := testRunnerConfig(root)
 	config.PiCommand = "sh"
 	config.ReviewCommand = "missing-review-binary"
-	didWork, err := runOne(linearClient{apiKey: "test-key", endpoint: server.URL}, workflow{Body: "# Test workflow"}, config)
+	didWork, err := runOne(linearClient{apiKey: "test-key", endpoint: server.URL}, project{Prompt: "# Test project"}, config)
 	if err == nil || !strings.Contains(err.Error(), "pi_cli") || !strings.Contains(err.Error(), "missing-review-binary") {
 		t.Fatalf("expected actionable review preflight error, got %v", err)
 	}
@@ -714,9 +714,9 @@ func TestRunOneMovesNeedsInfoAndCommentsWithoutPRHandoff(t *testing.T) {
 		t.Fatal(err)
 	}
 	config.PiCommand = sh.Quote(script)
-	wf := workflow{Body: "# Test workflow"}
+	proj := project{Prompt: "# Test project"}
 
-	didWork, err := runOne(client, wf, config)
+	didWork, err := runOne(client, proj, config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -816,7 +816,7 @@ func TestRunOneCreatesRunnerOwnedPRWhenPiFinishesWithChangesAndNoPRURL(t *testin
 	}
 	config.PiCommand = sh.Quote(script)
 
-	didWork, err := runOne(client, workflow{Body: "# Test workflow"}, config)
+	didWork, err := runOne(client, project{Prompt: "# Test project"}, config)
 	if err != nil {
 		t.Fatalf("runOne returned error: %v", err)
 	}
@@ -892,12 +892,12 @@ func TestRunOneFailsClearlyWhenPiFinishesWithoutChangesOrPRURL(t *testing.T) {
 	config.AfterCreate = "git init -q && git config user.email test@example.com && git config user.name Test && git checkout -q -b develop && touch README.md && git add README.md && git commit -qm base && git update-ref refs/remotes/origin/develop HEAD"
 	t.Setenv("RAW_AGENT_OUTPUT", "completed scoped diff and validation, but no handoff URL\n")
 	config.PiCommand = `printf %s "$RAW_AGENT_OUTPUT"`
-	wf := workflow{Body: "# Test workflow"}
+	proj := project{Prompt: "# Test project"}
 
 	var didWork bool
 	var err error
 	stdout := captureStdout(t, func() {
-		didWork, err = runOne(client, wf, config)
+		didWork, err = runOne(client, proj, config)
 	})
 	if err == nil || !strings.Contains(err.Error(), "no branch changes") {
 		t.Fatalf("expected no branch changes error, got %v", err)
@@ -984,9 +984,9 @@ func TestRunOneBlocksOutOfScopeDiffBeforeReviewHandoff(t *testing.T) {
 	config.AfterCreate = "git init -q && git config user.email test@example.com && git config user.name Test && git checkout -q -b main && touch README.md && git add README.md && git commit -qm base && git update-ref refs/remotes/origin/main HEAD"
 	config.PiCommand = "sh -c 'echo drift > state_projection.go && git add state_projection.go && git commit -qm drift && echo https://github.com/weskor/pi-symphony/pull/999'"
 	config.ReviewCommand = "sh -c 'echo REVIEW_PASS && exit 1'"
-	wf := workflow{Body: "# Test workflow"}
+	proj := project{Prompt: "# Test project"}
 
-	didWork, err := runOne(client, wf, config)
+	didWork, err := runOne(client, proj, config)
 	if err != nil {
 		t.Fatalf("runOne returned error: %v", err)
 	}

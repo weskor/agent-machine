@@ -8,9 +8,9 @@ Pi Symphony is a runner harness for taking one well-scoped Linear issue through 
 The standalone runner harness in this repository. It coordinates Linear, local workspaces, Pi CLI execution, review, GitHub PRs, merge gates, and cleanup.
 _Avoid_: compound-web runner, generic bot.
 
-**Workflow**:
-The repository-local `WORKFLOW.md` configuration that tells Pi Symphony which Linear project, workspace root, branch, commands, hooks, states, and budgets to use.
-_Avoid_: pipeline, job config.
+**Project config**:
+The repository-local `symphony.yaml` plus `symphony.agent.md` prompt that tell Pi Symphony which Linear project, repository, workspace root, branch, runtime, hooks, states, budgets, and agent instructions to use.
+_Avoid_: config file, pipeline, job config.
 
 **Linear issue**:
 The source work item. A runnable issue must be fully specified with Goal, Scope, Requirements, Acceptance Criteria, and Validation sections.
@@ -73,7 +73,7 @@ The observable promises a runner change must preserve or deliberately update: in
 _Avoid_: vague “it still works” statements.
 
 **Runner invariant**:
-A deterministic fact, gate, or transition Pi Symphony can compute from workflow configuration, Linear, GitHub, SQLite, workspace metadata, or typed artifacts. Runner invariants belong in runner Modules and specs, not in Agent judgment.
+A deterministic fact, gate, or transition Pi Symphony can compute from project configuration, Linear, GitHub, SQLite, workspace metadata, or typed artifacts. Runner invariants belong in runner Modules and specs, not in Agent judgment.
 _Avoid_: asking an LLM to decide parseable scope, ownership, lifecycle, merge, cleanup, lease, or artifact facts.
 
 **Agent judgment**:
@@ -84,4 +84,4 @@ _Avoid_: treating Agent judgment as authority for deterministic runner invariant
 
 Dev: “Can we split the runner?”
 
-Maintainer: “Yes, but cite the harness behavior spec. If the split is mechanical, the Behavior Contract Evidence should say which workflows, state transitions, locks, handoff steps, and cleanup paths are preserved. If behavior changes, update the spec and add an ADR when the decision is durable.”
+Maintainer: “Yes, but cite the harness behavior spec. If the split is mechanical, the Behavior Contract Evidence should say which config inputs, state transitions, locks, handoff steps, and cleanup paths are preserved. If behavior changes, update the spec and add an ADR when the decision is durable.”

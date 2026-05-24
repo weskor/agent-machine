@@ -6,27 +6,20 @@ import (
 	"testing"
 )
 
-func TestLoadNearestDotEnvLocalResolvesGitHubAppKeyRelativeToEnvFile(t *testing.T) {
+func TestLoadDotEnvLocalResolvesGitHubAppKeyRelativeToEnvFile(t *testing.T) {
 	root := t.TempDir()
-	workflowDir := filepath.Join(root, ".symphony", "workspaces", "CAG-1")
 	if err := os.MkdirAll(filepath.Join(root, "keys"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	workflowPath := filepath.Join(workflowDir, "WORKFLOW.md")
-	if err := os.WriteFile(workflowPath, []byte("---\n---\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, ".env.local"), []byte("GITHUB_APP_PRIVATE_KEY_PATH=keys/app.pem\nLINEAR_API_KEY=linear_test\n"), 0o600); err != nil {
+	envPath := filepath.Join(root, ".env.local")
+	if err := os.WriteFile(envPath, []byte("GITHUB_APP_PRIVATE_KEY_PATH=keys/app.pem\nLINEAR_API_KEY=linear_test\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "../../stale-relative-key.pem")
+	t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "")
 	t.Setenv("LINEAR_API_KEY", "")
 
-	loadNearestDotEnvLocal(workflowPath)
+	loadDotEnvLocal(envPath)
 
 	want := filepath.Join(root, "keys", "app.pem")
 	if got := os.Getenv("GITHUB_APP_PRIVATE_KEY_PATH"); got != want {
@@ -37,33 +30,22 @@ func TestLoadNearestDotEnvLocalResolvesGitHubAppKeyRelativeToEnvFile(t *testing.
 	}
 }
 
-func TestLoadNearestDotEnvLocalPrefersWorkflowGitHubAppEnv(t *testing.T) {
+func TestLoadDotEnvLocalDoesNotOverrideProcessEnv(t *testing.T) {
 	root := t.TempDir()
-	workflowPath := filepath.Join(root, "WORKFLOW.md")
-	if err := os.WriteFile(workflowPath, []byte("---\n---\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, ".env.local"), []byte("GITHUB_APP_ID=workflow_app\nGITHUB_APP_INSTALLATION_ID=workflow_installation\nGITHUB_APP_PRIVATE_KEY_PATH=keys/workflow.pem\nLINEAR_API_KEY=workflow_linear\n"), 0o600); err != nil {
+	envPath := filepath.Join(root, ".env.local")
+	if err := os.WriteFile(envPath, []byte("GITHUB_APP_ID=file_app\nLINEAR_API_KEY=file_linear\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	t.Setenv("GITHUB_APP_ID", "stale_app")
-	t.Setenv("GITHUB_APP_INSTALLATION_ID", "stale_installation")
-	t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "/tmp/stale.pem")
-	t.Setenv("LINEAR_API_KEY", "operator_linear")
+	t.Setenv("GITHUB_APP_ID", "process_app")
+	t.Setenv("LINEAR_API_KEY", "process_linear")
 
-	loadNearestDotEnvLocal(workflowPath)
+	loadDotEnvLocal(envPath)
 
-	if got := os.Getenv("GITHUB_APP_ID"); got != "workflow_app" {
-		t.Fatalf("GITHUB_APP_ID = %q, want workflow_app", got)
+	if got := os.Getenv("GITHUB_APP_ID"); got != "process_app" {
+		t.Fatalf("GITHUB_APP_ID = %q, want process_app", got)
 	}
-	if got := os.Getenv("GITHUB_APP_INSTALLATION_ID"); got != "workflow_installation" {
-		t.Fatalf("GITHUB_APP_INSTALLATION_ID = %q, want workflow_installation", got)
-	}
-	if want, got := filepath.Join(root, "keys", "workflow.pem"), os.Getenv("GITHUB_APP_PRIVATE_KEY_PATH"); got != want {
-		t.Fatalf("GITHUB_APP_PRIVATE_KEY_PATH = %q, want %q", got, want)
-	}
-	if got := os.Getenv("LINEAR_API_KEY"); got != "operator_linear" {
-		t.Fatalf("LINEAR_API_KEY = %q, want existing non-GitHub-App env to remain", got)
+	if got := os.Getenv("LINEAR_API_KEY"); got != "process_linear" {
+		t.Fatalf("LINEAR_API_KEY = %q, want process_linear", got)
 	}
 }

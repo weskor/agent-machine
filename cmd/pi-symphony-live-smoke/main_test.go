@@ -19,7 +19,7 @@ func TestParseOptionsUsesProvidedIssuesAsCount(t *testing.T) {
 	}
 }
 
-func TestWriteSmokeWorkflowUsesSafeGeneratedConfig(t *testing.T) {
+func TestWriteSmokeConfigUsesSafeGeneratedConfig(t *testing.T) {
 	root := t.TempDir()
 	config := cfg.Config{
 		Tracker:   cfg.TrackerConfig{Endpoint: "https://api.linear.app/graphql", ProjectSlug: "project-slug", NeedsInfoState: "Needs Info"},
@@ -31,7 +31,7 @@ func TestWriteSmokeWorkflowUsesSafeGeneratedConfig(t *testing.T) {
 		Compound:  cfg.CompoundConfig{HandoffState: "Human Review", RunningState: "In Progress", NeedsInfoState: "Needs Info", DoneState: "Done"},
 	}
 
-	path, err := writeSmokeWorkflow(options{workspaceRoot: root, concurrency: 2}, config)
+	path, err := writeSmokeConfig(options{workspaceRoot: root, concurrency: 2}, config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,15 +41,27 @@ func TestWriteSmokeWorkflowUsesSafeGeneratedConfig(t *testing.T) {
 	}
 	text := string(data)
 	for _, expected := range []string{
+		"repository:\n  remote: \"git@github.com:weskor/pi-symphony.git\"",
 		"root: \"" + root + "\"",
+		"prompt_path: \"symphony.live-smoke.agent.md\"",
 		"max_concurrent_agents: 2",
 		"go run ./cmd/pi-symphony-live-smoke-agent --role implementation",
 		"go run ./cmd/pi-symphony-live-smoke-agent --role review",
 		"active_states:\n    - Ready for Agent",
 	} {
 		if !strings.Contains(text, expected) {
-			t.Fatalf("expected %q in workflow:\n%s", expected, text)
+			t.Fatalf("expected %q in project:\n%s", expected, text)
 		}
+	}
+	proj, err := cfg.ReadProject(path)
+	if err != nil {
+		t.Fatalf("generated config was not readable: %v", err)
+	}
+	if _, err := cfg.ParseConfig(proj.YAML); err != nil {
+		t.Fatalf("generated config was not parseable: %v", err)
+	}
+	if !strings.Contains(proj.Prompt, "Pi Symphony Live Smoke Prompt") {
+		t.Fatalf("generated prompt was not loaded: %q", proj.Prompt)
 	}
 }
 
@@ -78,8 +90,8 @@ func TestLoadDotEnvLocalSetsMissingValues(t *testing.T) {
 }
 
 func TestApplyReportOptionsReusesWorkspaceAndIssues(t *testing.T) {
-	opts := applyReportOptions(options{workflow: "WORKFLOW.md"}, livesmoke.Report{
-		WorkflowPath:  "WORKFLOW.md",
+	opts := applyReportOptions(options{project: "symphony.yaml"}, livesmoke.Report{
+		ConfigPath:    "symphony.yaml",
 		WorkspaceRoot: "/tmp/smoke/.symphony/workspaces",
 		Issues:        []livesmoke.IssueRef{{Identifier: "CAG-1"}, {Identifier: "CAG-2"}},
 	})

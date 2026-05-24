@@ -1,0 +1,54 @@
+repository:
+  remote: git@github.com:OWNER/REPO.git
+tracker:
+  kind: linear
+  endpoint: https://api.linear.app/graphql
+  api_key: $LINEAR_API_KEY
+  project_slug: replace-with-linear-project-slug
+  active_states:
+    - Ready for Agent
+    - In Progress
+  needs_info_state: Needs Info
+  terminal_states:
+    - Done
+    - Canceled
+    - Cancelled
+    - Duplicate
+polling:
+  interval_ms: 30000
+workspace:
+  root: .symphony/workspaces
+  base_branch: develop
+hooks:
+  timeout_ms: 120000
+  before_run: git status --short --branch
+  after_run: git diff --check
+agent:
+  prompt_path: symphony.agent.example.md
+  max_concurrent_agents: 1
+  max_retry_backoff_ms: 300000
+runtime:
+  provider: codex_cli
+# To opt into the legacy Pi CLI runtime:
+# runtime:
+#   provider: pi_cli
+review:
+  guidance: |
+    Verify any repository-specific domain changes against local domain docs and production flows.
+    Require evidence for security, ownership, or tenant-boundary assumptions touched by the diff.
+budgets:
+  wall_clock: 2h
+  max_tokens: 0
+  max_cost: 0
+  command_timeout: 10m
+  runtime_timeout: 90m
+  review_timeout: 30m
+  merge_timeout: 10m
+  github_timeout: 2m
+compound:
+  handoff_state: Human Review
+  running_state: In Progress
+  needs_info_state: Needs Info
+  done_state: Done
+  auto_merge: false
+  required_validation: []

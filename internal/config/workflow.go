@@ -3,30 +3,48 @@ package config
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
 
-type Workflow struct {
-	YAML string
-	Body string
+const (
+	DefaultConfigPath = "symphony.yaml"
+	DefaultPromptPath = "symphony.agent.md"
+)
+
+type Project struct {
+	YAML       string
+	Prompt     string
+	ConfigPath string
+	PromptPath string
 }
 
-func ReadWorkflow(path string) (Workflow, error) {
+func ReadProject(path string) (Project, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Workflow{}, err
+		return Project{}, err
 	}
 	text := string(data)
 	if !strings.HasPrefix(text, "---\n") {
-		return Workflow{}, errors.New("WORKFLOW.md must start with YAML front matter")
+		yaml := strings.TrimSpace(text)
+		promptPath := projectPromptPath(path, yaml)
+		prompt, err := os.ReadFile(promptPath)
+		if err != nil {
+			return Project{}, err
+		}
+		return Project{YAML: yaml, Prompt: strings.TrimSpace(string(prompt)), ConfigPath: path, PromptPath: promptPath}, nil
 	}
-	end := strings.Index(text[4:], "\n---")
-	if end == -1 {
-		return Workflow{}, errors.New("WORKFLOW.md front matter is not closed")
+	return Project{}, errors.New("symphony.yaml must be plain YAML; move agent instructions to symphony.agent.md")
+}
+
+func projectPromptPath(configPath, yaml string) string {
+	agentYAML := Section(yaml, "agent")
+	promptPath := Scalar(agentYAML, "  prompt_path", DefaultPromptPath)
+	if filepath.IsAbs(promptPath) {
+		return promptPath
 	}
-	end += 4
-	return Workflow{YAML: strings.TrimSpace(text[4:end]), Body: strings.TrimSpace(text[end+4:])}, nil
+	return filepath.Clean(filepath.Join(filepath.Dir(configPath), promptPath))
 }
 
 func Scalar(yaml, key, fallback string) string {
@@ -51,7 +69,7 @@ func Scalar(yaml, key, fallback string) string {
 	return value
 }
 
-func BaseBranchFromWorkflow(yaml string) string {
+func BaseBranchFromConfig(yaml string) string {
 	return Scalar(Section(yaml, "workspace"), "  base_branch", "develop")
 }
 

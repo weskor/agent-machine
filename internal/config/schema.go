@@ -8,25 +8,32 @@ import (
 )
 
 const (
-	defaultRuntimeProvider = "codex_cli"
-	legacyPiRuntime        = "pi_cli"
-	defaultCodexCommand    = "codex --ask-for-approval never exec --ignore-user-config --ignore-rules --ephemeral --sandbox workspace-write"
-	defaultPiCommand       = "pi --print --no-session --thinking low"
+	defaultRuntimeProvider    = "codex_cli"
+	legacyPiRuntime           = "pi_cli"
+	defaultCodexCommand       = "codex --ask-for-approval never exec --ignore-user-config --ignore-rules --ephemeral --sandbox workspace-write"
+	defaultCodexReviewCommand = "codex --ask-for-approval never exec --ignore-user-config --ignore-rules --ephemeral --sandbox read-only"
+	defaultPiCommand          = "pi --print --no-session --thinking low"
+	defaultPiReviewCommand    = "pi --print --no-session --thinking xhigh"
 )
 
-// Config is the normalized WORKFLOW.md configuration consumed by the runner.
+// Config is the normalized symphony.yaml configuration consumed by the runner.
 type Config struct {
-	Tracker   TrackerConfig
-	Polling   PollingConfig
-	Workspace WorkspaceConfig
-	Hooks     HooksConfig
-	Agent     AgentConfig
-	Runtime   RuntimeConfig
-	Pi        PiConfig
-	Review    ReviewConfig
-	Budgets   Budget
-	Compound  CompoundConfig
-	GitHub    GitHubConfig
+	Repository RepositoryConfig
+	Tracker    TrackerConfig
+	Polling    PollingConfig
+	Workspace  WorkspaceConfig
+	Hooks      HooksConfig
+	Agent      AgentConfig
+	Runtime    RuntimeConfig
+	Pi         PiConfig
+	Review     ReviewConfig
+	Budgets    Budget
+	Compound   CompoundConfig
+	GitHub     GitHubConfig
+}
+
+type RepositoryConfig struct {
+	Remote string
 }
 
 type TrackerConfig struct {
@@ -63,6 +70,7 @@ type AgentConfig struct {
 	MaxRetryBackoff     time.Duration
 	MaxRetryBackoffText string
 	RuntimeProvider     string
+	PromptPath          string
 }
 
 type RuntimeConfig struct {
@@ -97,9 +105,10 @@ type GitHubConfig struct {
 	PRAuthorOverride string
 }
 
-// ParseConfig validates and normalizes workflow front matter while preserving
+// ParseConfig validates and normalizes symphony.yaml while preserving
 // the runner's historical defaults and environment expansion behavior.
 func ParseConfig(yaml string) (Config, error) {
+	repositoryYAML := Section(yaml, "repository")
 	trackerYAML := Section(yaml, "tracker")
 	workspaceYAML := Section(yaml, "workspace")
 	hooksYAML := Section(yaml, "hooks")
@@ -119,9 +128,12 @@ func ParseConfig(yaml string) (Config, error) {
 	legacyPiReviewCommand := CommandUnder(piYAML, "review_command", "")
 	runtimeProvider := runtimeProviderFromYAML(runtimeYAML, agentYAML, legacyPiCommand, legacyPiReviewCommand)
 	runtimeCommand := CommandUnder(runtimeYAML, "command", CommandUnder(piYAML, "command", defaultRuntimeCommand(runtimeProvider)))
-	runtimeReviewCommand := CommandUnder(runtimeYAML, "review_command", CommandUnder(piYAML, "review_command", ""))
+	runtimeReviewCommand := CommandUnder(runtimeYAML, "review_command", CommandUnder(piYAML, "review_command", defaultRuntimeReviewCommand(runtimeProvider)))
 
 	config := Config{
+		Repository: RepositoryConfig{
+			Remote: Scalar(repositoryYAML, "  remote", ""),
+		},
 		Tracker: TrackerConfig{
 			Kind:           Scalar(trackerYAML, "  kind", "linear"),
 			Endpoint:       Scalar(trackerYAML, "  endpoint", "https://api.linear.app/graphql"),
@@ -133,7 +145,7 @@ func ParseConfig(yaml string) (Config, error) {
 		},
 		Workspace: WorkspaceConfig{
 			Root:       Scalar(workspaceYAML, "  root", ""),
-			BaseBranch: BaseBranchFromWorkflow(yaml),
+			BaseBranch: BaseBranchFromConfig(yaml),
 		},
 		Hooks: HooksConfig{
 			AfterCreate:  BlockUnder(hooksYAML, "after_create"),
@@ -144,6 +156,7 @@ func ParseConfig(yaml string) (Config, error) {
 		Agent: AgentConfig{
 			MaxConcurrentAgents: intFromYAML(agentYAML, "max_concurrent_agents", 1),
 			RuntimeProvider:     runtimeProvider,
+			PromptPath:          Scalar(agentYAML, "  prompt_path", DefaultPromptPath),
 		},
 		Runtime: RuntimeConfig{
 			Provider:      runtimeProvider,
@@ -179,10 +192,10 @@ func ParseConfig(yaml string) (Config, error) {
 	}
 
 	if config.Tracker.ProjectSlug == "" {
-		return Config{}, fmt.Errorf("WORKFLOW.md tracker.project_slug is required; WORKFLOW.md must configure tracker.project_slug and workspace.root")
+		return Config{}, fmt.Errorf("symphony.yaml tracker.project_slug is required; symphony.yaml must configure tracker.project_slug and workspace.root")
 	}
 	if config.Workspace.Root == "" {
-		return Config{}, fmt.Errorf("WORKFLOW.md workspace.root is required; WORKFLOW.md must configure tracker.project_slug and workspace.root")
+		return Config{}, fmt.Errorf("symphony.yaml workspace.root is required; symphony.yaml must configure tracker.project_slug and workspace.root")
 	}
 	if err := durationMS(&config.Polling.Interval, &config.Polling.Text, Section(yaml, "polling"), "interval_ms", "polling.interval_ms", 30*time.Second); err != nil {
 		return Config{}, err
@@ -216,6 +229,13 @@ func defaultRuntimeCommand(provider string) string {
 	return defaultCodexCommand
 }
 
+func defaultRuntimeReviewCommand(provider string) string {
+	if strings.TrimSpace(provider) == legacyPiRuntime {
+		return defaultPiReviewCommand
+	}
+	return defaultCodexReviewCommand
+}
+
 func durationMS(dst *time.Duration, text *string, yaml, key, path string, fallback time.Duration) error {
 	value := Scalar(yaml, "  "+key, "")
 	if value == "" {
@@ -224,7 +244,7 @@ func durationMS(dst *time.Duration, text *string, yaml, key, path string, fallba
 	}
 	parsed, err := strconv.ParseInt(value, 10, 64)
 	if err != nil || parsed < 0 {
-		return fmt.Errorf("WORKFLOW.md %s must be a non-negative millisecond integer", path)
+		return fmt.Errorf("symphony.yaml %s must be a non-negative millisecond integer", path)
 	}
 	*dst, *text = time.Duration(parsed)*time.Millisecond, value
 	return nil

@@ -10,37 +10,37 @@ import (
 	"github.com/weskor/pi-symphony/internal/state"
 )
 
-func runImplementationAttempt(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (bool, error) {
-	return runImplementationAttemptBatch(client, wf, config, stateStore, 1)
+func runImplementationAttempt(client linearClient, proj project, config runnerConfig, stateStore *state.Store) (bool, error) {
+	return runImplementationAttemptBatch(client, proj, config, stateStore, 1)
 }
 
-func runImplementationAttemptBatch(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
-	return runImplementationAttemptBatchContext(context.Background(), client, wf, config, stateStore, capacity)
+func runImplementationAttemptBatch(client linearClient, proj project, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
+	return runImplementationAttemptBatchContext(context.Background(), client, proj, config, stateStore, capacity)
 }
 
-func runImplementationAttemptBatchContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
+func runImplementationAttemptBatchContext(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
 	if stateStore == nil {
 		return false, fmt.Errorf("SQLite state store unavailable for implementation worker at %s", state.DefaultDBPath(config.WorkspaceRoot))
 	}
-	return runClaimedAttemptBatchWithClaimerContext(ctx, client, wf, config, stateStore, capacity, claimNextImplementationAttemptContext)
+	return runClaimedAttemptBatchWithClaimerContext(ctx, client, proj, config, stateStore, capacity, claimNextImplementationAttemptContext)
 }
 
-func runQueuedImplementationAttemptBatch(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
-	return runQueuedImplementationAttemptBatchContext(context.Background(), client, wf, config, stateStore, capacity)
+func runQueuedImplementationAttemptBatch(client linearClient, proj project, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
+	return runQueuedImplementationAttemptBatchContext(context.Background(), client, proj, config, stateStore, capacity)
 }
 
-func runQueuedImplementationAttemptBatchContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
+func runQueuedImplementationAttemptBatchContext(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
 	if stateStore == nil {
 		return false, fmt.Errorf("SQLite state store unavailable for queued implementation worker at %s", state.DefaultDBPath(config.WorkspaceRoot))
 	}
-	return runClaimedAttemptBatchWithClaimerContext(ctx, client, wf, config, stateStore, capacity, claimNextQueuedImplementationAttemptContext)
+	return runClaimedAttemptBatchWithClaimerContext(ctx, client, proj, config, stateStore, capacity, claimNextQueuedImplementationAttemptContext)
 }
 
-func claimNextImplementationAttempt(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
-	return claimNextImplementationAttemptContext(context.Background(), client, wf, config, stateStore)
+func claimNextImplementationAttempt(client linearClient, proj project, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
+	return claimNextImplementationAttemptContext(context.Background(), client, proj, config, stateStore)
 }
 
-func claimNextImplementationAttemptContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
+func claimNextImplementationAttemptContext(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
 	if stateStore == nil {
 		return nil, false, fmt.Errorf("SQLite state store unavailable for implementation worker at %s", state.DefaultDBPath(config.WorkspaceRoot))
 	}
@@ -59,14 +59,14 @@ func claimNextImplementationAttemptContext(ctx context.Context, client linearCli
 			return nil, true, err
 		}
 	}
-	return prepareClaimedImplementationWorkerTask(ctx, client, wf, config, stateStore, task)
+	return prepareClaimedImplementationWorkerTask(ctx, client, proj, config, stateStore, task)
 }
 
-func claimNextQueuedImplementationAttempt(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
-	return claimNextQueuedImplementationAttemptContext(context.Background(), client, wf, config, stateStore)
+func claimNextQueuedImplementationAttempt(client linearClient, proj project, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
+	return claimNextQueuedImplementationAttemptContext(context.Background(), client, proj, config, stateStore)
 }
 
-func claimNextQueuedImplementationAttemptContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
+func claimNextQueuedImplementationAttemptContext(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
 	if stateStore == nil {
 		return nil, false, fmt.Errorf("SQLite state store unavailable for queued implementation worker at %s", state.DefaultDBPath(config.WorkspaceRoot))
 	}
@@ -74,7 +74,7 @@ func claimNextQueuedImplementationAttemptContext(ctx context.Context, client lin
 	if err != nil || !ok {
 		return nil, false, err
 	}
-	return prepareClaimedImplementationWorkerTask(ctx, client, wf, config, stateStore, task)
+	return prepareClaimedImplementationWorkerTask(ctx, client, proj, config, stateStore, task)
 }
 
 func scheduleImplementationWorkerTasks(ctx context.Context, client linearClient, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
@@ -129,7 +129,7 @@ func scheduleNextImplementationWorkerTask(ctx context.Context, client linearClie
 	return task, true, nil
 }
 
-func prepareClaimedImplementationWorkerTask(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, task state.WorkerTask) (*claimedRunAttempt, bool, error) {
+func prepareClaimedImplementationWorkerTask(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store, task state.WorkerTask) (*claimedRunAttempt, bool, error) {
 	started := time.Now().UTC()
 	failTask := func(reason string, err error) (*claimedRunAttempt, bool, error) {
 		errorText := ""

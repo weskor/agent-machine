@@ -265,9 +265,9 @@ func TestClaimNextReviewReadyAttemptClaimsOnlyReviewNotReadySuccess(t *testing.T
 	config.BaseBranch = "develop"
 	config.PiCommand = "true"
 	config.ReviewCommand = "true"
-	wf := workflow{}
+	proj := project{}
 
-	claim, didWork, err := claimNextReviewReadyAttempt(client, wf, config, store)
+	claim, didWork, err := claimNextReviewReadyAttempt(client, proj, config, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +329,7 @@ func TestClaimNextReviewReadyAttemptUsesSQLiteReviewNotReadyWithoutProgressSnaps
 		t.Fatal("readRunProgress() succeeded before claim; test should not create a progress snapshot for resume discovery")
 	}
 
-	claim, didWork, err := claimNextReviewReadyAttempt(client, workflow{}, config, store)
+	claim, didWork, err := claimNextReviewReadyAttempt(client, project{}, config, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +348,7 @@ func TestClaimNextReviewReadyAttemptContextHonorsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	claim, didWork, err := claimNextReviewReadyAttemptContext(ctx, linearClient{}, workflow{}, testRunnerConfig(root), store)
+	claim, didWork, err := claimNextReviewReadyAttemptContext(ctx, linearClient{}, project{}, testRunnerConfig(root), store)
 	if !errors.Is(err, context.Canceled) || didWork || claim != nil {
 		t.Fatalf("claimNextReviewReadyAttemptContext() = (%#v, %t, %v), want canceled no work", claim, didWork, err)
 	}
@@ -456,7 +456,7 @@ func TestClaimNextQueuedReviewReadyAttemptClaimsQueuedTaskWithoutCandidateDiscov
 	config.PiCommand = "true"
 	config.ReviewCommand = "true"
 
-	claim, didWork, err := claimNextQueuedReviewReadyAttempt(linearClient{apiKey: "test-key", endpoint: server.URL}, workflow{}, config, store)
+	claim, didWork, err := claimNextQueuedReviewReadyAttempt(linearClient{apiKey: "test-key", endpoint: server.URL}, project{}, config, store)
 	if err != nil {
 		t.Fatal(err)
 	}

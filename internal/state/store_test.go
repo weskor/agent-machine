@@ -340,13 +340,13 @@ func TestMarkStaleClaimedWorkerTasksRequiresExpiredLeaseAndStaleHeartbeat(t *tes
 	if err := s.UpsertLease(ctx, Lease{Name: task.LeaseName, Scope: task.TaskKey, Owner: "host:123", AcquiredAt: old, RenewedAt: old, ExpiresAt: old.Add(time.Minute)}); err != nil {
 		t.Fatalf("UpsertLease(expired) error = %v", err)
 	}
-	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "merge", WorkflowPath: "/repo/WORKFLOW.md", CycleNumber: 1, LastSuccessAt: now, UpdatedAt: now}); err != nil {
+	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "merge", WorkflowPath: "/repo/symphony.yaml", CycleNumber: 1, LastSuccessAt: now, UpdatedAt: now}); err != nil {
 		t.Fatalf("UpsertDaemonHeartbeat() error = %v", err)
 	}
 	if recovered, err := s.MarkStaleClaimedWorkerTasksReconciliationNeeded(ctx, now, 15*time.Minute); err != nil || len(recovered) != 0 {
 		t.Fatalf("fresh heartbeat recovery = %+v err=%v; want no recovery", recovered, err)
 	}
-	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "merge", WorkflowPath: "/repo/WORKFLOW.md", CycleNumber: 1, LastSuccessAt: old, UpdatedAt: old}); err != nil {
+	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "merge", WorkflowPath: "/repo/symphony.yaml", CycleNumber: 1, LastSuccessAt: old, UpdatedAt: old}); err != nil {
 		t.Fatalf("UpsertDaemonHeartbeat(stale) error = %v", err)
 	}
 	recovered, err := s.MarkStaleClaimedWorkerTasksReconciliationNeeded(ctx, now, 15*time.Minute)
@@ -796,7 +796,7 @@ func TestUpsertDaemonHeartbeatInsertsAndUpdatesLaneProcessRow(t *testing.T) {
 
 	firstSuccess := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
 	activeStartedAt := firstSuccess.Add(-time.Minute)
-	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "work", WorkflowPath: "/repo/WORKFLOW.md", CycleNumber: 1, LastSuccessAt: firstSuccess, ActiveTaskKey: "continuous:work", ActiveTaskRole: "implementation", ActiveLeaseName: "lane:work", ActiveTaskStartedAt: activeStartedAt, UpdatedAt: firstSuccess}); err != nil {
+	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "work", WorkflowPath: "/repo/symphony.yaml", CycleNumber: 1, LastSuccessAt: firstSuccess, ActiveTaskKey: "continuous:work", ActiveTaskRole: "implementation", ActiveLeaseName: "lane:work", ActiveTaskStartedAt: activeStartedAt, UpdatedAt: firstSuccess}); err != nil {
 		t.Fatalf("UpsertDaemonHeartbeat() insert error = %v", err)
 	}
 	heartbeats, err := s.SnapshotHeartbeats(ctx)
@@ -807,7 +807,7 @@ func TestUpsertDaemonHeartbeatInsertsAndUpdatesLaneProcessRow(t *testing.T) {
 		t.Fatalf("active heartbeat fields = %+v", heartbeats)
 	}
 	failedAt := firstSuccess.Add(time.Minute)
-	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "work", WorkflowPath: "/repo/WORKFLOW.md", CycleNumber: 2, LastError: "boom", RecoveryRequired: true, UpdatedAt: failedAt}); err != nil {
+	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "work", WorkflowPath: "/repo/symphony.yaml", CycleNumber: 2, LastError: "boom", RecoveryRequired: true, UpdatedAt: failedAt}); err != nil {
 		t.Fatalf("UpsertDaemonHeartbeat() update error = %v", err)
 	}
 	heartbeats, err = s.SnapshotHeartbeats(ctx)

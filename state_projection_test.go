@@ -87,7 +87,7 @@ func TestStateProjectionCleanupLeaseAndHeartbeat(t *testing.T) {
 		t.Fatalf("unexpected lease projection: %+v", lease)
 	}
 
-	heartbeat := projection.DaemonHeartbeat("host:123", runnerConfig{WorkflowPath: "/repo/WORKFLOW.md"}, continuousHeartbeat{LaneName: "merge", CycleNumber: 3, Err: errors.New("boom"), ActiveTaskKey: "continuous:merge", ActiveTaskRole: "merge", ActiveLeaseName: "lane:merge", ActiveTaskStartedAt: now.Add(-time.Minute), At: now})
+	heartbeat := projection.DaemonHeartbeat("host:123", runnerConfig{ConfigPath: "/repo/symphony.yaml"}, continuousHeartbeat{LaneName: "merge", CycleNumber: 3, Err: errors.New("boom"), ActiveTaskKey: "continuous:merge", ActiveTaskRole: "merge", ActiveLeaseName: "lane:merge", ActiveTaskStartedAt: now.Add(-time.Minute), At: now})
 	if heartbeat.ProcessID != "host:123" || heartbeat.LaneName != "merge" || !heartbeat.RecoveryRequired || heartbeat.LastError != "boom" || heartbeat.UpdatedAt != now || heartbeat.ActiveTaskKey != "continuous:merge" || heartbeat.ActiveLeaseName != "lane:merge" {
 		t.Fatalf("unexpected heartbeat projection: %+v", heartbeat)
 	}

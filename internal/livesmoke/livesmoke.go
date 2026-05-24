@@ -18,8 +18,8 @@ type IssueRef struct {
 
 type Report struct {
 	StartedAt      time.Time  `json:"started_at"`
-	WorkflowPath   string     `json:"workflow_path"`
-	SmokeWorkflow  string     `json:"smoke_workflow"`
+	ConfigPath     string     `json:"config_path"`
+	SmokeConfig    string     `json:"smoke_config"`
 	WorkspaceRoot  string     `json:"workspace_root"`
 	FakeAgent      bool       `json:"fake_agent"`
 	ApplyMerge     bool       `json:"apply_merge"`
@@ -52,7 +52,7 @@ Allowed paths:
 
 Out of scope:
 - Runner behavior changes.
-- Workflow configuration changes.
+- Project configuration changes.
 - Production code changes.
 - Changes outside the allowed path.
 

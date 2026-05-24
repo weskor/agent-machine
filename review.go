@@ -223,7 +223,7 @@ func reviewGuidancePromptBlock(guidance string) string {
 	if trimmed == "" {
 		return ""
 	}
-	return "\nTarget-repository review guidance from workflow configuration:\n" + trimmed + "\n"
+	return "\nTarget-repository review guidance from project configuration:\n" + trimmed + "\n"
 }
 
 func reviewCommandWithHighReasoning(command string) string {

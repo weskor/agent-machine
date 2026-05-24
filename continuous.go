@@ -14,8 +14,8 @@ import (
 	"github.com/weskor/pi-symphony/internal/state"
 )
 
-func runContinuous(client linearClient, wf workflow, config runnerConfig, maxCycles int) error {
-	maxConcurrentAgents := configuredMaxConcurrentAgents(wf)
+func runContinuous(client linearClient, proj project, config runnerConfig, maxCycles int) error {
+	maxConcurrentAgents := configuredMaxConcurrentAgents(proj)
 	log("mode=continuous; lanes=scheduler,cleanup,merge,handoff,review,implementation; project=%s; states=%s; max_concurrent_agents=%d", config.ProjectSlug, strings.Join(config.ActiveStates, ", "), maxConcurrentAgents)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -29,7 +29,7 @@ func runContinuous(client linearClient, wf workflow, config runnerConfig, maxCyc
 	scheduler := continuousScheduler{
 		maxCycles:       maxCycles,
 		recordHeartbeat: recordHeartbeat,
-		lanes:           continuousLanes(ctx, client, wf, config, stateStore, maxConcurrentAgents, recordHeartbeat),
+		lanes:           continuousLanes(ctx, client, proj, config, stateStore, maxConcurrentAgents, recordHeartbeat),
 	}
 	return scheduler.run(ctx)
 }
@@ -45,7 +45,7 @@ var runHandoffPendingAttemptForContinuous = runHandoffPendingAttemptContext
 
 const staleWorkerTaskAfter = 15 * time.Minute
 
-func continuousLanes(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, maxConcurrentAgents int, recordHeartbeat func(continuousHeartbeat)) []continuousLane {
+func continuousLanes(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store, maxConcurrentAgents int, recordHeartbeat func(continuousHeartbeat)) []continuousLane {
 	return []continuousLane{
 		{
 			name:      "scheduler",
@@ -90,7 +90,7 @@ func continuousLanes(ctx context.Context, client linearClient, wf workflow, conf
 			idleDelay: 60 * time.Second,
 			run: func() (bool, error) {
 				return runContinuousWorkerTask(ctx, stateStore, continuousWorkerTask{TaskKey: "continuous:review", Role: reviewWorkerRole, LaneName: "review", LeaseName: "lane:review", Payload: map[string]any{"project_slug": config.ProjectSlug, "review_configured": strings.TrimSpace(config.ReviewCommand) != ""}, RecordHeartbeat: recordHeartbeat}, func(runCtx context.Context) (bool, error) {
-					return runReviewReadyAttemptForWorker(runCtx, client, wf, config, stateStore)
+					return runReviewReadyAttemptForWorker(runCtx, client, proj, config, stateStore)
 				})
 			},
 		},
@@ -99,7 +99,7 @@ func continuousLanes(ctx context.Context, client linearClient, wf workflow, conf
 			idleDelay: 60 * time.Second,
 			run: func() (bool, error) {
 				return runContinuousWorkerTask(ctx, stateStore, continuousWorkerTask{TaskKey: "continuous:implementation", Role: implementationWorkerRole, LaneName: "implementation", LeaseName: "lane:implementation", Payload: map[string]any{"project_slug": config.ProjectSlug, "max_concurrent_agents": maxConcurrentAgents, "review_ready_resumes_skipped": true}, RecordHeartbeat: recordHeartbeat}, func(runCtx context.Context) (bool, error) {
-					return runImplementationAttemptBatchForContinuous(runCtx, client, wf, config, stateStore, maxConcurrentAgents)
+					return runImplementationAttemptBatchForContinuous(runCtx, client, proj, config, stateStore, maxConcurrentAgents)
 				})
 			},
 		},
@@ -141,20 +141,20 @@ func recoverStaleWorkerTasks(ctx context.Context, stateStore *state.Store, now t
 	return len(recovered) > 0, nil
 }
 
-func runClaimedAttemptBatch(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
+func runClaimedAttemptBatch(client linearClient, proj project, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
 	if stateStore == nil {
 		return false, fmt.Errorf("SQLite state store unavailable for continuous attempt batch at %s", state.DefaultDBPath(config.WorkspaceRoot))
 	}
-	return runClaimedAttemptBatchWithClaimer(client, wf, config, stateStore, capacity, claimNextRunAttemptContext)
+	return runClaimedAttemptBatchWithClaimer(client, proj, config, stateStore, capacity, claimNextRunAttemptContext)
 }
 
-type claimedAttemptFunc func(context.Context, linearClient, workflow, runnerConfig, *state.Store) (*claimedRunAttempt, bool, error)
+type claimedAttemptFunc func(context.Context, linearClient, project, runnerConfig, *state.Store) (*claimedRunAttempt, bool, error)
 
-func runClaimedAttemptBatchWithClaimer(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, capacity int, claim claimedAttemptFunc) (bool, error) {
-	return runClaimedAttemptBatchWithClaimerContext(context.Background(), client, wf, config, stateStore, capacity, claim)
+func runClaimedAttemptBatchWithClaimer(client linearClient, proj project, config runnerConfig, stateStore *state.Store, capacity int, claim claimedAttemptFunc) (bool, error) {
+	return runClaimedAttemptBatchWithClaimerContext(context.Background(), client, proj, config, stateStore, capacity, claim)
 }
 
-func runClaimedAttemptBatchWithClaimerContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, capacity int, claim claimedAttemptFunc) (bool, error) {
+func runClaimedAttemptBatchWithClaimerContext(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store, capacity int, claim claimedAttemptFunc) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -176,7 +176,7 @@ func runClaimedAttemptBatchWithClaimerContext(ctx context.Context, client linear
 			releaseClaims()
 			return didAnyWork, err
 		}
-		claim, didWork, err := claim(ctx, client, wf, config, stateStore)
+		claim, didWork, err := claim(ctx, client, proj, config, stateStore)
 		if didWork {
 			didAnyWork = true
 		}
@@ -200,7 +200,7 @@ func runClaimedAttemptBatchWithClaimerContext(ctx context.Context, client linear
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := executeClaimedRunAttempt(ctx, client, wf, config, stateStore, claim)
+			_, err := executeClaimedRunAttempt(ctx, client, proj, config, stateStore, claim)
 			if err != nil {
 				errs <- err
 			}
@@ -612,8 +612,8 @@ func runContinuousLane(ctx context.Context, lane continuousLane, maxCycles int, 
 	}
 }
 
-func configuredMaxConcurrentAgents(wf workflow) int {
-	schema, err := cfg.ParseConfig(wf.YAML)
+func configuredMaxConcurrentAgents(proj project) int {
+	schema, err := cfg.ParseConfig(proj.YAML)
 	if err != nil || schema.Agent.MaxConcurrentAgents < 1 {
 		return 1
 	}

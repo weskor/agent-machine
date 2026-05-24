@@ -129,7 +129,7 @@ func TestOrchestrationSnapshotIncludesActiveLaneData(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err := store.UpsertDaemonHeartbeat(context.Background(), state.DaemonHeartbeat{ProcessID: "pid-1", LaneName: "work", WorkflowPath: "WORKFLOW.md", CycleNumber: 7, LastSuccessAt: now, ActiveTaskKey: "continuous:work", ActiveTaskRole: "implementation", ActiveLeaseName: "lane:work", ActiveTaskStartedAt: now.Add(-time.Minute), UpdatedAt: now}); err != nil {
+	if err := store.UpsertDaemonHeartbeat(context.Background(), state.DaemonHeartbeat{ProcessID: "pid-1", LaneName: "work", WorkflowPath: "symphony.yaml", CycleNumber: 7, LastSuccessAt: now, ActiveTaskKey: "continuous:work", ActiveTaskRole: "implementation", ActiveLeaseName: "lane:work", ActiveTaskStartedAt: now.Add(-time.Minute), UpdatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 	snap, err := buildOrchestrationSnapshot(context.Background(), runnerConfig{WorkspaceRoot: root}, now)

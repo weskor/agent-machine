@@ -299,7 +299,7 @@ worker running inside the current daemon.
 
 Safe process separation requires:
 
-- one SQLite database for the workflow;
+- one SQLite database for the project config;
 - per-worker process identity and heartbeat;
 - task claiming that is atomic with lease acquisition or blocked until the lease
   is acquired;

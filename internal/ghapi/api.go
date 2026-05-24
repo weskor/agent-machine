@@ -87,8 +87,8 @@ func CurrentRepository() (string, string, error) {
 	return owner, repo, nil
 }
 
-func ConfigureRepositoryFromWorkflow(workflowPath string) {
-	owner, repo, err := gitHubRepoFromDir(filepath.Dir(workflowPath))
+func ConfigureRepositoryFromConfig(configPath string) {
+	owner, repo, err := gitHubRepoFromDir(filepath.Dir(configPath))
 	if err != nil {
 		return
 	}

@@ -17,7 +17,7 @@ This spec describes the target end-to-end Pi Symphony behavior for V1. It does n
 - **SQLite orchestration state** is the intended local source of truth for Pi Symphony decisions once the SQLite behavior contract is implemented.
 - **Workspace artifacts** are audit and evidence exports. They may seed backfill or repair, but after SQLite adoption they must not silently override newer local state.
 - **Agent attempts** perform bounded implementation or review work in isolated workspaces through a selected AgentRuntime provider.
-- **Operators** configure workflows, inspect status, answer Needs Info, review PRs, and approve merge policy.
+- **Operators** configure project configs, inspect status, answer Needs Info, review PRs, and approve merge policy.
 
 The authority matrix in [SQLite Orchestration State Contract](./sqlite-orchestration-state.md#authority-matrix) defines which system owns each runner decision during the SQLite transition. Later implementation tickets must cite that matrix instead of re-deciding precedence between SQLite, Linear, GitHub, artifacts, and operator input.
 
@@ -49,7 +49,7 @@ Supported vocabulary:
 
 - `codex_cli`: default local shell Adapter for clean `codex exec` sessions.
 - `pi_cli`: legacy local shell Adapter for the Pi CLI, selected explicitly with
-  `runtime.provider: pi_cli` or by legacy `pi.command`-only workflows.
+  `runtime.provider: pi_cli` or by legacy `pi.command`-only configs.
 - `fake`: deterministic fake/test Adapter for parity tests and contract coverage.
 - Future API, ACP-style, or MCP-style Adapters: transport choices
   that must reuse runner Modules instead of owning orchestration policy.
@@ -73,7 +73,7 @@ capture, and deterministic handoff support.
 5. The Agent attempt reads `AGENTS.md`, `CONTEXT.md`, `LANGUAGE.md`, relevant specs, relevant ADRs, and the Linear issue contract.
 6. The Agent attempt writes or updates tests first when behavior is changed or characterized.
 7. The Agent attempt implements the smallest scoped change that satisfies the issue.
-8. Validation runs in the Workspace using the workflow-configured commands.
+8. Validation runs in the Workspace using the project-configured commands.
 9. Pi Symphony owns Git/PR handoff: commit or validate the exact scoped diff, push the expected branch, create or update exactly one PR, validate the PR URL, and record artifacts. Before those side effects, Pi Symphony writes and re-reads a bounded `pr_handoff_pending` payload so PR handoff has an explicit runner-owned input contract. The selected `handoff` worker can recover that payload, execute PR handoff, and queue the next review/final-handoff payload without rerunning implementation. The Agent stops after the scoped diff and validation notes; any Agent-emitted PR URL remains advisory compatibility input.
    - When retrying the same issue, Pi Symphony may update only the exact expected `symphony/<issue>-workspace` remote branch with a lease-protected push so stale failed-attempt branches do not require manual deletion.
 10. Pi Symphony validates that the PR belongs to the configured repository, expected branch, expected base branch, expected author/owner policy, and current issue attempt.
@@ -179,7 +179,7 @@ The Adapter should:
 - run as a separate agent process suitable for ACP-compatible clients;
 - communicate through the Agent Client Protocol transport expected by the client;
 - map editor turns to existing Pi Symphony command Modules;
-- preserve workflow configuration, leases, budgets, validation, review, and state reconciliation;
+- preserve project configuration, leases, budgets, validation, review, and state reconciliation;
 - surface status, plans, diffs, validation output, and Handoff evidence in editor-friendly content;
 - avoid editor-specific orchestration policy.
 

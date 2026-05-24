@@ -21,11 +21,11 @@ const handoffWorkerRole = "handoff"
 const linearStatusWorkerRole = "linear-status"
 const workWorkerRole = "work"
 
-func runSelectedWorker(client linearClient, wf workflow, config runnerConfig, role string) error {
-	return runSelectedWorkerContext(context.Background(), client, wf, config, role)
+func runSelectedWorker(client linearClient, proj project, config runnerConfig, role string) error {
+	return runSelectedWorkerContext(context.Background(), client, proj, config, role)
 }
 
-func runSelectedWorkerContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig, role string) error {
+func runSelectedWorkerContext(ctx context.Context, client linearClient, proj project, config runnerConfig, role string) error {
 	role = strings.TrimSpace(role)
 	switch role {
 	case statusWorkerRole:
@@ -39,15 +39,15 @@ func runSelectedWorkerContext(ctx context.Context, client linearClient, wf workf
 	case reconciliationWorkerRole:
 		return runReconciliationWorkerProcessContext(ctx, client, config)
 	case reviewWorkerRole:
-		return runReviewWorkerProcessContext(ctx, client, wf, config)
+		return runReviewWorkerProcessContext(ctx, client, proj, config)
 	case implementationWorkerRole:
-		return runImplementationWorkerProcessContext(ctx, client, wf, config)
+		return runImplementationWorkerProcessContext(ctx, client, proj, config)
 	case handoffWorkerRole:
 		return runHandoffWorkerProcessContext(ctx, client, config)
 	case linearStatusWorkerRole:
 		return runLinearStatusWorkerProcessContext(ctx, client, config)
 	case workWorkerRole:
-		return runWorkWorkerProcessContext(ctx, client, wf, config)
+		return runWorkWorkerProcessContext(ctx, client, proj, config)
 	default:
 		return fmt.Errorf("unsupported worker role %q; supported roles: %s", role, strings.Join(supportedWorkerRoles(), ", "))
 	}
@@ -94,8 +94,8 @@ var issueIdentifiersByStateForCleanupWorker = func(ctx context.Context, client l
 var mergeApprovedPRsForWorker = mergeApprovedPRsWithStoreContext
 var runReconciliationScanForWorker = runReconciliationScanContext
 var runReviewReadyAttemptForWorker = runReviewReadyAttemptContext
-var runImplementationAttemptForWorker = func(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (bool, error) {
-	return runImplementationAttemptBatchContext(ctx, client, wf, config, stateStore, 1)
+var runImplementationAttemptForWorker = func(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store) (bool, error) {
+	return runImplementationAttemptBatchContext(ctx, client, proj, config, stateStore, 1)
 }
 var runHandoffPendingAttemptForWorker = runHandoffPendingAttemptContext
 var runLinearStatusTransitionTaskForWorker = runLinearStatusTransitionTaskContext
@@ -233,11 +233,11 @@ func runReconciliationWorkerProcessContext(ctx context.Context, client linearCli
 	return err
 }
 
-func runReviewWorkerProcess(client linearClient, wf workflow, config runnerConfig) error {
-	return runReviewWorkerProcessContext(context.Background(), client, wf, config)
+func runReviewWorkerProcess(client linearClient, proj project, config runnerConfig) error {
+	return runReviewWorkerProcessContext(context.Background(), client, proj, config)
 }
 
-func runReviewWorkerProcessContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig) error {
+func runReviewWorkerProcessContext(ctx context.Context, client linearClient, proj project, config runnerConfig) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -255,17 +255,17 @@ func runReviewWorkerProcessContext(ctx context.Context, client linearClient, wf 
 		Payload:         map[string]any{"project_slug": config.ProjectSlug, "review_configured": strings.TrimSpace(config.ReviewCommand) != ""},
 		RecordHeartbeat: recordHeartbeat,
 	}, func(runCtx context.Context) (bool, error) {
-		return runReviewReadyAttemptForWorker(runCtx, client, wf, config, stateStore)
+		return runReviewReadyAttemptForWorker(runCtx, client, proj, config, stateStore)
 	})
 	recordContinuousHeartbeat(recordHeartbeat, continuousHeartbeat{LaneName: "worker:review", CycleNumber: 1, Success: err == nil && didWork, Err: err, At: stateNow()})
 	return err
 }
 
-func runImplementationWorkerProcess(client linearClient, wf workflow, config runnerConfig) error {
-	return runImplementationWorkerProcessContext(context.Background(), client, wf, config)
+func runImplementationWorkerProcess(client linearClient, proj project, config runnerConfig) error {
+	return runImplementationWorkerProcessContext(context.Background(), client, proj, config)
 }
 
-func runImplementationWorkerProcessContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig) error {
+func runImplementationWorkerProcessContext(ctx context.Context, client linearClient, proj project, config runnerConfig) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -283,7 +283,7 @@ func runImplementationWorkerProcessContext(ctx context.Context, client linearCli
 		Payload:         map[string]any{"project_slug": config.ProjectSlug, "review_ready_resumes_skipped": true},
 		RecordHeartbeat: recordHeartbeat,
 	}, func(runCtx context.Context) (bool, error) {
-		return runImplementationAttemptForWorker(runCtx, client, wf, config, stateStore)
+		return runImplementationAttemptForWorker(runCtx, client, proj, config, stateStore)
 	})
 	recordContinuousHeartbeat(recordHeartbeat, continuousHeartbeat{LaneName: "worker:implementation", CycleNumber: 1, Success: err == nil && didWork, Err: err, At: stateNow()})
 	return err
@@ -345,11 +345,11 @@ func runLinearStatusWorkerProcessContext(ctx context.Context, client linearClien
 	return err
 }
 
-func runWorkWorkerProcess(client linearClient, wf workflow, config runnerConfig) error {
-	return runWorkWorkerProcessContext(context.Background(), client, wf, config)
+func runWorkWorkerProcess(client linearClient, proj project, config runnerConfig) error {
+	return runWorkWorkerProcessContext(context.Background(), client, proj, config)
 }
 
-func runWorkWorkerProcessContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig) error {
+func runWorkWorkerProcessContext(ctx context.Context, client linearClient, proj project, config runnerConfig) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -358,7 +358,7 @@ func runWorkWorkerProcessContext(ctx context.Context, client linearClient, wf wo
 		return fmt.Errorf("SQLite state store unavailable for work worker at %s", stateDBPath)
 	}
 	defer stateStore.Close()
-	maxConcurrentAgents := configuredMaxConcurrentAgents(wf)
+	maxConcurrentAgents := configuredMaxConcurrentAgents(proj)
 	recordHeartbeat := daemonHeartbeatRecorder(ctx, config, stateStore)
 	didWork, err := runContinuousWorkerTask(ctx, stateStore, continuousWorkerTask{
 		TaskKey:         "process:work",
@@ -368,7 +368,7 @@ func runWorkWorkerProcessContext(ctx context.Context, client linearClient, wf wo
 		Payload:         map[string]any{"project_slug": config.ProjectSlug, "max_concurrent_agents": maxConcurrentAgents, "compatibility_role": workWorkerRole},
 		RecordHeartbeat: recordHeartbeat,
 	}, func(runCtx context.Context) (bool, error) {
-		return runImplementationAttemptBatchForWorkWorker(runCtx, client, wf, config, stateStore, maxConcurrentAgents)
+		return runImplementationAttemptBatchForWorkWorker(runCtx, client, proj, config, stateStore, maxConcurrentAgents)
 	})
 	recordContinuousHeartbeat(recordHeartbeat, continuousHeartbeat{LaneName: "worker:work", CycleNumber: 1, Success: err == nil && didWork, Err: err, At: stateNow()})
 	return err

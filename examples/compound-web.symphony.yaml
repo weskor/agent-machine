@@ -1,4 +1,5 @@
----
+repository:
+  remote: git@github.com:pennywise-investments/compound-web.git
 tracker:
   kind: linear
   endpoint: https://api.linear.app/graphql
@@ -16,28 +17,18 @@ tracker:
 polling:
   interval_ms: 30000
 workspace:
-  root: /home/wes/Workspace/pennywise/compound-web/.symphony/workspaces
+  root: .symphony/workspaces
   base_branch: develop
 hooks:
   timeout_ms: 120000
-  after_create: |
-    git clone --branch develop git@github.com:pennywise-investments/compound-web.git .
-    bun install --frozen-lockfile
-  before_run: bun run agent:status
-  after_run: bun run repo:check
-  before_remove: null
-agent:
-  max_concurrent_agents: 1
-  max_retry_backoff_ms: 300000
-pi:
-  command: >-
-    pi --mode json --print --no-session --thinking low
-  review_command: >-
-    pi --mode json --print --no-session --thinking xhigh
-  after_create: |
-    git clone --branch develop git@github.com:pennywise-investments/compound-web.git .
   before_run: bun run symphony:doctor
   after_run: git diff --check
+agent:
+  prompt_path: compound-web.symphony.agent.md
+  max_concurrent_agents: 1
+  max_retry_backoff_ms: 300000
+runtime:
+  provider: pi_cli
 review:
   guidance: |
     Compound Web domain review policy:
@@ -62,8 +53,3 @@ compound:
   required_validation:
     - bun run agent:status
     - bun run repo:check
----
-
-# Compound Web Symphony Workflow Example
-
-This is a trimmed example for the first consumer repository. Keep the live workflow in the consumer repo.

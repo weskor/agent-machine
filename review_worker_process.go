@@ -17,11 +17,11 @@ type claimedReviewPendingAttempt struct {
 	PayloadRef  *state.WorkerPayloadRef
 }
 
-func runReviewReadyAttempt(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (bool, error) {
-	return runReviewReadyAttemptContext(context.Background(), client, wf, config, stateStore)
+func runReviewReadyAttempt(client linearClient, proj project, config runnerConfig, stateStore *state.Store) (bool, error) {
+	return runReviewReadyAttemptContext(context.Background(), client, proj, config, stateStore)
 }
 
-func runReviewReadyAttemptContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (bool, error) {
+func runReviewReadyAttemptContext(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -31,7 +31,7 @@ func runReviewReadyAttemptContext(ctx context.Context, client linearClient, wf w
 	if didWork, err := runReviewPendingAttemptContext(ctx, client, config, stateStore); err != nil || didWork {
 		return didWork, err
 	}
-	claim, didWork, err := claimNextQueuedReviewReadyAttemptContext(ctx, client, wf, config, stateStore)
+	claim, didWork, err := claimNextQueuedReviewReadyAttemptContext(ctx, client, proj, config, stateStore)
 	if err != nil || claim == nil {
 		return didWork, err
 	}
@@ -172,11 +172,11 @@ func reviewPayloadHandoffCompletion(payload reviewPendingPayload, client linearC
 	}
 }
 
-func claimNextQueuedReviewReadyAttempt(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
-	return claimNextQueuedReviewReadyAttemptContext(context.Background(), client, wf, config, stateStore)
+func claimNextQueuedReviewReadyAttempt(client linearClient, proj project, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
+	return claimNextQueuedReviewReadyAttemptContext(context.Background(), client, proj, config, stateStore)
 }
 
-func claimNextQueuedReviewReadyAttemptContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
+func claimNextQueuedReviewReadyAttemptContext(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
 	if strings.TrimSpace(config.ReviewCommand) == "" {
 		log("review worker idle: review command is not configured")
 		return nil, false, nil
@@ -185,7 +185,7 @@ func claimNextQueuedReviewReadyAttemptContext(ctx context.Context, client linear
 	if err != nil || !ok {
 		return nil, false, err
 	}
-	return prepareClaimedReviewReadyWorkerTask(ctx, client, wf, config, stateStore, task)
+	return prepareClaimedReviewReadyWorkerTask(ctx, client, proj, config, stateStore, task)
 }
 
 func scheduleReviewReadyWorkerTasks(ctx context.Context, client linearClient, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
@@ -243,7 +243,7 @@ func scheduleReviewReadyWorkerTasks(ctx context.Context, client linearClient, co
 	return didWork, nil
 }
 
-func prepareClaimedReviewReadyWorkerTask(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store, task state.WorkerTask) (*claimedRunAttempt, bool, error) {
+func prepareClaimedReviewReadyWorkerTask(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store, task state.WorkerTask) (*claimedRunAttempt, bool, error) {
 	started := time.Now().UTC()
 	failTask := func(reason string, err error) (*claimedRunAttempt, bool, error) {
 		errorText := ""
@@ -305,11 +305,11 @@ func prepareClaimedReviewReadyWorkerTask(ctx context.Context, client linearClien
 	return &claimedRunAttempt{Candidate: candidate, SelectedPR: pr, Workspace: workspace, Branch: lock.Branch, ProgressStarted: progressStarted, ReviewWorkerTaskKey: task.TaskKey, ReleaseLock: releaseLock}, true, nil
 }
 
-func claimNextReviewReadyAttempt(client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
-	return claimNextReviewReadyAttemptContext(context.Background(), client, wf, config, stateStore)
+func claimNextReviewReadyAttempt(client linearClient, proj project, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
+	return claimNextReviewReadyAttemptContext(context.Background(), client, proj, config, stateStore)
 }
 
-func claimNextReviewReadyAttemptContext(ctx context.Context, client linearClient, wf workflow, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
+func claimNextReviewReadyAttemptContext(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store) (*claimedRunAttempt, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}

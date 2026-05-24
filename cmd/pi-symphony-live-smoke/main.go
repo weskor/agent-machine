@@ -32,7 +32,7 @@ func (l *issueList) Set(value string) error {
 }
 
 type options struct {
-	workflow      string
+	project       string
 	count         int
 	concurrency   int
 	workspaceRoot string
@@ -53,7 +53,7 @@ func main() {
 func run(ctx context.Context, args []string, environ []string) error {
 	opts := parseOptions(args)
 	loadDotEnvLocal(".env.local")
-	loadDotEnvLocal(filepath.Join(filepath.Dir(opts.workflow), ".env.local"))
+	loadDotEnvLocal(filepath.Join(filepath.Dir(opts.project), ".env.local"))
 	env := envMap(environ)
 	for _, key := range []string{"LINEAR_API_KEY", "LIVE_LINEAR", "LIVE_SMOKE_APPLY"} {
 		if value := os.Getenv(key); value != "" {
@@ -83,11 +83,11 @@ func run(ctx context.Context, args []string, environ []string) error {
 		return errors.New("only --fake-agent=true is supported by this harness slice")
 	}
 
-	workflow, err := cfg.ReadWorkflow(opts.workflow)
+	sourceProject, err := cfg.ReadProject(opts.project)
 	if err != nil {
 		return err
 	}
-	config, err := cfg.ParseConfig(workflow.YAML)
+	config, err := cfg.ParseConfig(sourceProject.YAML)
 	if err != nil {
 		return err
 	}
@@ -103,40 +103,40 @@ func run(ctx context.Context, args []string, environ []string) error {
 	}
 
 	client := linearClient{endpoint: config.Tracker.Endpoint, apiKey: env["LINEAR_API_KEY"]}
-	project, err := client.project(ctx, config.Tracker.ProjectSlug)
+	linearProject, err := client.project(ctx, config.Tracker.ProjectSlug)
 	if err != nil {
 		return err
 	}
-	readyID, err := client.stateID(ctx, project.TeamID, "Ready for Agent")
-	if err != nil {
-		return err
-	}
-
-	issueRefs, err := prepareIssues(ctx, client, config.Tracker.ProjectSlug, project, readyID, opts)
-	if err != nil {
-		return err
-	}
-	smokeWorkflow, err := writeSmokeWorkflow(opts, config)
+	readyID, err := client.stateID(ctx, linearProject.TeamID, "Ready for Agent")
 	if err != nil {
 		return err
 	}
 
-	report := livesmoke.Report{StartedAt: time.Now().UTC(), WorkflowPath: opts.workflow, SmokeWorkflow: smokeWorkflow, WorkspaceRoot: opts.workspaceRoot, FakeAgent: opts.fakeAgent, ApplyMerge: opts.applyMerge, Issues: issueRefs, ReportPath: opts.reportPath}
-	fmt.Printf("smoke_workflow=%s\n", smokeWorkflow)
+	issueRefs, err := prepareIssues(ctx, client, config.Tracker.ProjectSlug, linearProject, readyID, opts)
+	if err != nil {
+		return err
+	}
+	smokeConfig, err := writeSmokeConfig(opts, config)
+	if err != nil {
+		return err
+	}
+
+	report := livesmoke.Report{StartedAt: time.Now().UTC(), ConfigPath: opts.project, SmokeConfig: smokeConfig, WorkspaceRoot: opts.workspaceRoot, FakeAgent: opts.fakeAgent, ApplyMerge: opts.applyMerge, Issues: issueRefs, ReportPath: opts.reportPath}
+	fmt.Printf("smoke_config=%s\n", smokeConfig)
 	fmt.Printf("workspace_root=%s\n", opts.workspaceRoot)
 	for _, issue := range issueRefs {
 		fmt.Printf("issue=%s url=%s path=%s\n", issue.Identifier, issue.URL, issue.Path)
 	}
 
 	for range issueRefs {
-		command := fmt.Sprintf("go run . --worker=implementation %s", shellQuote(smokeWorkflow))
+		command := fmt.Sprintf("go run . worker implementation --config %s", shellQuote(smokeConfig))
 		report.Commands = append(report.Commands, command)
 		if err := runCommand(ctx, command, "."); err != nil {
 			_ = writeReport(report)
 			return err
 		}
 	}
-	statusCommand := fmt.Sprintf("go run . --status %s", shellQuote(smokeWorkflow))
+	statusCommand := fmt.Sprintf("go run . status --config %s", shellQuote(smokeConfig))
 	report.Commands = append(report.Commands, statusCommand)
 	if err := runCommand(ctx, statusCommand, "."); err != nil {
 		_ = writeReport(report)
@@ -144,7 +144,7 @@ func run(ctx context.Context, args []string, environ []string) error {
 	}
 	report.FinalStatusRan = true
 	if opts.applyMerge {
-		mergeCommand := fmt.Sprintf("go run . --merge-approved %s", shellQuote(smokeWorkflow))
+		mergeCommand := fmt.Sprintf("go run . merge-approved --config %s", shellQuote(smokeConfig))
 		report.Commands = append(report.Commands, mergeCommand)
 		if err := runCommand(ctx, mergeCommand, "."); err != nil {
 			_ = writeReport(report)
@@ -159,12 +159,12 @@ func run(ctx context.Context, args []string, environ []string) error {
 }
 
 func parseOptions(args []string) options {
-	opts := options{workflow: "WORKFLOW.md", count: 1, concurrency: 1, fakeAgent: true}
+	opts := options{project: cfg.DefaultConfigPath, count: 1, concurrency: 1, fakeAgent: true}
 	flags := flag.NewFlagSet("pi-symphony-live-smoke", flag.ExitOnError)
-	flags.StringVar(&opts.workflow, "workflow", opts.workflow, "source workflow path")
+	flags.StringVar(&opts.project, "config", opts.project, "source config path")
 	flags.IntVar(&opts.count, "count", opts.count, "number of disposable issues to create when --issue is not supplied")
-	flags.IntVar(&opts.concurrency, "concurrency", opts.concurrency, "agent.max_concurrent_agents value written to the generated workflow")
-	flags.StringVar(&opts.workspaceRoot, "workspace-root", "", "isolated workspace root for the smoke workflow")
+	flags.IntVar(&opts.concurrency, "concurrency", opts.concurrency, "agent.max_concurrent_agents value written to the generated project")
+	flags.StringVar(&opts.workspaceRoot, "workspace-root", "", "isolated workspace root for the smoke project")
 	flags.StringVar(&opts.reportPath, "report", "", "JSON report path")
 	flags.StringVar(&opts.fromReport, "from-report", "", "reuse issue list and workspace root from a previous live smoke JSON report")
 	flags.BoolVar(&opts.fakeAgent, "fake-agent", opts.fakeAgent, "use the deterministic fake smoke agent")
@@ -181,8 +181,8 @@ func applyReportOptions(opts options, report livesmoke.Report) options {
 	if opts.workspaceRoot == "" {
 		opts.workspaceRoot = report.WorkspaceRoot
 	}
-	if opts.workflow == "WORKFLOW.md" && report.WorkflowPath != "" {
-		opts.workflow = report.WorkflowPath
+	if opts.project == cfg.DefaultConfigPath && report.ConfigPath != "" {
+		opts.project = report.ConfigPath
 	}
 	if len(opts.issues) == 0 {
 		for _, issue := range report.Issues {
@@ -250,19 +250,18 @@ func prepareIssues(ctx context.Context, client linearClient, projectSlug string,
 	return refs, nil
 }
 
-func writeSmokeWorkflow(opts options, config cfg.Config) (string, error) {
+func writeSmokeConfig(opts options, config cfg.Config) (string, error) {
 	if err := os.MkdirAll(opts.workspaceRoot, 0o755); err != nil {
 		return "", err
 	}
-	path := filepath.Join(filepath.Dir(opts.workspaceRoot), "WORKFLOW.live-smoke.md")
-	cloneCommand := strings.TrimSpace(config.Pi.AfterCreate)
-	if cloneCommand == "" {
-		cloneCommand = strings.TrimSpace(config.Hooks.AfterCreate)
+	path := filepath.Join(filepath.Dir(opts.workspaceRoot), "symphony.live-smoke.yaml")
+	promptPath := filepath.Join(filepath.Dir(opts.workspaceRoot), "symphony.live-smoke.agent.md")
+	repositoryRemote := strings.TrimSpace(config.Repository.Remote)
+	if repositoryRemote == "" {
+		repositoryRemote = "git@github.com:weskor/pi-symphony.git"
 	}
-	if cloneCommand == "" {
-		cloneCommand = "git clone --branch " + config.Workspace.BaseBranch + " git@github.com:weskor/pi-symphony.git ."
-	}
-	content := fmt.Sprintf(`---
+	content := fmt.Sprintf(`repository:
+  remote: %s
 tracker:
   kind: linear
   endpoint: %s
@@ -283,18 +282,18 @@ workspace:
   base_branch: %s
 hooks:
   timeout_ms: %s
+  before_run: mise exec go -- go test ./...
+  after_run: mise exec go -- go test ./... && git diff --check
 agent:
+  prompt_path: %s
   max_concurrent_agents: %d
   max_retry_backoff_ms: %s
-pi:
+runtime:
+  provider: pi_cli
   command: >-
     go run ./cmd/pi-symphony-live-smoke-agent --role implementation
   review_command: >-
     go run ./cmd/pi-symphony-live-smoke-agent --role review
-  after_create: |
-%s
-  before_run: mise exec go -- go test ./...
-  after_run: mise exec go -- go test ./... && git diff --check
 budgets:
   wall_clock: 2h
   max_tokens: 0
@@ -315,9 +314,8 @@ compound:
   required_validation:
     - mise exec go -- go test ./...
     - git diff --check
----
-
-# Pi Symphony Live Smoke Workflow
+`, yamlScalar(repositoryRemote), yamlScalar(config.Tracker.Endpoint), yamlScalar(config.Tracker.ProjectSlug), yamlScalar(config.Tracker.NeedsInfoState), yamlScalar(opts.workspaceRoot), yamlScalar(config.Workspace.BaseBranch), config.Hooks.TimeoutText, yamlScalar(filepath.Base(promptPath)), opts.concurrency, config.Agent.MaxRetryBackoffText, yamlScalar(config.GitHub.AppSlug), yamlScalar(config.Compound.HandoffState), yamlScalar(config.Compound.RunningState), yamlScalar(config.Compound.NeedsInfoState), yamlScalar(config.Compound.DoneState))
+	prompt := `# Pi Symphony Live Smoke Prompt
 
 Generated by cmd/pi-symphony-live-smoke.
 
@@ -328,8 +326,11 @@ Issue context:
 - URL: {{issue.url}}
 - State: {{issue.state}}
 - Attempt: {{attempt}}
-`, yamlScalar(config.Tracker.Endpoint), yamlScalar(config.Tracker.ProjectSlug), yamlScalar(config.Tracker.NeedsInfoState), yamlScalar(opts.workspaceRoot), yamlScalar(config.Workspace.BaseBranch), config.Hooks.TimeoutText, opts.concurrency, config.Agent.MaxRetryBackoffText, indentBlock(cloneCommand, 4), yamlScalar(config.GitHub.AppSlug), yamlScalar(config.Compound.HandoffState), yamlScalar(config.Compound.RunningState), yamlScalar(config.Compound.NeedsInfoState), yamlScalar(config.Compound.DoneState))
+`
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(promptPath, []byte(prompt), 0o600); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -526,15 +527,6 @@ func issueIdentifiers(issues []livesmoke.IssueRef) string {
 
 func yamlScalar(value string) string {
 	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
-}
-
-func indentBlock(value string, spaces int) string {
-	prefix := strings.Repeat(" ", spaces)
-	lines := strings.Split(value, "\n")
-	for i, line := range lines {
-		lines[i] = prefix + line
-	}
-	return strings.Join(lines, "\n")
 }
 
 func shellQuote(value string) string {

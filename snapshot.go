@@ -173,6 +173,9 @@ func buildOrchestrationSnapshot(ctx context.Context, config runnerConfig, observ
 func snapshotRunLocks(workspaceRoot string, observedAt time.Time) ([]snapshotLock, error) {
 	entries, err := os.ReadDir(workspaceRoot)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	var locks []snapshotLock

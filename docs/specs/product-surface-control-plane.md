@@ -15,6 +15,30 @@ MCP, ACP, app, and dashboard surfaces should use the same typed contract shape.
 - The TUI is an Adapter over this snapshot. It may render state, refresh state,
   and show command hints, but it must not own orchestration policy.
 
+## TUI Adapter
+
+The OpenTUI Adapter renders the snapshot into an operator dashboard:
+
+- Header: project identity, SQLite health, snapshot timestamp, and refresh
+  errors.
+- Summary: counts for issues, active locks, lanes, worker tasks, and
+  reconciliation-needed worker tasks.
+- Views rail: Overview, Issues, Lanes, Tasks, and Events.
+- List pane: rows for the active view.
+- Details pane: stable key/value fields for the selected row.
+
+The Adapter owns only presentation state: active view, selected row, local
+refresh state, and terminal key handling. It must not infer scheduler,
+handoff, retry, cleanup, merge, or repair decisions from presentation state.
+
+Keyboard controls are local UI controls only:
+
+- `tab`, `h`/`l`, or left/right arrows switch views.
+- `j`/`k` or up/down arrows move the selected row.
+- `1`-`5` jump to Overview, Issues, Lanes, Tasks, or Events.
+- `r` refreshes the snapshot.
+- `q` exits.
+
 ## Contract
 
 The snapshot includes:
@@ -29,6 +53,9 @@ The snapshot includes:
 - recent event summaries.
 
 The snapshot intentionally excludes secrets and raw agent output.
+
+Product surfaces may use `PI_SYMPHONY_BIN` to call a built runner binary, but
+the command contract remains `surface snapshot --config <path>`.
 
 ## Future commands
 

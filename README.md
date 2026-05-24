@@ -158,6 +158,37 @@ Legacy flag forms such as `--status`, `--explain`, `--continuous`,
 `--worker=implementation`, and `--merge-approved` are still accepted, but new
 docs should prefer command forms.
 
+## TUI
+
+The first product surface is a read-only OpenTUI dashboard over
+`go run . surface snapshot`. It does not contact Linear or GitHub directly and
+does not mutate workspaces, merge, repair, or clean up.
+
+```bash
+cd tui
+bun install
+bun run start -- --config ../symphony.yaml
+```
+
+Layout:
+
+- Header: project, SQLite health, and snapshot timestamp or refresh error.
+- Summary: issue, active-lock, lane, task, and reconciliation counts.
+- Views rail: Overview, Issues, Lanes, Tasks, and Events.
+- List: rows for the selected view.
+- Details: the selected row's key fields.
+
+Controls:
+
+- `tab`, `h`/`l`, or left/right arrows: switch views.
+- `j`/`k` or up/down arrows: move the selected row.
+- `1`-`5`: jump to Overview, Issues, Lanes, Tasks, or Events.
+- `r`: refresh the local snapshot.
+- `q`: quit.
+
+The TUI shells out to the local runner by default. Set `PI_SYMPHONY_BIN` to use
+an already-built binary instead of `go run .`.
+
 ## Runtime Providers
 
 The default runtime is `codex_cli`. It shells out to a locally installed

@@ -14,6 +14,7 @@ type Config struct {
 	Workspace WorkspaceConfig
 	Hooks     HooksConfig
 	Agent     AgentConfig
+	Runtime   RuntimeConfig
 	Pi        PiConfig
 	Review    ReviewConfig
 	Budgets   Budget
@@ -55,6 +56,13 @@ type AgentConfig struct {
 	MaxTurns            int
 	MaxRetryBackoff     time.Duration
 	MaxRetryBackoffText string
+	RuntimeProvider     string
+}
+
+type RuntimeConfig struct {
+	Provider      string
+	Command       string
+	ReviewCommand string
 }
 
 type PiConfig struct {
@@ -90,6 +98,7 @@ func ParseConfig(yaml string) (Config, error) {
 	workspaceYAML := Section(yaml, "workspace")
 	hooksYAML := Section(yaml, "hooks")
 	agentYAML := Section(yaml, "agent")
+	runtimeYAML := Section(yaml, "runtime")
 	piYAML := Section(yaml, "pi")
 	reviewYAML := Section(yaml, "review")
 	compoundYAML := Section(yaml, "compound")
@@ -99,6 +108,10 @@ func ParseConfig(yaml string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+
+	runtimeProvider := Scalar(runtimeYAML, "  provider", Scalar(agentYAML, "  runtime_provider", "pi_cli"))
+	runtimeCommand := CommandUnder(runtimeYAML, "command", CommandUnder(piYAML, "command", "pi --print --no-session --thinking low"))
+	runtimeReviewCommand := CommandUnder(runtimeYAML, "review_command", CommandUnder(piYAML, "review_command", ""))
 
 	config := Config{
 		Tracker: TrackerConfig{
@@ -123,10 +136,16 @@ func ParseConfig(yaml string) (Config, error) {
 		Agent: AgentConfig{
 			MaxConcurrentAgents: intFromYAML(agentYAML, "max_concurrent_agents", 1),
 			MaxTurns:            AgentMaxTurnsFromWorkflow(yaml),
+			RuntimeProvider:     runtimeProvider,
+		},
+		Runtime: RuntimeConfig{
+			Provider:      runtimeProvider,
+			Command:       runtimeCommand,
+			ReviewCommand: runtimeReviewCommand,
 		},
 		Pi: PiConfig{
-			Command:       CommandUnder(piYAML, "command", "pi --print --no-session --thinking low"),
-			ReviewCommand: CommandUnder(piYAML, "review_command", ""),
+			Command:       runtimeCommand,
+			ReviewCommand: runtimeReviewCommand,
 			AfterCreate:   BlockUnder(piYAML, "after_create"),
 			BeforeRun:     Scalar(piYAML, "  before_run", ""),
 			AfterRun:      Scalar(piYAML, "  after_run", ""),

@@ -213,8 +213,22 @@ func TestLoadWorkflowConfigParsesDefaultsAndWorkflowValues(t *testing.T) {
 	if !reflect.DeepEqual(config.ActiveStates, []string{"Ready for Agent", "In Progress"}) {
 		t.Fatalf("ActiveStates = %#v", config.ActiveStates)
 	}
+	if config.RuntimeProvider != "pi_cli" || config.RuntimeCommand != "pi --print" || config.PiCommand != "pi --print" {
+		t.Fatalf("runtime config = provider %q runtime command %q pi command %q, want pi_cli/pi --print", config.RuntimeProvider, config.RuntimeCommand, config.PiCommand)
+	}
 	if config.ReviewGuidance != "" {
 		t.Fatalf("ReviewGuidance = %q, want empty", config.ReviewGuidance)
+	}
+}
+
+func TestLoadWorkflowConfigParsesRuntimeProvider(t *testing.T) {
+	workflowPath := writeWorkflow(t, "runtime:\n  provider: codex_cli\n  command: codex exec\n  review_command: codex exec review\n")
+	_, config, err := LoadWorkflowConfig(workflowPath)
+	if err != nil {
+		t.Fatalf("LoadWorkflowConfig() error = %v", err)
+	}
+	if config.RuntimeProvider != "codex_cli" || config.RuntimeCommand != "codex exec" || config.ReviewCommand != "codex exec review" {
+		t.Fatalf("runtime config = provider %q command %q review %q, want codex_cli commands", config.RuntimeProvider, config.RuntimeCommand, config.ReviewCommand)
 	}
 }
 

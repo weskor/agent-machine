@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/weskor/pi-symphony/internal/config"
@@ -19,11 +20,13 @@ type RunRecord struct {
 	WorkspaceRoot            string    `json:"workspace_root,omitempty"`
 	Branch                   string    `json:"branch,omitempty"`
 	ExpectedBranch           string    `json:"expected_branch,omitempty"`
-	PiCommand                string    `json:"pi_command"`
+	RuntimeCommand           string    `json:"runtime_command,omitempty"`
+	PiCommand                string    `json:"pi_command,omitempty"`
 	GitHubAuth               string    `json:"github_auth,omitempty"`
 	StartedAt                time.Time `json:"started_at"`
 	EndedAt                  time.Time `json:"ended_at"`
 	DurationMS               int64     `json:"duration_ms"`
+	RuntimeUsage             *Usage    `json:"runtime_usage,omitempty"`
 	PiUsage                  *Usage    `json:"pi_usage,omitempty"`
 	ReviewStatus             string    `json:"review_status,omitempty"`
 	ReviewClassification     string    `json:"review_classification,omitempty"`
@@ -122,6 +125,8 @@ type RunnerConfig struct {
 	ReadyState             string
 	BaseBranch             string
 	ActiveStates           []string
+	RuntimeProvider        string
+	RuntimeCommand         string
 	PiCommand              string
 	ReviewCommand          string
 	ReviewGuidance         string
@@ -131,4 +136,40 @@ type RunnerConfig struct {
 	Budget                 Budget
 	GitHubAppSlug          string
 	GitHubPRAuthorOverride string
+}
+
+func (r *RunRecord) UnmarshalJSON(data []byte) error {
+	type alias RunRecord
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	if decoded.RuntimeCommand == "" {
+		decoded.RuntimeCommand = decoded.PiCommand
+	}
+	if decoded.RuntimeUsage == nil {
+		decoded.RuntimeUsage = decoded.PiUsage
+	}
+	if decoded.PiCommand == "" {
+		decoded.PiCommand = decoded.RuntimeCommand
+	}
+	if decoded.PiUsage == nil {
+		decoded.PiUsage = decoded.RuntimeUsage
+	}
+	*r = RunRecord(decoded)
+	return nil
+}
+
+func (r RunRecord) MarshalJSON() ([]byte, error) {
+	type alias RunRecord
+	encoded := alias(r)
+	if encoded.RuntimeCommand == "" {
+		encoded.RuntimeCommand = encoded.PiCommand
+	}
+	encoded.PiCommand = ""
+	if encoded.RuntimeUsage == nil {
+		encoded.RuntimeUsage = encoded.PiUsage
+	}
+	encoded.PiUsage = nil
+	return json.Marshal(encoded)
 }

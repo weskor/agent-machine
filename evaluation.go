@@ -42,11 +42,11 @@ func evaluationForRun(workspace string, record runRecord) evaluationArtifact {
 		MergeBlockerCodes:        mergeGate.Codes(),
 		WorkspaceCleanupEligible: terminalRunStatus(record.Status),
 	}
-	if record.PiUsage != nil {
-		evaluation.ImplementationTotalTokens = record.PiUsage.TotalTokens
-		evaluation.ImplementationTotalCost = record.PiUsage.TotalCost()
-		evaluation.TotalTokens += record.PiUsage.TotalTokens
-		evaluation.TotalCost += record.PiUsage.TotalCost()
+	if usage := recordRuntimeUsage(record); usage != nil {
+		evaluation.ImplementationTotalTokens = usage.TotalTokens
+		evaluation.ImplementationTotalCost = usage.TotalCost()
+		evaluation.TotalTokens += usage.TotalTokens
+		evaluation.TotalCost += usage.TotalCost()
 	}
 	if record.ReviewUsage != nil {
 		evaluation.ReviewTotalTokens = record.ReviewUsage.TotalTokens

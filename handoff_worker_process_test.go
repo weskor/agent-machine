@@ -33,7 +33,7 @@ func TestRunHandoffPendingAttemptConsumesPayloadAndCompletesHandoff(t *testing.T
 		branch:          expectedWorkspaceBranch(candidate.Identifier),
 		progressStarted: time.Now().Add(-2 * time.Minute),
 		startedAt:       time.Now().Add(-time.Minute),
-		piUsage:         &usage{TotalTokens: 171},
+		runtimeUsage:    &usage{TotalTokens: 171},
 		review:          &reviewResult{Status: "passed", Classification: "clean"},
 		prURL:           prURL,
 		validation:      []string{"go test ./..."},

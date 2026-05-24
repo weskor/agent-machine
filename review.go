@@ -236,16 +236,24 @@ func reviewCommandWithHighReasoning(command string) string {
 	return trimmed + " --thinking xhigh"
 }
 
-// runReview performs a separate read-only Pi pass over the final diff before
-// the runner hands the Linear issue to Human Review.
 func runReview(reviewCommand, workspace string, candidate *issue, prURL string, env map[string]string, timeout time.Duration, evidence *reviewEvidence) (*reviewResult, error) {
+	return runReviewWithProvider(runtimeProviderPiCLI, reviewCommand, workspace, candidate, prURL, env, timeout, evidence)
+}
+
+// runReviewWithProvider performs a separate read-only Agent pass over the final
+// diff before the runner hands the Linear issue to Human Review.
+func runReviewWithProvider(provider, reviewCommand, workspace string, candidate *issue, prURL string, env map[string]string, timeout time.Duration, evidence *reviewEvidence) (*reviewResult, error) {
 	if strings.TrimSpace(reviewCommand) == "" {
 		return nil, nil
 	}
 	prompt := reviewPrompt(candidate, prURL, workspace, reviewGuidanceFromEvidence(evidence), evidence)
+	runtime, err := newAgentRuntime(provider)
+	if err != nil {
+		return nil, err
+	}
 
 	started := time.Now()
-	runtimeResult, err := newPiCLIRuntime().ReviewAttempt(context.Background(), candidate.Identifier, agentruntime.ReviewAttemptInput{Command: reviewCommandWithHighReasoning(reviewCommand), WorkingDir: workspace, Prompt: prompt, PullRequest: prURL, Timeout: timeout, Environment: env}, agentruntime.NoopSink{})
+	runtimeResult, err := runtime.ReviewAttempt(context.Background(), candidate.Identifier, agentruntime.ReviewAttemptInput{Command: reviewCommandForProvider(provider, reviewCommand), WorkingDir: workspace, Prompt: prompt, PullRequest: prURL, Timeout: timeout, Environment: env}, agentruntime.NoopSink{})
 	log("review duration: %s", time.Since(started).Round(time.Second))
 	result := reviewResultFromRuntime(runtimeResult)
 	if result.Usage != nil {
@@ -256,6 +264,13 @@ func runReview(reviewCommand, workspace string, candidate *issue, prURL string, 
 		return result, err
 	}
 	return result, nil
+}
+
+func reviewCommandForProvider(provider, command string) string {
+	if strings.TrimSpace(provider) == "" || strings.TrimSpace(provider) == runtimeProviderPiCLI {
+		return reviewCommandWithHighReasoning(command)
+	}
+	return command
 }
 
 func reviewGuidanceFromEvidence(evidence *reviewEvidence) string {

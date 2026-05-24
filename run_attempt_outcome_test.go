@@ -45,8 +45,8 @@ func TestRunAttemptOutcomeRecordCharacterizesTerminalCases(t *testing.T) {
 			wantErr:    "missing app installation",
 		},
 		{
-			name:       "Pi failure",
-			outcome:    runAttemptOutcome{Status: runAttemptStatusFailed, Error: "exit status 1", PiUsage: usage, PRURL: "https://github.com/acme/repo/pull/1"},
+			name:       "runtime failure",
+			outcome:    runAttemptOutcome{Status: runAttemptStatusFailed, Error: "exit status 1", RuntimeUsage: usage, PRURL: "https://github.com/acme/repo/pull/1"},
 			wantStatus: runAttemptStatusFailed,
 			wantIntent: "operational_failure",
 			wantPR:     "https://github.com/acme/repo/pull/1",
@@ -86,7 +86,7 @@ func TestRunAttemptOutcomeRecordCharacterizesTerminalCases(t *testing.T) {
 		},
 		{
 			name:       "success",
-			outcome:    runAttemptOutcome{Status: runAttemptStatusSuccess, Review: &reviewResult{Status: "passed"}, PRURL: "https://github.com/acme/repo/pull/5", PiUsage: usage},
+			outcome:    runAttemptOutcome{Status: runAttemptStatusSuccess, Review: &reviewResult{Status: "passed"}, PRURL: "https://github.com/acme/repo/pull/5", RuntimeUsage: usage},
 			wantStatus: runAttemptStatusSuccess,
 			wantIntent: "handoff_ready",
 			wantPR:     "https://github.com/acme/repo/pull/5",

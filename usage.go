@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/weskor/pi-symphony/internal/agentruntime"
@@ -13,6 +14,12 @@ import (
 )
 
 var prURLPattern = regexp.MustCompile(`https://github\.com/([^/\s"'<>]+)/([^/\s"'<>]+)/pull/[0-9]+`)
+var codexTokensUsedPattern = regexp.MustCompile(`(?im)^tokens used\s*\n\s*([0-9][0-9,]*)\s*$`)
+
+const (
+	runtimeProviderPiCLI    = "pi_cli"
+	runtimeProviderCodexCLI = "codex_cli"
+)
 
 func parseUsage(output string) *usage {
 	return artifactio.ParseUsage(output)
@@ -30,8 +37,56 @@ func newPiCLIRuntime() agentruntime.AgentRuntime {
 	}
 }
 
+func newCodexCLIRuntime() agentruntime.AgentRuntime {
+	return agentruntime.CodexCLIAdapter{
+		RunCommand:           captureAgentOutput,
+		ParseUsage:           codexUsageToRuntime,
+		FirstPRURL:           firstPRURL,
+		NeedsInfoQuestions:   needsInfoQuestionsToRuntime,
+		ReviewStatus:         reviewStatus,
+		ReviewClassification: reviewClassification,
+	}
+}
+
+func newAgentRuntime(provider string) (agentruntime.AgentRuntime, error) {
+	switch strings.TrimSpace(provider) {
+	case "", runtimeProviderPiCLI:
+		return newPiCLIRuntime(), nil
+	case runtimeProviderCodexCLI:
+		return newCodexCLIRuntime(), nil
+	default:
+		return nil, fmt.Errorf("unsupported runtime.provider %q; supported providers: %s, %s", provider, runtimeProviderPiCLI, runtimeProviderCodexCLI)
+	}
+}
+
+func configuredRuntimeCommand(config runnerConfig) string {
+	if strings.TrimSpace(config.RuntimeCommand) != "" {
+		return config.RuntimeCommand
+	}
+	return config.PiCommand
+}
+
+func recordRuntimeUsage(record runRecord) *usage {
+	if record.RuntimeUsage != nil {
+		return record.RuntimeUsage
+	}
+	return record.PiUsage
+}
+
 func usageToRuntime(output string) *agentruntime.AttemptUsage {
 	return usageToRuntimeUsage(parseUsage(output))
+}
+
+func codexUsageToRuntime(output string) *agentruntime.AttemptUsage {
+	match := codexTokensUsedPattern.FindStringSubmatch(output)
+	if len(match) < 2 {
+		return nil
+	}
+	total, err := strconv.ParseFloat(strings.ReplaceAll(match[1], ",", ""), 64)
+	if err != nil {
+		return nil
+	}
+	return &agentruntime.AttemptUsage{TotalTokens: total}
 }
 
 func usageToRuntimeUsage(u *usage) *agentruntime.AttemptUsage {

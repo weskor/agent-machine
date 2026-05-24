@@ -24,7 +24,7 @@ type runAttemptOutcome struct {
 	GitHubAuth     string
 	StartedAt      time.Time
 	EndedAt        time.Time
-	PiUsage        *usage
+	RuntimeUsage   *usage
 	Review         *reviewResult
 	PRURL          string
 	Status         string
@@ -33,7 +33,7 @@ type runAttemptOutcome struct {
 	BudgetExceeded string
 }
 
-func (o runAttemptOutcome) Record(candidate *issue, workspace, piCommand string) runRecord {
+func (o runAttemptOutcome) Record(candidate *issue, workspace, runtimeCommand string) runRecord {
 	reviewStatus := ""
 	reviewClassification := ""
 	reviewFindings := ""
@@ -47,7 +47,7 @@ func (o runAttemptOutcome) Record(candidate *issue, workspace, piCommand string)
 	branch, _ := currentGitBranch(workspace)
 	root := filepath.Dir(workspace)
 	feedback, _ := readPRFeedback(workspace)
-	record := runRecord{IssueIdentifier: candidate.Identifier, IssueID: candidate.ID, IssueTitle: candidate.Title, IssueURL: candidate.URL, Workspace: workspace, WorkspaceRoot: root, Branch: branch, ExpectedBranch: expectedWorkspaceBranch(candidate.Identifier), PiCommand: piCommand, GitHubAuth: o.GitHubAuth, StartedAt: o.StartedAt, EndedAt: o.EndedAt, DurationMS: o.EndedAt.Sub(o.StartedAt).Milliseconds(), PiUsage: o.PiUsage, ReviewStatus: reviewStatus, ReviewClassification: reviewClassification, ReviewFindings: reviewFindings, ReviewUsage: reviewUsage, PRURL: o.PRURL, FeedbackHash: feedbackHash(feedback), Status: o.Status, Error: o.Error, Budget: o.Budget, BudgetExceeded: o.BudgetExceeded}
+	record := runRecord{IssueIdentifier: candidate.Identifier, IssueID: candidate.ID, IssueTitle: candidate.Title, IssueURL: candidate.URL, Workspace: workspace, WorkspaceRoot: root, Branch: branch, ExpectedBranch: expectedWorkspaceBranch(candidate.Identifier), RuntimeCommand: runtimeCommand, PiCommand: runtimeCommand, GitHubAuth: o.GitHubAuth, StartedAt: o.StartedAt, EndedAt: o.EndedAt, DurationMS: o.EndedAt.Sub(o.StartedAt).Milliseconds(), RuntimeUsage: o.RuntimeUsage, PiUsage: o.RuntimeUsage, ReviewStatus: reviewStatus, ReviewClassification: reviewClassification, ReviewFindings: reviewFindings, ReviewUsage: reviewUsage, PRURL: o.PRURL, FeedbackHash: feedbackHash(feedback), Status: o.Status, Error: o.Error, Budget: o.Budget, BudgetExceeded: o.BudgetExceeded}
 	record.BehaviorContractEvidence = behaviorContractEvidenceForRun(record)
 	record.BehaviorContractEvidence = append(record.BehaviorContractEvidence, ticketContractEvidenceForRun(record)...)
 	return record
@@ -63,6 +63,6 @@ func (o runAttemptOutcome) TerminalOutcomeIntent() string {
 	return classification.Outcome
 }
 
-func runRecordFor(candidate *issue, workspace, piCommand, githubAuth string, startedAt, endedAt time.Time, piUsage *usage, review *reviewResult, prURL, status, errorMessage string, budget *runBudget, budgetExceeded string) runRecord {
-	return runAttemptOutcome{GitHubAuth: githubAuth, StartedAt: startedAt, EndedAt: endedAt, PiUsage: piUsage, Review: review, PRURL: prURL, Status: status, Error: errorMessage, Budget: budget, BudgetExceeded: budgetExceeded}.Record(candidate, workspace, piCommand)
+func runRecordFor(candidate *issue, workspace, runtimeCommand, githubAuth string, startedAt, endedAt time.Time, runtimeUsage *usage, review *reviewResult, prURL, status, errorMessage string, budget *runBudget, budgetExceeded string) runRecord {
+	return runAttemptOutcome{GitHubAuth: githubAuth, StartedAt: startedAt, EndedAt: endedAt, RuntimeUsage: runtimeUsage, Review: review, PRURL: prURL, Status: status, Error: errorMessage, Budget: budget, BudgetExceeded: budgetExceeded}.Record(candidate, workspace, runtimeCommand)
 }

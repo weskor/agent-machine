@@ -21,6 +21,8 @@ type Config struct {
 	ReadyState             string
 	BaseBranch             string
 	ActiveStates           []string
+	RuntimeProvider        string
+	RuntimeCommand         string
 	PiCommand              string
 	ReviewCommand          string
 	ReviewGuidance         string
@@ -229,8 +231,10 @@ func LoadWorkflowConfig(workflowPath string) (cfg.Workflow, Config, error) {
 		BaseBranch:     schema.Workspace.BaseBranch,
 		ActiveStates:   schema.Tracker.ActiveStates,
 	}
-	config.PiCommand = schema.Pi.Command
-	config.ReviewCommand = schema.Pi.ReviewCommand
+	config.RuntimeProvider = schema.Runtime.Provider
+	config.RuntimeCommand = schema.Runtime.Command
+	config.PiCommand = schema.Runtime.Command
+	config.ReviewCommand = schema.Runtime.ReviewCommand
 	config.ReviewGuidance = schema.Review.Guidance
 	config.AfterCreate = schema.Pi.AfterCreate
 	config.BeforeRun = schema.Pi.BeforeRun

@@ -28,8 +28,54 @@ pi:
 	if config.Budgets.WallClock != 2*time.Hour || config.Pi.Command != "pi --print" {
 		t.Fatalf("unexpected normalized config: %#v", config)
 	}
+	if config.Runtime.Provider != "pi_cli" || config.Agent.RuntimeProvider != "pi_cli" {
+		t.Fatalf("runtime provider = runtime %q agent %q, want pi_cli", config.Runtime.Provider, config.Agent.RuntimeProvider)
+	}
 	if config.Review.Guidance != "" {
 		t.Fatalf("default review guidance = %q, want empty", config.Review.Guidance)
+	}
+}
+
+func TestParseConfigAgentRuntimeProvider(t *testing.T) {
+	config, err := ParseConfig(`tracker:
+  project_slug: CAG
+workspace:
+  root: /tmp/workspaces
+runtime:
+  provider: codex_cli
+  command: codex exec
+  review_command: codex exec review
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Runtime.Provider != "codex_cli" || config.Agent.RuntimeProvider != "codex_cli" {
+		t.Fatalf("runtime provider = runtime %q agent %q, want codex_cli", config.Runtime.Provider, config.Agent.RuntimeProvider)
+	}
+	if config.Runtime.Command != "codex exec" || config.Pi.Command != "codex exec" {
+		t.Fatalf("runtime command = runtime %q pi %q, want codex exec", config.Runtime.Command, config.Pi.Command)
+	}
+	if config.Runtime.ReviewCommand != "codex exec review" || config.Pi.ReviewCommand != "codex exec review" {
+		t.Fatalf("runtime review command = runtime %q pi %q, want codex exec review", config.Runtime.ReviewCommand, config.Pi.ReviewCommand)
+	}
+}
+
+func TestParseConfigLegacyPiRuntimeAliases(t *testing.T) {
+	config, err := ParseConfig(`tracker:
+  project_slug: CAG
+workspace:
+  root: /tmp/workspaces
+agent:
+  runtime_provider: codex_cli
+pi:
+  command: codex exec
+  review_command: codex exec review
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Runtime.Provider != "codex_cli" || config.Runtime.Command != "codex exec" || config.Runtime.ReviewCommand != "codex exec review" {
+		t.Fatalf("runtime aliases not applied: %+v", config.Runtime)
 	}
 }
 

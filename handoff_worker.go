@@ -8,18 +8,18 @@ import (
 )
 
 type handoffWorker struct {
-	client     linearClient
-	config     runnerConfig
-	stateStore *state.Store
-	candidate  *issue
-	states     []workflowState
-	workspace  string
-	startedAt  time.Time
-	piUsage    *usage
-	review     *reviewResult
-	prURL      string
-	validation []string
-	githubAuth string
+	client       linearClient
+	config       runnerConfig
+	stateStore   *state.Store
+	candidate    *issue
+	states       []workflowState
+	workspace    string
+	startedAt    time.Time
+	runtimeUsage *usage
+	review       *reviewResult
+	prURL        string
+	validation   []string
+	githubAuth   string
 }
 
 type handoffWorkerResult struct {
@@ -34,14 +34,14 @@ func (w handoffWorker) Execute(ctx context.Context) (handoffWorkerResult, error)
 	}
 
 	logHandoffRunSummary(w.candidate.Identifier, w.prURL, w.review, w.validation)
-	classificationRecord := runRecordFor(w.candidate, w.workspace, w.config.PiCommand, w.githubAuth, w.startedAt, time.Now(), w.piUsage, w.review, w.prURL, runAttemptStatusSuccess, "", w.config.Budget.Active(), "")
+	classificationRecord := runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, w.review, w.prURL, runAttemptStatusSuccess, "", w.config.Budget.Active(), "")
 	classification := classifyRunRecord(w.workspace, classificationRecord)
 	summary := handoffSummary{
 		IssueIdentifier: w.candidate.Identifier,
 		IssueTitle:      w.candidate.Title,
 		IssueURL:        w.candidate.URL,
 		PRURL:           w.prURL,
-		PiUsage:         w.piUsage,
+		RuntimeUsage:    w.runtimeUsage,
 		Review:          w.review,
 		Duration:        time.Since(w.startedAt),
 		Validation:      w.validation,
@@ -54,7 +54,7 @@ func (w handoffWorker) Execute(ctx context.Context) (handoffWorkerResult, error)
 	linearStatus := linearStatusWorker{client: w.client, candidate: w.candidate, states: w.states}
 	if stateID(w.states, w.config.HandoffState) != "" {
 		if _, err := linearStatus.MoveTo(w.config.HandoffState); err != nil {
-			writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.PiCommand, w.githubAuth, w.startedAt, time.Now(), w.piUsage, w.review, w.prURL, runAttemptStatusFailed, err.Error(), w.config.Budget.Active(), ""))
+			writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, w.review, w.prURL, runAttemptStatusFailed, err.Error(), w.config.Budget.Active(), ""))
 			return handoffWorkerResult{Summary: &summary, Terminal: true}, err
 		}
 	}

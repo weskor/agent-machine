@@ -13,7 +13,7 @@ func TestEvaluationArtifactSuccessfulRun(t *testing.T) {
 	workspace := t.TempDir()
 	record := testRunRecord("success", "https://github.com/pennywise-investments/compound-web/pull/402")
 	record.ReviewStatus = "passed"
-	record.PiUsage = &usage{TotalTokens: 1000, Cost: &usageCost{Total: 0.01}}
+	record.RuntimeUsage = &usage{TotalTokens: 1000, Cost: &usageCost{Total: 0.01}}
 	record.ReviewUsage = &usage{TotalTokens: 200, Cost: &usageCost{Total: 0.02}}
 
 	evaluation := evaluationForRun(workspace, record)

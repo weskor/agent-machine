@@ -47,6 +47,8 @@ default local provider, but it is not the runner architecture itself.
 Supported vocabulary:
 
 - `pi_cli`: local shell Adapter for the Pi CLI.
+- `codex_cli`: local shell Adapter for clean `codex exec` sessions, selected
+  explicitly with `runtime.provider: codex_cli`.
 - `fake`: deterministic fake/test Adapter for parity tests and contract coverage.
 - Future API, app-server, ACP-style, or MCP-style Adapters: transport choices
   that must reuse runner Modules instead of owning orchestration policy.
@@ -54,8 +56,8 @@ Supported vocabulary:
 Before claiming or mutating work, the selected provider preflights command
 availability, auth/config discoverability where feasible, selected provider/model
 visibility, and actionable operator-facing failure messages. Missing configured
-implementation or review command executables for `pi_cli` are hard pre-claim
-failures.
+implementation or review command executables for shell CLI providers are hard
+pre-claim failures.
 
 Provider capabilities should be explicit for implementation runs, review runs,
 usage/cost reporting, timeout/cancellation, `max_turns`/iteration limits,

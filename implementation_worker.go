@@ -49,7 +49,7 @@ func (w implementationWorker) Prepare() error {
 			if errors.Is(err, sh.ErrCommandTimeout) {
 				decision := commandFailureLifecycleDecision(attemptLifecyclePhaseWorkspace, err, true)
 				_ = linearStatus.Comment(renderBudgetFailureComment(err.Error()))
-				writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.PiCommand, "", w.runStarted, time.Now(), nil, nil, "", decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
+				writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), "", w.runStarted, time.Now(), nil, nil, "", decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
 			}
 			return err
 		}
@@ -62,7 +62,7 @@ func (w implementationWorker) Prepare() error {
 			if errors.Is(err, sh.ErrCommandTimeout) {
 				decision := commandFailureLifecycleDecision(attemptLifecyclePhaseWorkspace, err, true)
 				_ = linearStatus.Comment(renderBudgetFailureComment(err.Error()))
-				writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.PiCommand, "", w.runStarted, time.Now(), nil, nil, "", decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
+				writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), "", w.runStarted, time.Now(), nil, nil, "", decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
 			}
 			return err
 		}
@@ -94,8 +94,11 @@ func (w implementationWorker) Prepare() error {
 func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]string, githubAuth string) (implementationWorkerResult, error) {
 	linearStatus := linearStatusWorker{client: w.client, candidate: w.candidate, states: w.states}
 	promptPath := filepath.Join(w.workspace, ".pi-symphony-prompt.md")
-	runtime := newPiCLIRuntime()
-	attempt, err := runtime.StartAttempt(ctx, agentruntime.StartAttemptInput{IssueID: w.candidate.ID, IssueIdentifier: w.candidate.Identifier, Workspace: w.workspace, Branch: w.branch, ExpectedBranch: expectedWorkspaceBranch(w.candidate.Identifier), Attempt: 1, WorkingDir: w.workspace, Command: w.config.PiCommand, PromptPath: promptPath, Timeouts: agentruntime.AttemptTimeouts{WallClock: w.config.Budget.WallClock, Command: w.config.Budget.CommandTimeout, Review: w.config.Budget.ReviewTimeout}, Environment: githubEnv})
+	runtime, err := newAgentRuntime(w.config.RuntimeProvider)
+	if err != nil {
+		return implementationWorkerResult{}, err
+	}
+	attempt, err := runtime.StartAttempt(ctx, agentruntime.StartAttemptInput{IssueID: w.candidate.ID, IssueIdentifier: w.candidate.Identifier, Workspace: w.workspace, Branch: w.branch, ExpectedBranch: expectedWorkspaceBranch(w.candidate.Identifier), Attempt: 1, WorkingDir: w.workspace, Command: configuredRuntimeCommand(w.config), PromptPath: promptPath, Timeouts: agentruntime.AttemptTimeouts{WallClock: w.config.Budget.WallClock, Command: w.config.Budget.CommandTimeout, Review: w.config.Budget.ReviewTimeout}, Environment: githubEnv})
 	if err != nil {
 		return implementationWorkerResult{}, err
 	}
@@ -103,7 +106,7 @@ func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]stri
 	implementing := runProgressForIssue(w.candidate, w.workspace, "implementing", w.progressStarted)
 	implementing.Branch = w.branch
 	writeRunProgress(w.config.WorkspaceRoot, implementing)
-	piResult, err := runtime.RunAttempt(ctx, attempt.ID, agentruntime.RunAttemptInput{Command: w.config.PiCommand, PromptPath: promptPath, WorkingDir: w.workspace, Timeout: w.config.Budget.PiTimeout, Environment: githubEnv}, agentruntime.NoopSink{})
+	piResult, err := runtime.RunAttempt(ctx, attempt.ID, agentruntime.RunAttemptInput{Command: configuredRuntimeCommand(w.config), PromptPath: promptPath, WorkingDir: w.workspace, Timeout: w.config.Budget.PiTimeout, Environment: githubEnv}, agentruntime.NoopSink{})
 	piEnvelope := normalizedAttemptEnvelope(piResult)
 	piStart := piResult.StartedAt
 	piEnded := piResult.EndedAt
@@ -117,26 +120,26 @@ func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]stri
 				log("failed to comment on %s: %v", w.candidate.Identifier, commentErr)
 			}
 		}
-		writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.PiCommand, githubAuth, piStart, piEnded, result.Usage, nil, piEnvelope.PRURL, decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
+		writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), githubAuth, piStart, piEnded, result.Usage, nil, piEnvelope.PRURL, decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
 		result.Terminal = true
 		return result, err
 	}
 	if result.Usage != nil {
-		log("pi usage: input=%.0f output=%.0f cacheRead=%.0f total=%.0f cost=$%.4f", result.Usage.Input, result.Usage.Output, result.Usage.CacheRead, result.Usage.TotalTokens, result.Usage.TotalCost())
+		log("runtime usage: input=%.0f output=%.0f cacheRead=%.0f total=%.0f cost=$%.4f", result.Usage.Input, result.Usage.Output, result.Usage.CacheRead, result.Usage.TotalTokens, result.Usage.TotalCost())
 	} else {
-		log("pi usage: unavailable")
+		log("runtime usage: unavailable")
 	}
 	validating := runProgressForIssue(w.candidate, w.workspace, "validating", w.progressStarted)
 	validating.Branch = w.branch
 	validating.PRURL = result.PRURL
 	writeRunProgress(w.config.WorkspaceRoot, validating)
-	log("pi run duration: %s", piEnded.Sub(piStart).Round(time.Second))
+	log("runtime run duration: %s", piEnded.Sub(piStart).Round(time.Second))
 	if exceeded := budgetExceeded(w.config.Budget, piStart, result.Usage); exceeded != "" {
 		decision := budgetLifecycleDecision(attemptLifecyclePhaseImplementation, result.PRURL, exceeded)
 		if err := linearStatus.Comment(renderBudgetFailureComment(exceeded)); err != nil {
 			log("failed to comment on %s: %v", w.candidate.Identifier, err)
 		}
-		writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.PiCommand, githubAuth, piStart, time.Now(), result.Usage, nil, result.PRURL, decision.Status, exceeded, w.config.Budget.Active(), exceeded))
+		writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), githubAuth, piStart, time.Now(), result.Usage, nil, result.PRURL, decision.Status, exceeded, w.config.Budget.Active(), exceeded))
 		result.Terminal = true
 		return result, fmt.Errorf("%s", exceeded)
 	}
@@ -144,7 +147,7 @@ func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]stri
 		moved, err := linearStatus.MoveTo(w.config.NeedsInfoState)
 		if err != nil {
 			decision := needsInfoLifecycleDecision(piEnvelope.NeedsInfoQuestions, runAttemptStatusNeedsInfoFail, err.Error())
-			writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.PiCommand, githubAuth, piStart, time.Now(), result.Usage, nil, result.PRURL, decision.Status, err.Error(), w.config.Budget.Active(), ""))
+			writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), githubAuth, piStart, time.Now(), result.Usage, nil, result.PRURL, decision.Status, err.Error(), w.config.Budget.Active(), ""))
 			result.Terminal = true
 			return result, err
 		}
@@ -156,7 +159,7 @@ func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]stri
 			log("failed to comment on %s: %v", w.candidate.Identifier, err)
 		}
 		decision := needsInfoLifecycleDecision(piEnvelope.NeedsInfoQuestions, "", "")
-		if err := writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.PiCommand, githubAuth, piStart, time.Now(), result.Usage, nil, "", decision.Status, strings.Join(piEnvelope.NeedsInfoQuestions, "\n"), w.config.Budget.Active(), "")); err != nil {
+		if err := writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), githubAuth, piStart, time.Now(), result.Usage, nil, "", decision.Status, strings.Join(piEnvelope.NeedsInfoQuestions, "\n"), w.config.Budget.Active(), "")); err != nil {
 			result.Terminal = true
 			return result, err
 		}
@@ -173,7 +176,7 @@ func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]stri
 					log("failed to comment on %s: %v", w.candidate.Identifier, commentErr)
 				}
 			}
-			writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.PiCommand, githubAuth, piStart, time.Now(), result.Usage, nil, result.PRURL, decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
+			writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), githubAuth, piStart, time.Now(), result.Usage, nil, result.PRURL, decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
 			result.Terminal = true
 			return result, err
 		}

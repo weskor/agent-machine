@@ -25,7 +25,7 @@ type reviewWorker struct {
 	branch          string
 	progressStarted time.Time
 	startedAt       time.Time
-	piUsage         *usage
+	runtimeUsage    *usage
 	prURL           string
 	githubEnv       map[string]string
 	githubAuth      string
@@ -51,6 +51,7 @@ type reviewPendingPayload struct {
 	Branch           string           `json:"branch,omitempty"`
 	ProgressStarted  time.Time        `json:"progress_started"`
 	StartedAt        time.Time        `json:"started_at"`
+	RuntimeUsage     *usage           `json:"runtime_usage,omitempty"`
 	PiUsage          *usage           `json:"pi_usage,omitempty"`
 	PRURL            string           `json:"pr_url"`
 	GitHubAuth       string           `json:"github_auth,omitempty"`
@@ -88,7 +89,7 @@ func executeSemanticReview(ctx context.Context, w reviewWorker) (reviewWorkerRes
 	readiness := newReviewReadinessModule(w.config.WorkspaceRoot)
 	evidence, err := collectReviewEvidenceForWorker(w.config, w.candidate, w.workspace, w.prURL, w.scopeResult, w.validation)
 	if err != nil {
-		writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.PiCommand, w.githubAuth, w.startedAt, time.Now(), w.piUsage, nil, w.prURL, runAttemptStatusFailed, err.Error(), w.config.Budget.Active(), err.Error()))
+		writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, nil, w.prURL, runAttemptStatusFailed, err.Error(), w.config.Budget.Active(), err.Error()))
 		return reviewWorkerResult{Terminal: true}, err
 	}
 	if err := reviewEvidenceNotReadyError(evidence); err != nil {
@@ -98,7 +99,7 @@ func executeSemanticReview(ctx context.Context, w reviewWorker) (reviewWorkerRes
 			notReady = readiness.ResumeNotReadyProgress(w.candidate, w.workspace, w.branch, w.prURL, w.progressStarted, evidence)
 		}
 		writeRunProgress(w.config.WorkspaceRoot, notReady)
-		writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.PiCommand, w.githubAuth, w.startedAt, time.Now(), w.piUsage, nil, w.prURL, decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
+		writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, nil, w.prURL, decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
 		return reviewWorkerResult{Terminal: true}, nil
 	}
 
@@ -107,7 +108,7 @@ func executeSemanticReview(ctx context.Context, w reviewWorker) (reviewWorkerRes
 	reviewing.PRURL = w.prURL
 	reviewing.ChecksStatus = evidence.ChecksStatus
 	writeRunProgress(w.config.WorkspaceRoot, reviewing)
-	review, err := runReviewForWorker(w.config.ReviewCommand, w.workspace, w.candidate, w.prURL, w.githubEnv, w.config.Budget.ReviewTimeout, &evidence)
+	review, err := runReviewForWorker(w.config.RuntimeProvider, w.config.ReviewCommand, w.workspace, w.candidate, w.prURL, w.githubEnv, w.config.Budget.ReviewTimeout, &evidence)
 	if err != nil {
 		status := runAttemptStatusReviewFailed
 		if errors.Is(err, sh.ErrCommandTimeout) {
@@ -116,27 +117,27 @@ func executeSemanticReview(ctx context.Context, w reviewWorker) (reviewWorkerRes
 				log("failed to comment on %s: %v", w.candidate.Identifier, commentErr)
 			}
 		}
-		writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.PiCommand, w.githubAuth, w.startedAt, time.Now(), w.piUsage, review, w.prURL, status, err.Error(), w.config.Budget.Active(), err.Error()))
+		writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, review, w.prURL, status, err.Error(), w.config.Budget.Active(), err.Error()))
 		return reviewWorkerResult{Review: review, Terminal: true}, err
 	}
-	if exceeded := budgetExceeded(w.config.Budget, w.startedAt, w.piUsage, review.Usage); exceeded != "" {
+	if exceeded := budgetExceeded(w.config.Budget, w.startedAt, w.runtimeUsage, review.Usage); exceeded != "" {
 		decision := budgetLifecycleDecision(attemptLifecyclePhaseReview, w.prURL, exceeded)
 		if err := linearStatus.Comment(renderBudgetFailureComment(exceeded)); err != nil {
 			log("failed to comment on %s: %v", w.candidate.Identifier, err)
 		}
-		writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.PiCommand, w.githubAuth, w.startedAt, time.Now(), w.piUsage, review, w.prURL, decision.Status, exceeded, w.config.Budget.Active(), exceeded))
+		writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, review, w.prURL, decision.Status, exceeded, w.config.Budget.Active(), exceeded))
 		return reviewWorkerResult{Review: review, Terminal: true}, fmt.Errorf("%s", exceeded)
 	}
 	if review != nil && review.Status != "passed" && !reviewFailureRoutesToHumanHandoff(review, w.prURL) {
 		if _, err := linearStatus.MoveTo(w.config.ReadyState); err != nil {
-			writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.PiCommand, w.githubAuth, w.startedAt, time.Now(), w.piUsage, review, w.prURL, runAttemptStatusReviewFailed, err.Error(), w.config.Budget.Active(), ""))
+			writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, review, w.prURL, runAttemptStatusReviewFailed, err.Error(), w.config.Budget.Active(), ""))
 			return reviewWorkerResult{Review: review, Terminal: true}, err
 		}
-		comment := fmt.Sprintf("Go/Pi review did not pass; moved back to %s.\n\nPR: %s\nReview status: %s\nFindings:\n%s", w.config.ReadyState, w.prURL, review.Status, review.Findings)
+		comment := fmt.Sprintf("Runtime review did not pass; moved back to %s.\n\nPR: %s\nReview status: %s\nFindings:\n%s", w.config.ReadyState, w.prURL, review.Status, review.Findings)
 		if err := linearStatus.Comment(comment); err != nil {
 			log("failed to comment on %s: %v", w.candidate.Identifier, err)
 		}
-		if err := writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.PiCommand, w.githubAuth, w.startedAt, time.Now(), w.piUsage, review, w.prURL, runAttemptStatusReviewFailed, "review did not pass", w.config.Budget.Active(), "")); err != nil {
+		if err := writeRunRecordWithCommandState(w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, review, w.prURL, runAttemptStatusReviewFailed, "review did not pass", w.config.Budget.Active(), "")); err != nil {
 			return reviewWorkerResult{Review: review, Terminal: true}, err
 		}
 		log("review did not pass for %s; moved back to %s", w.candidate.Identifier, w.config.ReadyState)
@@ -155,7 +156,7 @@ func reviewPendingPayloadFromWorker(w reviewWorker) reviewPendingPayload {
 		Branch:          w.branch,
 		ProgressStarted: w.progressStarted,
 		StartedAt:       w.startedAt,
-		PiUsage:         w.piUsage,
+		RuntimeUsage:    w.runtimeUsage,
 		PRURL:           w.prURL,
 		GitHubAuth:      w.githubAuth,
 		ScopeResult:     w.scopeResult,
@@ -186,7 +187,7 @@ func (p reviewPendingPayload) Worker(client linearClient, config runnerConfig, s
 		branch:          p.Branch,
 		progressStarted: p.ProgressStarted,
 		startedAt:       p.StartedAt,
-		piUsage:         p.PiUsage,
+		runtimeUsage:    p.RuntimeUsage,
 		prURL:           p.PRURL,
 		githubEnv:       githubEnv,
 		githubAuth:      p.GitHubAuth,
@@ -257,15 +258,18 @@ func readReviewPendingPayload(workspaceRoot, issueIdentifier string) (reviewPend
 	if payload.SchemaVersion != 1 {
 		return reviewPendingPayload{}, fmt.Errorf("unsupported review pending payload schema_version %d", payload.SchemaVersion)
 	}
+	if payload.RuntimeUsage == nil {
+		payload.RuntimeUsage = payload.PiUsage
+	}
 	return payload, nil
 }
 
 var collectReviewEvidenceForWorker = collectReviewEvidence
-var runReviewForWorker = runReview
+var runReviewForWorker = runReviewWithProvider
 var readReviewPendingPayloadForExecution = readReviewPendingPayload
 
 func resetReviewWorkerHooks() {
 	collectReviewEvidenceForWorker = collectReviewEvidence
-	runReviewForWorker = runReview
+	runReviewForWorker = runReviewWithProvider
 	readReviewPendingPayloadForExecution = readReviewPendingPayload
 }

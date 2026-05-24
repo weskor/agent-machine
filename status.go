@@ -300,10 +300,10 @@ func workspaceArtifactSummaries(workspaceRoot string) ([]artifactSummary, error)
 			summary.Class = cleanupCategoryForTerminalStatus(record.Status)
 			summary.Review = record.ReviewStatus
 			summary.PRURL = record.PRURL
-			if record.PiUsage != nil {
-				summary.TotalTokens += record.PiUsage.TotalTokens
-				if record.PiUsage.Cost != nil {
-					summary.TotalCost += record.PiUsage.Cost.Total
+			if usage := recordRuntimeUsage(record); usage != nil {
+				summary.TotalTokens += usage.TotalTokens
+				if usage.Cost != nil {
+					summary.TotalCost += usage.Cost.Total
 				}
 			}
 			if record.ReviewUsage != nil {

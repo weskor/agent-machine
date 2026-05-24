@@ -37,7 +37,7 @@ func TestRunReviewPendingAttemptConsumesPayloadAndQueuesHandoff(t *testing.T) {
 		branch:          expectedWorkspaceBranch(candidate.Identifier),
 		progressStarted: time.Now().Add(-2 * time.Minute),
 		startedAt:       time.Now().Add(-time.Minute),
-		piUsage:         &usage{TotalTokens: 178},
+		runtimeUsage:    &usage{TotalTokens: 178},
 		prURL:           prURL,
 		scopeResult:     scopeGuardResult{Checked: true},
 		validation:      []string{"go test ./..."},
@@ -56,9 +56,9 @@ func TestRunReviewPendingAttemptConsumesPayloadAndQueuesHandoff(t *testing.T) {
 		}
 		return reviewEvidence{ChecksStatus: "success", ChecksSummary: "go-ci=COMPLETED/SUCCESS"}, nil
 	}
-	runReviewForWorker = func(command, gotWorkspace string, gotCandidate *issue, gotPRURL string, env map[string]string, timeout time.Duration, evidence *reviewEvidence) (*reviewResult, error) {
-		if command != "pi review" || gotWorkspace != workspace || gotCandidate.Identifier != candidate.Identifier || gotPRURL != prURL || env["GITHUB_TOKEN"] != "token" {
-			t.Fatalf("unexpected review command input command=%q workspace=%q candidate=%+v pr=%q env=%+v", command, gotWorkspace, gotCandidate, gotPRURL, env)
+	runReviewForWorker = func(provider, command, gotWorkspace string, gotCandidate *issue, gotPRURL string, env map[string]string, timeout time.Duration, evidence *reviewEvidence) (*reviewResult, error) {
+		if provider != "" || command != "pi review" || gotWorkspace != workspace || gotCandidate.Identifier != candidate.Identifier || gotPRURL != prURL || env["GITHUB_TOKEN"] != "token" {
+			t.Fatalf("unexpected review command input provider=%q command=%q workspace=%q candidate=%+v pr=%q env=%+v", provider, command, gotWorkspace, gotCandidate, gotPRURL, env)
 		}
 		return &reviewResult{Status: "passed", Usage: &usage{TotalTokens: 9}}, nil
 	}
@@ -81,7 +81,7 @@ func TestRunReviewPendingAttemptConsumesPayloadAndQueuesHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if payload.Review == nil || payload.Review.Status != "passed" || payload.PRURL != prURL || payload.PiUsage.TotalTokens != 178 {
+	if payload.Review == nil || payload.Review.Status != "passed" || payload.PRURL != prURL || payload.RuntimeUsage.TotalTokens != 178 {
 		t.Fatalf("handoff payload = %+v; want review result and original attempt facts", payload)
 	}
 	lease, ok, err := store.Lease(context.Background(), "run:"+candidate.Identifier)

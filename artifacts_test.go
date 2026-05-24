@@ -148,7 +148,7 @@ func TestRepairArtifactMarksManuallyMergedPRWithoutDroppingUsage(t *testing.T) {
 
 	workspace := t.TempDir()
 	path := filepath.Join(workspace, ".pi-symphony-run.json")
-	record := runRecord{IssueIdentifier: "CAG-1", IssueURL: "https://linear.app/acme/issue/CAG-1/title", Workspace: workspace, Status: "success", PRURL: "https://github.com/acme/repo/pull/1", PiUsage: &usage{TotalTokens: 123, Cost: &usageCost{Total: 0.45}}}
+	record := runRecord{IssueIdentifier: "CAG-1", IssueURL: "https://linear.app/acme/issue/CAG-1/title", Workspace: workspace, Status: "success", PRURL: "https://github.com/acme/repo/pull/1", RuntimeUsage: &usage{TotalTokens: 123, Cost: &usageCost{Total: 0.45}}}
 	data, err := json.Marshal(record)
 	if err != nil {
 		t.Fatal(err)
@@ -172,7 +172,7 @@ func TestRepairArtifactMarksManuallyMergedPRWithoutDroppingUsage(t *testing.T) {
 	if err := json.Unmarshal(data, &repaired); err != nil {
 		t.Fatal(err)
 	}
-	if repaired.Status != "merged" || repaired.OriginalStatus != "success" || repaired.ManualRepair != "pr_manually_merged" || repaired.PiUsage.TotalTokens != 123 {
+	if repaired.Status != "merged" || repaired.OriginalStatus != "success" || repaired.ManualRepair != "pr_manually_merged" || repaired.RuntimeUsage.TotalTokens != 123 {
 		t.Fatalf("unexpected repaired record: %#v", repaired)
 	}
 }

@@ -2,8 +2,8 @@
 
 ## Supported Versions
 
-Pi Symphony is pre-`v0.1.0`. No public version is considered stable or supported
-until the first tagged release is published.
+The latest `v0.1.x` release receives security fixes. Earlier releases should be
+upgraded before filing support requests.
 
 ## Reporting A Vulnerability
 
@@ -20,6 +20,6 @@ Include:
 
 ## Secret Handling
 
-Pi Symphony reads Linear, GitHub token, and GitHub App credentials from the
+Agent Machine reads Linear, GitHub token, and GitHub App credentials from the
 environment, `--env-file`, or local `.env.local` files. Never commit real tokens,
 private keys, generated `.symphony/` state, or copied local environment files.

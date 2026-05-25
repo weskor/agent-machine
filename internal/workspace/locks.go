@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/weskor/pi-symphony/internal/domain"
-	"github.com/weskor/pi-symphony/internal/state"
+	"github.com/weskor/agent-machine/internal/domain"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 const (
@@ -22,7 +22,7 @@ const (
 	RunLockStaleAfter = 4 * time.Hour
 )
 
-var ErrRunLocked = errors.New("pi symphony run is locked")
+var ErrRunLocked = errors.New("agent machine run is locked")
 
 type Logger func(string, ...any)
 

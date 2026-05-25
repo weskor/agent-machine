@@ -1,6 +1,6 @@
 # Implementation agent guidance
 
-Use this guidance for Agent sessions that change Pi Symphony code, behavior, specs, or architecture.
+Use this guidance for Agent sessions that change Agent Machine code, behavior, specs, or architecture.
 
 ## Required reading
 
@@ -9,7 +9,7 @@ Before planning, read:
 - `AGENTS.md`
 - `CONTEXT.md`
 - `LANGUAGE.md`
-- `docs/vision/pi-symphony-v1.md` for roadmap or architecture work
+- `docs/vision/agent-machine-v1.md` for roadmap or architecture work
 - relevant specs in `docs/specs/`
 - relevant ADRs in `docs/adr/`
 - the Linear issue contract

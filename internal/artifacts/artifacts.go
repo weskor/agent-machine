@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weskor/pi-symphony/internal/domain"
-	"github.com/weskor/pi-symphony/internal/state"
+	"github.com/weskor/agent-machine/internal/domain"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 const (

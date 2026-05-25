@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	cfg "github.com/weskor/pi-symphony/internal/config"
+	cfg "github.com/weskor/agent-machine/internal/config"
 )
 
 type Config struct {
@@ -107,7 +107,7 @@ var Version = "dev"
 func Run[Client any](args []string, deps Dependencies[Client]) error {
 	parsed := parseArgs(args)
 	if parsed.mode == modeVersion {
-		fmt.Printf("pi-symphony %s\n", Version)
+		fmt.Printf("am %s\n", Version)
 		return nil
 	}
 	for _, envFile := range parsed.envFiles {

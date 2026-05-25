@@ -9,7 +9,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/weskor/pi-symphony/internal/domain"
+	"github.com/weskor/agent-machine/internal/domain"
 )
 
 type Client struct {

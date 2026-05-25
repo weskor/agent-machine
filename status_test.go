@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/weskor/pi-symphony/internal/state"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 func TestSummarizeArtifactsReportsUsageAndTerminalStatus(t *testing.T) {
@@ -15,7 +15,7 @@ func TestSummarizeArtifactsReportsUsageAndTerminalStatus(t *testing.T) {
 		Issue:             "CAG-12",
 		Status:            "success",
 		Review:            "passed",
-		PRURL:             "https://github.com/weskor/pi-symphony/pull/402",
+		PRURL:             "https://github.com/weskor/agent-machine/pull/402",
 		Outcome:           "handoff_ready",
 		RootCause:         "none",
 		NextAction:        "await_approval_and_green_checks",
@@ -52,7 +52,7 @@ func TestSummarizeStateStoreReportsHealthyDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	if err := store.UpsertRunArtifact(ctx, state.RunArtifactSnapshot{IssueKey: "CAG-62", Attempt: 1, BranchName: "symphony/CAG-62-workspace", BaseBranch: "main", Status: "success", Repository: "weskor/pi-symphony", PRNumber: 62, PRURL: "https://github.com/weskor/pi-symphony/pull/62", ReviewStatus: "passed", TerminalOutcome: "handoff_ready"}); err != nil {
+	if err := store.UpsertRunArtifact(ctx, state.RunArtifactSnapshot{IssueKey: "CAG-62", Attempt: 1, BranchName: "symphony/CAG-62-workspace", BaseBranch: "main", Status: "success", Repository: "weskor/agent-machine", PRNumber: 62, PRURL: "https://github.com/weskor/agent-machine/pull/62", ReviewStatus: "passed", TerminalOutcome: "handoff_ready"}); err != nil {
 		t.Fatalf("UpsertRunArtifact() error = %v", err)
 	}
 	if err := store.UpsertDaemonHeartbeat(ctx, state.DaemonHeartbeat{ProcessID: "host:123", LaneName: "merge", WorkflowPath: "/repo/symphony.yaml", CycleNumber: 1}); err != nil {
@@ -101,7 +101,7 @@ func TestSummarizeStateStoreReportsRecentEvents(t *testing.T) {
 func TestSummarizeStateStoreReportsMissingDB(t *testing.T) {
 	workspaceRoot := filepath.Join(t.TempDir(), ".symphony", "workspaces")
 	joined := strings.Join(summarizeStateStore(workspaceRoot), "\n")
-	for _, expected := range []string{"SQLite state path: " + state.DefaultDBPath(workspaceRoot), "SQLite state health: missing", "action=run pi-symphony --continuous"} {
+	for _, expected := range []string{"SQLite state path: " + state.DefaultDBPath(workspaceRoot), "SQLite state health: missing", "action=run am start"} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("expected %q in %q", expected, joined)
 		}
@@ -140,7 +140,7 @@ func TestStatusIssueStatesIncludesHandoffState(t *testing.T) {
 
 func TestSummarizePRAnnotatesArtifactGate(t *testing.T) {
 	artifact := artifactSummary{HasEvaluation: true, Outcome: "review_failed", NextAction: "repair_review_findings_before_handoff", ShouldRetry: true, OperatorAttention: true}
-	line := summarizePR(pullRequestSummary{Number: 402, URL: "https://github.com/weskor/pi-symphony/pull/402", HeadRefName: "symphony/CAG-12-workspace", Mergeable: "MERGEABLE", ReviewDecision: "CHANGES_REQUESTED"}, &artifact)
+	line := summarizePR(pullRequestSummary{Number: 402, URL: "https://github.com/weskor/agent-machine/pull/402", HeadRefName: "symphony/CAG-12-workspace", Mergeable: "MERGEABLE", ReviewDecision: "CHANGES_REQUESTED"}, &artifact)
 	for _, expected := range []string{"#402", "artifact_gate=outcome:review_failed", "merge_eligible:false", "retry:true", "attention:true", "next:repair_review_findings_before_handoff"} {
 		if !strings.Contains(line, expected) {
 			t.Fatalf("expected %q in %q", expected, line)
@@ -201,7 +201,7 @@ func TestReconcileIssuesUsesOpenPRMapping(t *testing.T) {
 	config.HandoffState = "Human Review"
 	config.BaseBranch = "develop"
 	candidate := testIssue("CAG-44", "Human Review")
-	pr := pullRequestSummary{Number: 444, URL: "https://github.com/weskor/pi-symphony/pull/444", BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-44"), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "COMMENTED"}
+	pr := pullRequestSummary{Number: 444, URL: "https://github.com/weskor/agent-machine/pull/444", BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-44"), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "COMMENTED"}
 
 	decisions := reconcileIssues(config, []issue{candidate}, indexPRsByIssue([]pullRequestSummary{pr}), nil)
 
@@ -215,7 +215,7 @@ func TestStatusReconciliationReportsRepairableReviewFailedPRNextAction(t *testin
 	config := testRunnerConfig(root)
 	config.BaseBranch = "develop"
 	candidate := testIssue("CAG-141", "Ready for Agent")
-	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/pi-symphony/pull/93")
+	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/agent-machine/pull/93")
 	prsByIssue := map[string]*pullRequestSummary{candidate.Identifier: &pr}
 	artifact := artifactSummary{Issue: candidate.Identifier, Status: runAttemptStatusReviewFailed, Outcome: runAttemptStatusReviewFailed, NextAction: repairReviewFindingsNextAction, ShouldRetry: true, Cleanable: true, HasArtifact: true, HasEvaluation: true, PRURL: pr.URL}
 
@@ -245,7 +245,7 @@ func TestRunningReconciliationReportsDeletedWorkspace(t *testing.T) {
 func TestReadyReconciliationReportsStaleTerminalArtifactWithoutWorkspaceRead(t *testing.T) {
 	candidate := testIssue("CAG-46", "Ready for Agent")
 	config := runnerConfig{WorkspaceRoot: t.TempDir(), ReadyState: "Ready for Agent"}
-	artifacts := map[string]artifactSummary{"CAG-46": {Issue: "CAG-46", Status: "success", Outcome: "handoff_ready", NextAction: "await_approval_and_green_checks", Cleanable: true, HasArtifact: true, PRURL: "https://github.com/weskor/pi-symphony/pull/446"}}
+	artifacts := map[string]artifactSummary{"CAG-46": {Issue: "CAG-46", Status: "success", Outcome: "handoff_ready", NextAction: "await_approval_and_green_checks", Cleanable: true, HasArtifact: true, PRURL: "https://github.com/weskor/agent-machine/pull/446"}}
 
 	decisions := reconcileIssues(config, []issue{candidate}, nil, artifacts)
 	lines := summarizeReadyReconciliationDecisions(decisions, config.ReadyState)
@@ -285,7 +285,7 @@ func TestReadyReconciliationReportsDurableStateWithoutWorkspaceArtifact(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: "CAG-117", Attempt: 1, BranchName: expectedWorkspaceBranch("CAG-117"), Status: "success", Repository: "weskor/pi-symphony", PRNumber: 117, PRURL: "https://github.com/weskor/pi-symphony/pull/117", TerminalOutcome: "handoff_ready"}); err != nil {
+	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: "CAG-117", Attempt: 1, BranchName: expectedWorkspaceBranch("CAG-117"), Status: "success", Repository: "weskor/agent-machine", PRNumber: 117, PRURL: "https://github.com/weskor/agent-machine/pull/117", TerminalOutcome: "handoff_ready"}); err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()

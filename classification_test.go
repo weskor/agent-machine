@@ -3,7 +3,7 @@ package main
 import "testing"
 
 func TestClassifyRunMissingEvidenceOnlyRoutesHumanReviewWithoutRetry(t *testing.T) {
-	record := testRunRecord("success", "https://github.com/weskor/pi-symphony/pull/71")
+	record := testRunRecord("success", "https://github.com/weskor/agent-machine/pull/71")
 	record.ReviewStatus = "failed"
 	record.ReviewClassification = reviewClassificationMissingEvidenceOnly
 	record.ReviewFindings = "REVIEW_FAIL\nBehavior Contract Evidence missing."
@@ -35,7 +35,7 @@ func TestClassifyRunCentralizesOperationalFriction(t *testing.T) {
 }
 
 func TestClassifyRunReviewNotReadyWaitsWithoutOperatorAttention(t *testing.T) {
-	record := testRunRecord(runAttemptStatusReviewNotReady, "https://github.com/weskor/pi-symphony/pull/122")
+	record := testRunRecord(runAttemptStatusReviewNotReady, "https://github.com/weskor/agent-machine/pull/122")
 	record.Error = `review not ready: GitHub checks unavailable: check run "GitHub check runs" is status=UNKNOWN conclusion=UNKNOWN`
 
 	classification := classifyRun(runClassificationInput{Record: record, MergeBlockReason: record.Error})

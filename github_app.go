@@ -3,7 +3,7 @@ package main
 import (
 	"time"
 
-	"github.com/weskor/pi-symphony/internal/ghapi"
+	"github.com/weskor/agent-machine/internal/ghapi"
 )
 
 const githubAppPRAuthorLogin = ghapi.AppPRAuthorLogin

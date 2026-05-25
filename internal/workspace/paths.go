@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	sh "github.com/weskor/pi-symphony/internal/shell"
+	sh "github.com/weskor/agent-machine/internal/shell"
 )
 
 // SafeRoot returns an absolute, existing workspace root that is safe to use for

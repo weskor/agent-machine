@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	sh "github.com/weskor/pi-symphony/internal/shell"
-	"github.com/weskor/pi-symphony/internal/state"
+	sh "github.com/weskor/agent-machine/internal/shell"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 func TestCleanupDecisionDeletesDoneIssueWorkspace(t *testing.T) {
@@ -442,9 +442,9 @@ func TestCleanupWorkspacesDeletesDoneMergedPRWithNonTerminalSQLiteStatus(t *test
 	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
 	workspace := filepath.Join(root, "CAG-125")
 	writeCleanRunArtifact(t, workspace, "review_not_ready")
-	seedCleanupAttemptWithPR(t, root, workspace, "CAG-125", "review_not_ready", "https://github.com/weskor/pi-symphony/pull/125", expectedWorkspaceBranch("CAG-125"))
+	seedCleanupAttemptWithPR(t, root, workspace, "CAG-125", "review_not_ready", "https://github.com/weskor/agent-machine/pull/125", expectedWorkspaceBranch("CAG-125"))
 	stubCleanupPRFactsForURL(t, func(prURL string) (cleanupPRFacts, error) {
-		if prURL != "https://github.com/weskor/pi-symphony/pull/125" {
+		if prURL != "https://github.com/weskor/agent-machine/pull/125" {
 			t.Fatalf("unexpected PR URL lookup: %s", prURL)
 		}
 		return cleanupPRFacts{State: "MERGED", Merged: true, HeadRefName: expectedWorkspaceBranch("CAG-125"), BaseRefName: "main"}, nil
@@ -466,7 +466,7 @@ func TestCleanupDecisionKeepsDoneNonTerminalClosedUnmergedPRForReconciliation(t 
 	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
 	workspace := filepath.Join(root, "CAG-126")
 	writeCleanRunArtifact(t, workspace, "review_not_ready")
-	seedCleanupAttemptWithPR(t, root, workspace, "CAG-126", "review_not_ready", "https://github.com/weskor/pi-symphony/pull/126", expectedWorkspaceBranch("CAG-126"))
+	seedCleanupAttemptWithPR(t, root, workspace, "CAG-126", "review_not_ready", "https://github.com/weskor/agent-machine/pull/126", expectedWorkspaceBranch("CAG-126"))
 	stubCleanupPRFactsForURL(t, func(string) (cleanupPRFacts, error) {
 		return cleanupPRFacts{State: "CLOSED", HeadRefName: expectedWorkspaceBranch("CAG-126"), BaseRefName: "main"}, nil
 	})
@@ -509,7 +509,7 @@ func TestCleanupDecisionKeepsDoneNonTerminalWrongBranchPRForReconciliation(t *te
 	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
 	workspace := filepath.Join(root, "CAG-128")
 	writeCleanRunArtifact(t, workspace, "review_not_ready")
-	seedCleanupAttemptWithPR(t, root, workspace, "CAG-128", "review_not_ready", "https://github.com/weskor/pi-symphony/pull/128", "symphony/other-workspace")
+	seedCleanupAttemptWithPR(t, root, workspace, "CAG-128", "review_not_ready", "https://github.com/weskor/agent-machine/pull/128", "symphony/other-workspace")
 	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
 	if err != nil {
 		t.Fatal(err)
@@ -529,7 +529,7 @@ func TestCleanupDecisionKeepsDoneNonTerminalWrongPRHeadForReconciliation(t *test
 	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
 	workspace := filepath.Join(root, "CAG-129")
 	writeCleanRunArtifact(t, workspace, "review_not_ready")
-	seedCleanupAttemptWithPR(t, root, workspace, "CAG-129", "review_not_ready", "https://github.com/weskor/pi-symphony/pull/129", expectedWorkspaceBranch("CAG-129"))
+	seedCleanupAttemptWithPR(t, root, workspace, "CAG-129", "review_not_ready", "https://github.com/weskor/agent-machine/pull/129", expectedWorkspaceBranch("CAG-129"))
 	stubCleanupPRFactsForURL(t, func(string) (cleanupPRFacts, error) {
 		return cleanupPRFacts{State: "MERGED", Merged: true, HeadRefName: "symphony/other-workspace", BaseRefName: "main"}, nil
 	})
@@ -552,7 +552,7 @@ func TestCleanupDecisionKeepsDoneNonTerminalPRLookupFailureForReconciliation(t *
 	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
 	workspace := filepath.Join(root, "CAG-130")
 	writeCleanRunArtifact(t, workspace, "review_not_ready")
-	seedCleanupAttemptWithPR(t, root, workspace, "CAG-130", "review_not_ready", "https://github.com/weskor/pi-symphony/pull/130", expectedWorkspaceBranch("CAG-130"))
+	seedCleanupAttemptWithPR(t, root, workspace, "CAG-130", "review_not_ready", "https://github.com/weskor/agent-machine/pull/130", expectedWorkspaceBranch("CAG-130"))
 	stubCleanupPRFactsForURL(t, func(string) (cleanupPRFacts, error) {
 		return cleanupPRFacts{}, errors.New("GitHub unavailable")
 	})

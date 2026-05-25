@@ -44,7 +44,7 @@ func ValidateEnvironment(env map[string]string, applyMerge bool) error {
 
 func DisposableIssueDescription(path string) string {
 	return fmt.Sprintf(`## Goal
-Add a tiny disposable marker for an opt-in Pi Symphony live smoke run.
+Add a tiny disposable marker for an opt-in Agent Machine live smoke run.
 
 ## Scope
 Allowed paths:
@@ -77,7 +77,7 @@ func SmokeMarkerContent(identifier, path string) string {
 	if strings.TrimSpace(identifier) == "" {
 		identifier = "unknown"
 	}
-	return fmt.Sprintf("# %s\n\nCreated by the opt-in Pi Symphony live smoke harness for %s.\n", titleCase(title), identifier)
+	return fmt.Sprintf("# %s\n\nCreated by the opt-in Agent Machine live smoke harness for %s.\n", titleCase(title), identifier)
 }
 
 func PromptPath(args []string) (string, error) {

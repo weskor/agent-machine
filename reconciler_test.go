@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	sh "github.com/weskor/pi-symphony/internal/shell"
-	"github.com/weskor/pi-symphony/internal/state"
+	sh "github.com/weskor/agent-machine/internal/shell"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 type failingReconciliationReader struct{ err error }
@@ -26,7 +26,7 @@ func (f failingReconciliationReader) Lease(context.Context, string) (state.Lease
 
 func TestReconcileIssueAllowsFeedbackRetryToSupersedeTerminalArtifact(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","pr_url":"https://github.com/weskor/pi-symphony/pull/434"}`)
+	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","pr_url":"https://github.com/weskor/agent-machine/pull/434"}`)
 	workspace := filepath.Join(root, "CAG-34")
 	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-feedback.md"), []byte("unresolved feedback"), 0o600); err != nil {
 		t.Fatal(err)
@@ -41,7 +41,7 @@ func TestReconcileIssueAllowsFeedbackRetryToSupersedeTerminalArtifact(t *testing
 
 func TestReconcileIssueBlocksTerminalArtifactWithoutNewFeedback(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","pr_url":"https://github.com/weskor/pi-symphony/pull/434"}`)
+	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","pr_url":"https://github.com/weskor/agent-machine/pull/434"}`)
 
 	decision := reconcileIssue(testRunnerConfig(root), testIssue("CAG-34", "Ready for Agent"), nil)
 
@@ -84,7 +84,7 @@ func TestReconcileIssueBlocksPRWithoutSQLiteAttemptState(t *testing.T) {
 	config.BaseBranch = "develop"
 	pr := pullRequestSummary{
 		Number:            434,
-		URL:               "https://github.com/weskor/pi-symphony/pull/434",
+		URL:               "https://github.com/weskor/agent-machine/pull/434",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch("CAG-34"),
 		Author:            prAuthor{Login: githubAppPRAuthorLogin},
@@ -114,7 +114,7 @@ func TestReconcileIssueDoesNotFallbackToArtifactWhenSQLiteStatusMissing(t *testi
 	if err := sh.Run("git init -q", workspace); err != nil {
 		t.Fatal(err)
 	}
-	writeRunRecordFixture(t, root, "CAG-37", `{"status":"success","review_status":"passed","pr_url":"https://github.com/weskor/pi-symphony/pull/437"}`)
+	writeRunRecordFixture(t, root, "CAG-37", `{"status":"success","review_status":"passed","pr_url":"https://github.com/weskor/agent-machine/pull/437"}`)
 	if err := store.UpsertAttemptResult(context.Background(), state.AttemptResult{
 		IssueKey:      "CAG-37",
 		IssueID:       "issue-id",
@@ -122,7 +122,7 @@ func TestReconcileIssueDoesNotFallbackToArtifactWhenSQLiteStatusMissing(t *testi
 		WorkspacePath: workspace,
 		BranchName:    expectedWorkspaceBranch("CAG-37"),
 		BaseBranch:    "develop",
-		PRURL:         "https://github.com/weskor/pi-symphony/pull/437",
+		PRURL:         "https://github.com/weskor/agent-machine/pull/437",
 		ReviewStatus:  "passed",
 		ReviewPassed:  true,
 		UpdatedAt:     time.Now().UTC(),
@@ -131,7 +131,7 @@ func TestReconcileIssueDoesNotFallbackToArtifactWhenSQLiteStatusMissing(t *testi
 	}
 	pr := pullRequestSummary{
 		Number:            437,
-		URL:               "https://github.com/weskor/pi-symphony/pull/437",
+		URL:               "https://github.com/weskor/agent-machine/pull/437",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch("CAG-37"),
 		Author:            prAuthor{Login: githubAppPRAuthorLogin},
@@ -149,10 +149,10 @@ func TestReconcileIssueDoesNotFallbackToArtifactWhenSQLiteStatusMissing(t *testi
 
 func TestReconcileIssueAllowsChangesRequestedToSupersedeReviewFailedArtifact(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-35", `{"status":"review_failed","review_status":"failed","pr_url":"https://github.com/weskor/pi-symphony/pull/440"}`)
+	writeRunRecordFixture(t, root, "CAG-35", `{"status":"review_failed","review_status":"failed","pr_url":"https://github.com/weskor/agent-machine/pull/440"}`)
 	config := testRunnerConfig(root)
 	config.BaseBranch = "develop"
-	pr := pullRequestSummary{Number: 440, URL: "https://github.com/weskor/pi-symphony/pull/440", BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-35"), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "CHANGES_REQUESTED"}
+	pr := pullRequestSummary{Number: 440, URL: "https://github.com/weskor/agent-machine/pull/440", BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-35"), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "CHANGES_REQUESTED"}
 
 	decision := reconcileIssue(config, testIssue("CAG-35", "Ready for Agent"), &pr)
 
@@ -166,7 +166,7 @@ func TestReconcileIssueAllowsReviewReadinessRetryAfterChecksSucceed(t *testing.T
 	config := testRunnerConfig(root)
 	config.BaseBranch = "develop"
 	store := openTestStateStore(t, root)
-	prURL := "https://github.com/weskor/pi-symphony/pull/522"
+	prURL := "https://github.com/weskor/agent-machine/pull/522"
 	upsertReviewNotReadyAttempt(t, store, testIssue("CAG-122", "In Progress"), filepath.Join(root, "CAG-122"), prURL)
 	pr := pullRequestSummary{Number: 522, URL: prURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-122"), Author: prAuthor{Login: githubAppPRAuthorLogin}, StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS", Name: "build"}}}
 
@@ -182,7 +182,7 @@ func TestReconcileIssueKeepsFailedChecksBlockedBeforeReview(t *testing.T) {
 	config := testRunnerConfig(root)
 	config.BaseBranch = "develop"
 	store := openTestStateStore(t, root)
-	prURL := "https://github.com/weskor/pi-symphony/pull/522"
+	prURL := "https://github.com/weskor/agent-machine/pull/522"
 	upsertReviewNotReadyAttempt(t, store, testIssue("CAG-122", "In Progress"), filepath.Join(root, "CAG-122"), prURL)
 	pr := pullRequestSummary{Number: 522, URL: prURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-122"), Author: prAuthor{Login: githubAppPRAuthorLogin}, StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "FAILURE", Name: "build"}}}
 
@@ -195,10 +195,10 @@ func TestReconcileIssueKeepsFailedChecksBlockedBeforeReview(t *testing.T) {
 
 func TestReconcileIssueIgnoresStaleFailedArtifactWhenCurrentPRIsRetryable(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-110", `{"status":"review_failed","pr_url":"https://github.com/weskor/pi-symphony/pull/110"}`)
+	writeRunRecordFixture(t, root, "CAG-110", `{"status":"review_failed","pr_url":"https://github.com/weskor/agent-machine/pull/110"}`)
 	config := testRunnerConfig(root)
 	config.BaseBranch = "develop"
-	pr := pullRequestSummary{Number: 110, URL: "https://github.com/weskor/pi-symphony/pull/110", BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-110"), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "CHANGES_REQUESTED"}
+	pr := pullRequestSummary{Number: 110, URL: "https://github.com/weskor/agent-machine/pull/110", BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-110"), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "CHANGES_REQUESTED"}
 
 	decision := reconcileIssue(config, testIssue("CAG-110", "Ready for Agent"), &pr)
 
@@ -209,7 +209,7 @@ func TestReconcileIssueIgnoresStaleFailedArtifactWhenCurrentPRIsRetryable(t *tes
 
 func TestReconcileIssueIgnoresReviewFailedArtifactWhenStateBacked(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-115", `{"status":"review_failed","pr_url":"https://github.com/weskor/pi-symphony/pull/115"}`)
+	writeRunRecordFixture(t, root, "CAG-115", `{"status":"review_failed","pr_url":"https://github.com/weskor/agent-machine/pull/115"}`)
 	store := openTestStateStore(t, root)
 	defer store.Close()
 
@@ -246,7 +246,7 @@ func TestReconcileIssueBlocksReviewFailedSQLiteStateWithoutPR(t *testing.T) {
 func TestReconcileIssueUsesSQLiteStateWhenWorkspaceDeleted(t *testing.T) {
 	root := t.TempDir()
 	store := openTestStateStore(t, root)
-	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: "CAG-111", Attempt: 1, BranchName: expectedWorkspaceBranch("CAG-111"), BaseBranch: "develop", Status: "success", Repository: "weskor/pi-symphony", PRNumber: 111, PRURL: "https://github.com/weskor/pi-symphony/pull/111", TerminalOutcome: "handoff_ready"}); err != nil {
+	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: "CAG-111", Attempt: 1, BranchName: expectedWorkspaceBranch("CAG-111"), BaseBranch: "develop", Status: "success", Repository: "weskor/agent-machine", PRNumber: 111, PRURL: "https://github.com/weskor/agent-machine/pull/111", TerminalOutcome: "handoff_ready"}); err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
@@ -277,7 +277,7 @@ func TestReconcileIssueBlocksActiveSQLiteLease(t *testing.T) {
 func TestReconcileIssueReportsClosedOrMissingPRMapping(t *testing.T) {
 	root := t.TempDir()
 	store := openTestStateStore(t, root)
-	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: "CAG-113", Attempt: 1, BranchName: expectedWorkspaceBranch("CAG-113"), BaseBranch: "develop", Status: "success", Repository: "weskor/pi-symphony", PRNumber: 113, PRURL: "https://github.com/weskor/pi-symphony/pull/113", TerminalOutcome: "handoff_ready"}); err != nil {
+	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: "CAG-113", Attempt: 1, BranchName: expectedWorkspaceBranch("CAG-113"), BaseBranch: "develop", Status: "success", Repository: "weskor/agent-machine", PRNumber: 113, PRURL: "https://github.com/weskor/agent-machine/pull/113", TerminalOutcome: "handoff_ready"}); err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
@@ -293,7 +293,7 @@ func TestRunReconciliationScanRecordsReconciliationNeededEvent(t *testing.T) {
 	root := t.TempDir()
 	store := openTestStateStore(t, root)
 	candidate := testIssue("CAG-182", "Ready for Agent")
-	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: candidate.Identifier, IssueID: candidate.ID, Attempt: 1, BranchName: expectedWorkspaceBranch(candidate.Identifier), Status: "success", PRURL: "https://github.com/weskor/pi-symphony/pull/182", TerminalOutcome: "handoff_ready"}); err != nil {
+	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: candidate.Identifier, IssueID: candidate.ID, Attempt: 1, BranchName: expectedWorkspaceBranch(candidate.Identifier), Status: "success", PRURL: "https://github.com/weskor/agent-machine/pull/182", TerminalOutcome: "handoff_ready"}); err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
@@ -334,7 +334,7 @@ func TestRunReconciliationScanRecordsReconciliationNeededEvent(t *testing.T) {
 	if err := json.Unmarshal(events[0].Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload["next_action"] != "reconcile_missing_or_closed_pr_mapping" || payload["reconciliation_needed"] != true || payload["sqlite_pr_url"] != "https://github.com/weskor/pi-symphony/pull/182" {
+	if payload["next_action"] != "reconcile_missing_or_closed_pr_mapping" || payload["reconciliation_needed"] != true || payload["sqlite_pr_url"] != "https://github.com/weskor/agent-machine/pull/182" {
 		t.Fatalf("payload = %+v; want reconciliation-needed evidence", payload)
 	}
 }
@@ -409,10 +409,10 @@ func TestReconcileIssueQuarantinesWrongBaseAuthorAndHead(t *testing.T) {
 	config := testRunnerConfig(root)
 	config.HandoffState = "Human Review"
 	config.BaseBranch = "develop"
-	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","review_status":"passed","pr_url":"https://github.com/weskor/pi-symphony/pull/434"}`)
+	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","review_status":"passed","pr_url":"https://github.com/weskor/agent-machine/pull/434"}`)
 	pr := pullRequestSummary{
 		Number:            434,
-		URL:               "https://github.com/weskor/pi-symphony/pull/434",
+		URL:               "https://github.com/weskor/agent-machine/pull/434",
 		BaseRefName:       "main",
 		HeadRefName:       "feature/CAG-34",
 		Author:            prAuthor{Login: "human"},
@@ -446,10 +446,10 @@ func TestReconcileIssueApprovesMergeOnlyWithCleanInvariants(t *testing.T) {
 	if err := sh.Run("git init -q", workspace); err != nil {
 		t.Fatal(err)
 	}
-	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","review_status":"passed","pr_url":"https://github.com/weskor/pi-symphony/pull/434"}`)
+	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","review_status":"passed","pr_url":"https://github.com/weskor/agent-machine/pull/434"}`)
 	pr := pullRequestSummary{
 		Number:            434,
-		URL:               "https://github.com/weskor/pi-symphony/pull/434",
+		URL:               "https://github.com/weskor/agent-machine/pull/434",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch("CAG-34"),
 		Author:            prAuthor{Login: githubAppPRAuthorLogin},
@@ -477,11 +477,11 @@ func TestReconcileIssueDistinguishesPRAuthorFromCommitAuthor(t *testing.T) {
 	if err := sh.Run("git init -q", workspace); err != nil {
 		t.Fatal(err)
 	}
-	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","review_status":"passed","pr_url":"https://github.com/weskor/pi-symphony/pull/434"}`)
+	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","review_status":"passed","pr_url":"https://github.com/weskor/agent-machine/pull/434"}`)
 
 	validPR := pullRequestSummary{
 		Number:            434,
-		URL:               "https://github.com/weskor/pi-symphony/pull/434",
+		URL:               "https://github.com/weskor/agent-machine/pull/434",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch("CAG-34"),
 		Author:            prAuthor{Login: githubAppPRAuthorLogin},
@@ -536,11 +536,11 @@ func TestReconcileIssueDerivesPRAuthorFromConfiguredAppSlug(t *testing.T) {
 	if err := sh.Run("git init -q", workspace); err != nil {
 		t.Fatal(err)
 	}
-	writeRunRecordFixture(t, root, "CAG-84", `{"status":"success","review_status":"passed","pr_url":"https://github.com/weskor/pi-symphony/pull/84"}`)
+	writeRunRecordFixture(t, root, "CAG-84", `{"status":"success","review_status":"passed","pr_url":"https://github.com/weskor/agent-machine/pull/84"}`)
 
 	validPR := pullRequestSummary{
 		Number:            84,
-		URL:               "https://github.com/weskor/pi-symphony/pull/84",
+		URL:               "https://github.com/weskor/agent-machine/pull/84",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch("CAG-84"),
 		Author:            prAuthor{Login: "pi-symphony-bot[bot]"},

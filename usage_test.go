@@ -74,36 +74,36 @@ func TestAssistantTextHandlesLargeJSONLToolResultBeforeFinalAnswer(t *testing.T)
 }
 
 func TestFirstPRURL(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
-	output := "opened https://github.com/weskor/pi-symphony/pull/123 and then https://github.com/weskor/pi-symphony/pull/456"
-	if got := firstPRURL(output); got != "https://github.com/weskor/pi-symphony/pull/123" {
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
+	output := "opened https://github.com/weskor/agent-machine/pull/123 and then https://github.com/weskor/agent-machine/pull/456"
+	if got := firstPRURL(output); got != "https://github.com/weskor/agent-machine/pull/123" {
 		t.Fatalf("unexpected PR URL: %q", got)
 	}
 }
 
 func TestFirstPRURLPrefersAssistantTextOverRawJSONL(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
-	output := `{"message":{"role":"user","content":[{"type":"text","text":"ignore old https://github.com/weskor/pi-symphony/pull/2"}]}}
-{"message":{"role":"assistant","content":[{"type":"text","text":"opened https://github.com/weskor/pi-symphony/pull/400"}]}}
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
+	output := `{"message":{"role":"user","content":[{"type":"text","text":"ignore old https://github.com/weskor/agent-machine/pull/2"}]}}
+{"message":{"role":"assistant","content":[{"type":"text","text":"opened https://github.com/weskor/agent-machine/pull/400"}]}}
 `
 
-	if got := firstPRURL(output); got != "https://github.com/weskor/pi-symphony/pull/400" {
+	if got := firstPRURL(output); got != "https://github.com/weskor/agent-machine/pull/400" {
 		t.Fatalf("unexpected PR URL: %q", got)
 	}
 }
 
 func TestFirstPRURLDetectsConfiguredPiSymphonyRepositoryFromJSONL(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
-	output := `{"message":{"role":"assistant","content":[{"type":"text","text":"opened https://github.com/weskor/pi-symphony/pull/1"}]}}
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
+	output := `{"message":{"role":"assistant","content":[{"type":"text","text":"opened https://github.com/weskor/agent-machine/pull/1"}]}}
 `
 
-	if got := firstPRURL(output); got != "https://github.com/weskor/pi-symphony/pull/1" {
+	if got := firstPRURL(output); got != "https://github.com/weskor/agent-machine/pull/1" {
 		t.Fatalf("unexpected PR URL: %q", got)
 	}
 }
 
 func TestFirstPRURLRejectsDifferentRepositoryWhenConfigured(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 	output := "opened https://github.com/acme/other-repo/pull/123"
 
 	if got := firstPRURL(output); got != "" {

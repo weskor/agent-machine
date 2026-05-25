@@ -1,14 +1,14 @@
-# Pi Symphony V1 vision
+# Agent Machine V1 vision
 
 ## North star
 
-Pi Symphony is a local-first, spec-driven, multi-agent orchestration harness that can be pointed at a real repository and trusted to move well-scoped work from a Linear issue to a high-quality GitHub PR.
+Agent Machine is a local-first, spec-driven, multi-agent orchestration harness that can be pointed at a real repository and trusted to move well-scoped work from a Linear issue to a high-quality GitHub PR.
 
-The desired V1 experience is boring in the best way: operators can let Pi Symphony run for a full working session, inspect status at any point, and understand every outcome without reading daemon logs first.
+The desired V1 experience is boring in the best way: operators can let Agent Machine run for a full working session, inspect status at any point, and understand every outcome without reading daemon logs first.
 
 ## V1 promise
 
-Given a configured `symphony.yaml`, a matching agent prompt, repository guidance, and a queue of well-specified Linear issues, Pi Symphony should:
+Given a configured `symphony.yaml`, a matching agent prompt, repository guidance, and a queue of well-specified Linear issues, Agent Machine should:
 
 1. Select eligible Candidates deterministically.
 2. Claim work with durable coordination.
@@ -20,7 +20,7 @@ Given a configured `symphony.yaml`, a matching agent prompt, repository guidance
 
 ## Quality bar
 
-Pi Symphony should optimize for safe autonomy rather than maximum autonomy.
+Agent Machine should optimize for safe autonomy rather than maximum autonomy.
 
 - Prefer a correct escalation over a silent or guessed success.
 - Prefer one narrow PR with strong evidence over a broad PR with unclear behavior changes.
@@ -52,7 +52,7 @@ Use the vocabulary in `LANGUAGE.md`. Favor Modules whose Interfaces hide real be
 
 ### Runtime providers as Adapters
 
-The default local runtime provider is `codex_cli`: Pi Symphony shells to a
+The default local runtime provider is `codex_cli`: Agent Machine shells to a
 locally installed and configured `codex exec` command with clean per-run
 configuration. The legacy `pi_cli` provider remains an explicit Adapter choice,
 but V1 should treat both as providers rather than the runner architecture. The
@@ -72,7 +72,7 @@ handoff decision.
 
 ### Durable orchestration state
 
-SQLite becomes the local source of truth for Pi Symphony orchestration decisions after the contract in `docs/specs/sqlite-orchestration-state.md` is implemented. Linear and GitHub remain external systems of record.
+SQLite becomes the local source of truth for Agent Machine orchestration decisions after the contract in `docs/specs/sqlite-orchestration-state.md` is implemented. Linear and GitHub remain external systems of record.
 
 ### Multi-agent readiness
 
@@ -80,7 +80,7 @@ V1 should support multiple concurrent Agent sessions through isolated workspaces
 
 ### Editor integration as an Adapter
 
-Agent Client Protocol (ACP) support is a future Adapter milestone. It should expose Pi Symphony to ACP-compatible editors such as Zed without moving orchestration policy into editor-specific code.
+Agent Client Protocol (ACP) support is a future Adapter milestone. It should expose Agent Machine to ACP-compatible editors such as Zed without moving orchestration policy into editor-specific code.
 
 References:
 
@@ -115,7 +115,7 @@ References:
 
 ### M4: ACP Adapter
 
-- Pi Symphony can run as an ACP-compatible agent process for editor clients.
+- Agent Machine can run as an ACP-compatible agent process for editor clients.
 - The Adapter delegates to the same core Modules used by the CLI.
 - Editor integration does not bypass specs, validation, review policy, leases, budgets, or state reconciliation.
 
@@ -139,7 +139,7 @@ Only after the local runner is smooth and recoverable should the project expand 
 
 ## Definition of “let it loose”
 
-Pi Symphony reaches the intended V1 quality when we can point it at a medium-sized repository for a day of bounded work and trust that every issue ends in one of these explainable outcomes:
+Agent Machine reaches the intended V1 quality when we can point it at a medium-sized repository for a day of bounded work and trust that every issue ends in one of these explainable outcomes:
 
 - PR ready for Human Review or merge lane evaluation.
 - Needs Info with a deterministic question.

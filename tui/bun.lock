@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@pi-symphony/tui",
+      "name": "@pi-machine/tui",
       "dependencies": {
         "@opentui/core": "latest",
       },

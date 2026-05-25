@@ -1,6 +1,6 @@
 # Contributing
 
-Pi Symphony changes should be small, reviewable, and evidence-backed.
+Agent Machine changes should be small, reviewable, and evidence-backed.
 
 Before planning behavior, architecture, runner, state, product-surface, or
 multi-agent work, read:
@@ -8,7 +8,7 @@ multi-agent work, read:
 - `AGENTS.md`
 - `CONTEXT.md`
 - `LANGUAGE.md`
-- `docs/vision/pi-symphony-v1.md`
+- `docs/vision/agent-machine-v1.md`
 - relevant files in `docs/specs/` and `docs/adr/`
 
 For runner behavior changes, update or add the relevant spec before changing the

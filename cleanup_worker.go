@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	orchstate "github.com/weskor/pi-symphony/internal/state"
+	orchstate "github.com/weskor/agent-machine/internal/state"
 )
 
 type cleanupWorker struct {

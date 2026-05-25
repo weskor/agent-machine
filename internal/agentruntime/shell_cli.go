@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	sh "github.com/weskor/pi-symphony/internal/shell"
+	sh "github.com/weskor/agent-machine/internal/shell"
 )
 
 // CommandRunner executes a shell command in a working directory with an

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sh "github.com/weskor/pi-symphony/internal/shell"
+	sh "github.com/weskor/agent-machine/internal/shell"
 )
 
 // CodexCLIAdapter executes attempts through `codex exec`, using stdin for the

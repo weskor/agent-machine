@@ -1,6 +1,6 @@
 # End-to-End Orchestration Spec
 
-This spec describes the target end-to-end Pi Symphony behavior for V1. It does not replace the current observable behavior in `docs/specs/harness-behavior.md` or the SQLite transition contract in `docs/specs/sqlite-orchestration-state.md`; implementation tickets must update the relevant spec when behavior intentionally changes.
+This spec describes the target end-to-end Agent Machine behavior for V1. It does not replace the current observable behavior in `docs/specs/harness-behavior.md` or the SQLite transition contract in `docs/specs/sqlite-orchestration-state.md`; implementation tickets must update the relevant spec when behavior intentionally changes.
 
 ## Goals
 
@@ -14,7 +14,7 @@ This spec describes the target end-to-end Pi Symphony behavior for V1. It does n
 
 - **Linear** is the external system of record for Linear issue identity, workflow state, comments, labels, priority, and operator handoff states.
 - **GitHub** is the external system of record for repository state, PR identity, review decision, checks, mergeability, authorship, branches, and merge result.
-- **SQLite orchestration state** is the intended local source of truth for Pi Symphony decisions once the SQLite behavior contract is implemented.
+- **SQLite orchestration state** is the intended local source of truth for Agent Machine decisions once the SQLite behavior contract is implemented.
 - **Workspace artifacts** are audit and evidence exports. They may seed backfill or repair, but after SQLite adoption they must not silently override newer local state.
 - **Agent attempts** perform bounded implementation or review work in isolated workspaces through a selected AgentRuntime provider.
 - **Operators** configure project configs, inspect status, answer Needs Info, review PRs, and approve merge policy.
@@ -38,10 +38,10 @@ The V1 orchestration target follows the boundary in [Harness Behavior Spec: Runn
 
 ## AgentRuntime provider strategy
 
-Pi Symphony is a runner harness with an AgentRuntime Adapter seam. The default
+Agent Machine is a runner harness with an AgentRuntime Adapter seam. The default
 local production provider is `codex_cli`, which shells to a clean local
 `codex exec` command. That means current users need `codex` installed on `PATH`
-and configured for auth, provider, model, and quota outside Pi Symphony. The
+and configured for auth, provider, model, and quota outside Agent Machine. The
 legacy `pi_cli` provider remains available as an explicit opt-in, but neither
 provider is the runner architecture itself.
 
@@ -68,25 +68,25 @@ capture, and deterministic handoff support.
 
 1. A Linear issue is written with Goal, Scope, Requirements, Acceptance Criteria, and Validation.
 2. The Candidate reconciliation Module determines that the issue is runnable and not blocked by active attempts, open PRs, durable reconciliation blockers, or missing external facts. After the relevant SQLite rollout phase, it uses SQLite for local claim/retry/reconciliation decisions, fresh Linear/GitHub for their external facts, and artifacts only as evidence exports or explicit reconciliation/backfill inputs.
-3. Pi Symphony claims the issue by recording a lease and heartbeat before mutating external state.
-4. Pi Symphony creates or refreshes an isolated Workspace for the attempt.
+3. Agent Machine claims the issue by recording a lease and heartbeat before mutating external state.
+4. Agent Machine creates or refreshes an isolated Workspace for the attempt.
 5. The Agent attempt reads `AGENTS.md`, `CONTEXT.md`, `LANGUAGE.md`, relevant specs, relevant ADRs, and the Linear issue contract.
 6. The Agent attempt writes or updates tests first when behavior is changed or characterized.
 7. The Agent attempt implements the smallest scoped change that satisfies the issue.
 8. Validation runs in the Workspace using the project-configured commands.
-9. Pi Symphony owns Git/PR handoff: commit or validate the exact scoped diff, push the expected branch, create or update exactly one PR, validate the PR URL, and record artifacts. Before those side effects, Pi Symphony writes and re-reads a bounded `pr_handoff_pending` payload so PR handoff has an explicit runner-owned input contract. The selected `handoff` worker can recover that payload, execute PR handoff, and queue the next review/final-handoff payload without rerunning implementation. The Agent stops after the scoped diff and validation notes; any Agent-emitted PR URL remains advisory compatibility input.
-   - When retrying the same issue, Pi Symphony may update only the exact expected `symphony/<issue>-workspace` remote branch with a lease-protected push so stale failed-attempt branches do not require manual deletion.
-10. Pi Symphony validates that the PR belongs to the configured repository, expected branch, expected base branch, expected author/owner policy, and current issue attempt.
-11. When review is configured, Pi Symphony refreshes PR/check/scope evidence, confirms the run is ready for semantic review, and passes that deterministic evidence packet into the review prompt.
-    - If GitHub checks are still pending or unavailable after the bounded pre-review wait, Pi Symphony records retryable `review_not_ready` / `waiting_for_checks` evidence for the existing PR and leaves implementation output intact. When a later cycle observes successful checks, it resumes semantic review for that PR instead of starting a fresh implementation attempt. The terminal run/evaluation/progress exports must keep this as a waiting-for-checks retry state rather than reclassifying it as an operational failure. Failed checks remain a blocker until the PR checks are repaired.
-    - Before semantic review side effects, Pi Symphony writes and re-reads a bounded `review_pending` payload so inline review, resumed review, and the selected `review` worker use the same review-domain input contract. A standalone review worker that completes non-terminal review writes `handoff_pending` output for the handoff worker instead of executing handoff side effects itself.
+9. Agent Machine owns Git/PR handoff: commit or validate the exact scoped diff, push the expected branch, create or update exactly one PR, validate the PR URL, and record artifacts. Before those side effects, Agent Machine writes and re-reads a bounded `pr_handoff_pending` payload so PR handoff has an explicit runner-owned input contract. The selected `handoff` worker can recover that payload, execute PR handoff, and queue the next review/final-handoff payload without rerunning implementation. The Agent stops after the scoped diff and validation notes; any Agent-emitted PR URL remains advisory compatibility input.
+   - When retrying the same issue, Agent Machine may update only the exact expected `symphony/<issue>-workspace` remote branch with a lease-protected push so stale failed-attempt branches do not require manual deletion.
+10. Agent Machine validates that the PR belongs to the configured repository, expected branch, expected base branch, expected author/owner policy, and current issue attempt.
+11. When review is configured, Agent Machine refreshes PR/check/scope evidence, confirms the run is ready for semantic review, and passes that deterministic evidence packet into the review prompt.
+    - If GitHub checks are still pending or unavailable after the bounded pre-review wait, Agent Machine records retryable `review_not_ready` / `waiting_for_checks` evidence for the existing PR and leaves implementation output intact. When a later cycle observes successful checks, it resumes semantic review for that PR instead of starting a fresh implementation attempt. The terminal run/evaluation/progress exports must keep this as a waiting-for-checks retry state rather than reclassifying it as an operational failure. Failed checks remain a blocker until the PR checks are repaired.
+    - Before semantic review side effects, Agent Machine writes and re-reads a bounded `review_pending` payload so inline review, resumed review, and the selected `review` worker use the same review-domain input contract. A standalone review worker that completes non-terminal review writes `handoff_pending` output for the handoff worker instead of executing handoff side effects itself.
 12. Review runs when configured and classifies the semantic/spec result.
-13. Pi Symphony posts deterministic PR and Linear Handoff comments with behavior-contract evidence.
+13. Agent Machine posts deterministic PR and Linear Handoff comments with behavior-contract evidence.
 14. The Linear issue moves to Human Review, Needs Info, Done, or another configured state according to the outcome.
 15. The scheduler queues merge tasks for current Symphony-owned Human Review PRs, and the merge lane claims those durable tasks, refreshes GitHub/Linear/SQLite facts, and merges only PRs that pass all configured gates.
 16. The scheduler queues cleanup tasks for current workspaces, and the cleanup lane claims those durable tasks, refreshes Done/SQLite/workspace facts, deletes only workspaces that are safe by current cleanup policy, and records cleanup state.
 
-During the attempt, Pi Symphony updates a compact local progress snapshot for the
+During the attempt, Agent Machine updates a compact local progress snapshot for the
 issue so operators can inspect current phase, PR URL, review/check state, next
 action, and artifact pointers without reading raw daemon or Agent logs.
 
@@ -110,7 +110,7 @@ Retry requires a concrete reason, retry budget state, and the input that changed
 
 ### Reconciliation-needed
 
-Use reconciliation-needed when Linear, GitHub, SQLite, workspace, or artifact facts conflict and Pi Symphony cannot safely choose a destructive or externally visible action.
+Use reconciliation-needed when Linear, GitHub, SQLite, workspace, or artifact facts conflict and Agent Machine cannot safely choose a destructive or externally visible action.
 
 ### Terminal failure
 
@@ -178,7 +178,7 @@ The Adapter should:
 
 - run as a separate agent process suitable for ACP-compatible clients;
 - communicate through the Agent Client Protocol transport expected by the client;
-- map editor turns to existing Pi Symphony command Modules;
+- map editor turns to existing Agent Machine command Modules;
 - preserve project configuration, leases, budgets, validation, review, and state reconciliation;
 - surface status, plans, diffs, validation output, and Handoff evidence in editor-friendly content;
 - avoid editor-specific orchestration policy.
@@ -194,6 +194,6 @@ References:
 - The daemon can complete multiple issue attempts without duplicate claims or stale hidden work.
 - Restarting the daemon does not lose ownership, retry, review, PR, merge, or cleanup decisions.
 - A missing PR, invalid PR, failed validation, failed review, timeout, budget issue, or SQLite decision-store failure cannot be reported as a clean success.
-- Merge lane decisions use current GitHub state and durable Pi Symphony blockers.
+- Merge lane decisions use current GitHub state and durable Agent Machine blockers.
 - Cleanup decisions are recorded and explain why each workspace was kept, dry-run eligible, deleted, or failed to delete.
 - ACP, MCP, web UI, and cloud surfaces reuse the same core Modules instead of reimplementing policy.

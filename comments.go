@@ -29,7 +29,7 @@ type handoffSummary struct {
 
 func renderPRHandoffComment(summary handoffSummary) string {
 	var builder strings.Builder
-	fmt.Fprintf(&builder, "%s\n## Pi Symphony handoff\n\n", prSummaryMarker)
+	fmt.Fprintf(&builder, "%s\n## Agent Machine handoff\n\n", prSummaryMarker)
 	fmt.Fprintf(&builder, "- Issue: %s — %s\n", markdownLink(summary.IssueIdentifier, summary.IssueURL), sanitizeMarkdownLine(summary.IssueTitle))
 	fmt.Fprintf(&builder, "- PR: %s\n", markdownLink(summary.PRURL, summary.PRURL))
 	fmt.Fprintf(&builder, "- Review: %s\n", sanitizeMarkdownLine(reviewSummary(summary.Review)))

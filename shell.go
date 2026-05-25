@@ -8,5 +8,5 @@ import (
 var defaultGitHubCommandTimeout = 2 * time.Minute
 
 func log(format string, args ...any) {
-	fmt.Printf("[pi-symphony] "+format+"\n", args...)
+	fmt.Printf("[am] "+format+"\n", args...)
 }

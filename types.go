@@ -1,6 +1,6 @@
 package main
 
-import "github.com/weskor/pi-symphony/internal/domain"
+import "github.com/weskor/agent-machine/internal/domain"
 
 type runBudget = domain.Budget
 

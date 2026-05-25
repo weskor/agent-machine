@@ -6,7 +6,7 @@ The Matt Pocock skills speak in terms of five canonical triage roles. In this re
 | --- | --- | --- |
 | `needs-triage` | `Todo` | Maintainer needs to evaluate or shape the issue. |
 | `needs-info` | `Needs Info` | Waiting on the reporter/maintainer for more detail. |
-| `ready-for-agent` | `Ready for Agent` | Fully specified and safe for Pi Symphony to claim. |
+| `ready-for-agent` | `Ready for Agent` | Fully specified and safe for Agent Machine to claim. |
 | `ready-for-human` | `Human Review` | Requires human review, repair, merge, or implementation. |
 | `wontfix` | `Canceled` | Will not be actioned. |
 

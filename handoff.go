@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	sh "github.com/weskor/pi-symphony/internal/shell"
-	"github.com/weskor/pi-symphony/internal/state"
+	sh "github.com/weskor/agent-machine/internal/shell"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 const runProgressPhasePRHandoffPending = "pr_handoff_pending"
@@ -532,7 +532,7 @@ func validateAdvisoryPRForHandoff(ctx context.Context, github githubAPI, config 
 
 func handoffPRTitleBody(candidate *issue) (string, string) {
 	title := strings.TrimSpace(candidate.Identifier + ": " + candidate.Title)
-	body := "Runner-owned handoff PR for " + candidate.Identifier + ".\n\nThe implementation agent owns the scoped diff and validation notes; Pi Symphony created or updated this PR deterministically."
+	body := "Runner-owned handoff PR for " + candidate.Identifier + ".\n\nThe implementation agent owns the scoped diff and validation notes; Agent Machine created or updated this PR deterministically."
 	return title, body
 }
 

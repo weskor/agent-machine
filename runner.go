@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 
-	"github.com/weskor/pi-symphony/internal/cli"
-	cfg "github.com/weskor/pi-symphony/internal/config"
-	"github.com/weskor/pi-symphony/internal/orchestrator"
+	"github.com/weskor/agent-machine/internal/cli"
+	cfg "github.com/weskor/agent-machine/internal/config"
+	"github.com/weskor/agent-machine/internal/orchestrator"
 )
 
 func cliDependencies() cli.Dependencies[linearClient] {

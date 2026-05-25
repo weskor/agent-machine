@@ -2,7 +2,7 @@
 
 ## Goal
 
-Provide a machine-readable contract that allows Pi Symphony to drive Pi CLI today
+Provide a machine-readable contract that allows Agent Machine to drive Pi CLI today
 and future runtime adapters (fake/test, API, ACP-style, or MCP-style) without
 embedding orchestration logic in runtime execution code.
 
@@ -46,7 +46,7 @@ must not be used as architecture names for the runner itself.
   Adapters. Those names describe transport or process shape only; they must call
   the same runner Modules for orchestration, ownership, validation, and handoff.
 
-`pi_cli` is an Adapter choice, not Pi Symphony's architecture. Adding another
+`pi_cli` is an Adapter choice, not Agent Machine's architecture. Adding another
 provider must not move issue claiming, branch/PR validation, lifecycle state,
 handoff comments, merge gates, or cleanup policy into provider-specific prompts.
 Local one-shot CLI providers should share the same shell Adapter implementation

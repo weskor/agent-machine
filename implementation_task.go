@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weskor/pi-symphony/internal/state"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 func implementationWorkerTaskKey(issueKey string, attempt int) string {

@@ -1,6 +1,6 @@
 # Harness Behavior Spec
 
-This spec captures current observable Pi Symphony runner behavior. Update it when a ticket intentionally changes runner behavior; cite it when a refactor only moves code.
+This spec captures current observable Agent Machine runner behavior. Update it when a ticket intentionally changes runner behavior; cite it when a refactor only moves code.
 
 Future SQLite-backed orchestration state work is specified in [SQLite Orchestration State Contract](./sqlite-orchestration-state.md). That contract is for CAG-49 implementation planning and does not change the current behavior described here until an implementation ticket updates this spec.
 
@@ -8,7 +8,7 @@ CAG-105 adds the SQLite authority matrix and rollout plan to that contract. Curr
 
 ## Runner and Agent responsibility boundary
 
-Principle: the Agent handles ambiguity; the runner owns invariants. A runner invariant is a fact or transition Pi Symphony can compute from the project config, Linear, GitHub, SQLite, workspace metadata, or typed artifacts without asking an LLM to judge intent. Agent output may provide evidence, explanations, and edits, but it must not be the only authority for runner-owned invariants.
+Principle: the Agent handles ambiguity; the runner owns invariants. A runner invariant is a fact or transition Agent Machine can compute from the project config, Linear, GitHub, SQLite, workspace metadata, or typed artifacts without asking an LLM to judge intent. Agent output may provide evidence, explanations, and edits, but it must not be the only authority for runner-owned invariants.
 
 ### Runner-owned deterministic invariants
 
@@ -241,7 +241,7 @@ or review classification.
 - The runner parses runtime usage from output and may read an Agent-emitted configured-repository GitHub PR URL as a hint, but branch-based runner-owned handoff is authoritative for the current attempt.
 - When a Linear issue includes machine-readable `Allowed paths:` or `Out of scope:` bullets, the runner checks changed files against that path contract before review and handoff. Scope violations are recorded as behavior/spec blockers and move the issue back to the configured Ready state. Issues without a machine-readable path contract continue with a warning so legacy tickets remain runnable.
 - Primary daemon logs record concise lifecycle summaries and do not print the raw Pi JSONL implementation or review stream during normal operation.
-- When `PI_SYMPHONY_DEBUG_RAW_OUTPUT=1` is set, raw agent output is written to capped debug artifacts outside the issue workspace. For the standard `<repo>/.symphony/workspaces/<issue>` layout, artifacts go under `<repo>/.symphony/debug/<issue>/*-raw.log`; nonstandard workspace roots preserve the parent-root `.symphony/debug/<issue>/` fallback. Debug artifact phase names are path-sanitized before writing. The primary log includes the artifact path.
+- When `AM_DEBUG_RAW_OUTPUT=1` is set, raw agent output is written to capped debug artifacts outside the issue workspace. For the standard `<repo>/.symphony/workspaces/<issue>` layout, artifacts go under `<repo>/.symphony/debug/<issue>/*-raw.log`; nonstandard workspace roots preserve the parent-root `.symphony/debug/<issue>/` fallback. Debug artifact phase names are path-sanitized before writing. The primary log includes the artifact path.
 - Workspace dirtiness ignores only bounded runner/operator evidence artifacts. A top-level regular file named `false` is treated as a non-authoritative external subagent scratch marker only when it is zero bytes or bounded reviewer-output text with the known subagent scratch signature. Non-matching non-empty `false` files, nested `false` files, symlinks, and all other untracked files still block cleanup and merge readiness as real dirty workspace state.
 - After a successful implementation diff, the runner attempts deterministic Git/PR handoff. A same-repository Agent PR hint whose head branch does not match the expected workspace branch is treated as stale and ignored; the run fails only when runner handoff cannot prove branch changes, push the branch, create/reuse exactly one PR, or validate repository/base/head ownership for the expected branch.
 - Before commit, push, PR create/update, or PR validation side effects, the runner writes a durable SQLite PR handoff intent/result row, a `pr_handoff_pending` payload ref, and a bounded PR handoff payload with issue identity, workspace, expected branch, advisory Agent PR URL, and non-secret continuation facts for review/final handoff. Progress output is compatibility evidence. Inline PR handoff execution re-reads that persisted payload before side effects and completes the typed intent row with the resulting PR URL or error. The selected `handoff` worker may claim a pending PR handoff payload ref through SQLite and the run lease, execute PR handoff from that payload, complete the same typed intent/result row, then queue `review_pending` when review is configured or final `handoff_pending` when it is not.

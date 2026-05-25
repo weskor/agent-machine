@@ -6,9 +6,9 @@ This is a single-context repository.
 
 Read these files when they are relevant to the requested area:
 
-- `CONTEXT.md` — Pi Symphony domain language.
+- `CONTEXT.md` — Agent Machine domain language.
 - `LANGUAGE.md` — architecture vocabulary for modules, interfaces, seams, depth, adapters, leverage, and locality.
-- `docs/vision/pi-symphony-v1.md` — the V1 north star, milestones, and product-surface ordering.
+- `docs/vision/agent-machine-v1.md` — the V1 north star, milestones, and product-surface ordering.
 - `docs/agents/development-loop.md` — the spec-first, TDD-oriented workflow for agent changes.
 - `docs/adr/` — durable design decisions and trade-offs.
 - `docs/specs/` — observable behavior contracts that broad refactors must preserve or explicitly update.
@@ -18,7 +18,7 @@ Read these files when they are relevant to the requested area:
 
 ## Update rules
 
-- Update `CONTEXT.md` when a new durable Pi Symphony term is resolved.
+- Update `CONTEXT.md` when a new durable Agent Machine term is resolved.
 - Add an ADR when a decision is hard to reverse, surprising without context, and the result of a real trade-off.
 - Update `docs/specs/` when observable behavior changes.
 - For mechanical refactors, cite the relevant specs and state that no spec changes were needed.

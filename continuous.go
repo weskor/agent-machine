@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	cfg "github.com/weskor/pi-symphony/internal/config"
-	"github.com/weskor/pi-symphony/internal/state"
+	cfg "github.com/weskor/agent-machine/internal/config"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 func runContinuous(client linearClient, proj project, config runnerConfig, maxCycles int) error {

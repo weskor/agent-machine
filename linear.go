@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	linearapi "github.com/weskor/pi-symphony/internal/linear"
+	linearapi "github.com/weskor/agent-machine/internal/linear"
 )
 
 type linearClient struct {

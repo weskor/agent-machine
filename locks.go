@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/weskor/pi-symphony/internal/state"
-	ws "github.com/weskor/pi-symphony/internal/workspace"
+	"github.com/weskor/agent-machine/internal/state"
+	ws "github.com/weskor/agent-machine/internal/workspace"
 )
 
 const (

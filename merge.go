@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	artifactio "github.com/weskor/pi-symphony/internal/artifacts"
-	orchstate "github.com/weskor/pi-symphony/internal/state"
+	artifactio "github.com/weskor/agent-machine/internal/artifacts"
+	orchstate "github.com/weskor/agent-machine/internal/state"
 )
 
 func mergeConflictReason(pr pullRequestSummary) string {

@@ -37,7 +37,7 @@ func TestWriteReadAndFormatRunProgress(t *testing.T) {
 		ChecksStatus:         "unknown_post_run",
 		ReviewStatus:         "failed",
 		ReviewClassification: "behavior_spec_blocker",
-		PRURL:                "https://github.com/weskor/pi-symphony/pull/119",
+		PRURL:                "https://github.com/weskor/agent-machine/pull/119",
 		StartedAt:            started,
 		UpdatedAt:            started.Add(2 * time.Minute),
 		NextAction:           "repair_review_findings_before_handoff",
@@ -81,7 +81,7 @@ func TestRunProgressForRecordSummarizesTerminalOutcome(t *testing.T) {
 		EndedAt:              time.Date(2026, 5, 20, 21, 5, 0, 0, time.UTC),
 		DurationMS:           300000,
 		Status:               runAttemptStatusSuccess,
-		PRURL:                "https://github.com/weskor/pi-symphony/pull/119",
+		PRURL:                "https://github.com/weskor/agent-machine/pull/119",
 		ReviewStatus:         "passed",
 		ReviewClassification: "",
 	}
@@ -94,7 +94,7 @@ func TestRunProgressForRecordSummarizesTerminalOutcome(t *testing.T) {
 
 func TestRunProgressForRecordPreservesReviewNotReadyRetryAction(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "CAG-122")
-	record := runRecord{IssueIdentifier: "CAG-122", Workspace: workspace, Status: runAttemptStatusReviewNotReady, PRURL: "https://github.com/weskor/pi-symphony/pull/122", Error: "review not ready", StartedAt: time.Date(2026, 5, 20, 21, 0, 0, 0, time.UTC), EndedAt: time.Date(2026, 5, 20, 21, 5, 0, 0, time.UTC), DurationMS: 300000}
+	record := runRecord{IssueIdentifier: "CAG-122", Workspace: workspace, Status: runAttemptStatusReviewNotReady, PRURL: "https://github.com/weskor/agent-machine/pull/122", Error: "review not ready", StartedAt: time.Date(2026, 5, 20, 21, 0, 0, 0, time.UTC), EndedAt: time.Date(2026, 5, 20, 21, 5, 0, 0, time.UTC), DurationMS: 300000}
 	evaluation := evaluationArtifact{Outcome: "waiting_for_checks", ChecksStatus: "waiting_for_checks", NextAction: "wait_for_github_checks_then_retry"}
 
 	snapshot := runProgressForRecord(workspace, record, evaluation)

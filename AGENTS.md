@@ -1,10 +1,10 @@
-# Pi Symphony agent guidance
+# Agent Machine agent guidance
 
 Work in small, reviewable changes. Use `mise exec go -- make ci` and `git diff --check` before handoff when Go is available through mise.
 
 For runner behavior changes, read the relevant specs first and preserve observable behavior unless the ticket explicitly asks for a behavior change.
 
-Read `docs/vision/pi-symphony-v1.md` before planning roadmap, architecture, multi-agent, editor Adapter, MCP, web UI, cloud, or other product-surface work.
+Read `docs/vision/agent-machine-v1.md` before planning roadmap, architecture, multi-agent, editor Adapter, MCP, web UI, cloud, or other product-surface work.
 
 Use the development loop in `docs/agents/development-loop.md`: spec/ADR first for durable behavior, TDD or characterization before behavior-risky refactors, then the smallest implementation slice.
 
@@ -12,7 +12,7 @@ Use the development loop in `docs/agents/development-loop.md`: spec/ADR first fo
 
 ### Issue tracker
 
-Issues are tracked in Linear in the CAG / Pi Symphony Runner project; GitHub is used for PR handoff and CI. See `docs/agents/issue-tracker.md`.
+Issues are tracked in Linear in the CAG / Agent Machine Runner project; GitHub is used for PR handoff and CI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
@@ -24,7 +24,7 @@ This is a single-context repo: read `CONTEXT.md`, `LANGUAGE.md`, relevant `docs/
 
 ### Development loop
 
-Pi Symphony work should be spec-driven, TDD-oriented, and evidence-backed. See `docs/agents/development-loop.md`.
+Agent Machine work should be spec-driven, TDD-oriented, and evidence-backed. See `docs/agents/development-loop.md`.
 
 ### Implementation and review
 

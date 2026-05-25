@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	sh "github.com/weskor/pi-symphony/internal/shell"
-	"github.com/weskor/pi-symphony/internal/state"
+	sh "github.com/weskor/agent-machine/internal/shell"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 const runProgressPhaseReviewPending = "review_pending"

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/weskor/pi-symphony/internal/state"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 func recordReviewPendingPayloadRef(store *state.Store, payload reviewPendingPayload, payloadPath string) error {

@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/weskor/pi-symphony/internal/agentruntime"
-	artifactio "github.com/weskor/pi-symphony/internal/artifacts"
+	"github.com/weskor/agent-machine/internal/agentruntime"
+	artifactio "github.com/weskor/agent-machine/internal/artifacts"
 )
 
 var prURLPattern = regexp.MustCompile(`https://github\.com/([^/\s"'<>]+)/([^/\s"'<>]+)/pull/[0-9]+`)

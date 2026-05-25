@@ -1,6 +1,6 @@
 # Review Policy
 
-Pi Symphony review should distinguish broken behavior from missing evidence, but both must be visible before merge.
+Agent Machine review should distinguish broken behavior from missing evidence, but both must be visible before merge.
 
 ## Required evidence for refactors, replacements, and rewrites
 

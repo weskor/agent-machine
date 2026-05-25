@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/weskor/pi-symphony/internal/livesmoke"
+	"github.com/weskor/agent-machine/internal/livesmoke"
 )
 
 func main() {

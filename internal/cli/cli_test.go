@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	cfg "github.com/weskor/pi-symphony/internal/config"
+	cfg "github.com/weskor/agent-machine/internal/config"
 )
 
 type fakeClient struct {
@@ -100,7 +100,7 @@ func TestRunVersionDoesNotRequireConfigOrLinearClient(t *testing.T) {
 	if calledClient {
 		t.Fatal("NewLinearClient called for version")
 	}
-	if strings.TrimSpace(output) != "pi-symphony 0.1.0-test" {
+	if strings.TrimSpace(output) != "am 0.1.0-test" {
 		t.Fatalf("version output = %q", output)
 	}
 }

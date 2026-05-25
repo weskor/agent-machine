@@ -1,6 +1,6 @@
 # SQLite Orchestration State Contract
 
-This spec defines the intended behavior contract for CAG-49: moving Pi Symphony runner orchestration state to a local SQLite store. It is a planning contract only; CAG-59 does not implement SQLite storage or change current runner behavior. Current observable behavior remains governed by [Harness Behavior Spec](./harness-behavior.md) until implementation tickets deliberately update it.
+This spec defines the intended behavior contract for CAG-49: moving Agent Machine runner orchestration state to a local SQLite store. It is a planning contract only; CAG-59 does not implement SQLite storage or change current runner behavior. Current observable behavior remains governed by [Harness Behavior Spec](./harness-behavior.md) until implementation tickets deliberately update it.
 
 ## Goals
 
@@ -10,7 +10,7 @@ This spec defines the intended behavior contract for CAG-49: moving Pi Symphony 
 
 ## Source of truth model
 
-- SQLite is the source of truth for runner orchestration decisions made by Pi Symphony: which issue attempt is active, which PR belongs to it, whether review passed, whether feedback is new, whether merge is eligible, which cleanup action is pending, which lease is held, and what terminal outcome was reached.
+- SQLite is the source of truth for runner orchestration decisions made by Agent Machine: which issue attempt is active, which PR belongs to it, whether review passed, whether feedback is new, whether merge is eligible, which cleanup action is pending, which lease is held, and what terminal outcome was reached.
 - SQLite also owns durable worker tasks when runner responsibilities are split
   across scheduler, implementation, review, handoff, merge, Linear status,
   reconciliation, and cleanup workers. Worker tasks describe which role should
@@ -46,7 +46,7 @@ When SQLite, fresh external facts, artifacts, and operator input disagree, the r
 
 1. **Safety and ownership invariants win first.** Any uncertain lease, workspace ownership, PR ownership, branch ownership, or schema/transaction state blocks destructive and externally visible actions.
 2. **Fresh external systems own their domains.** Linear decides current issue workflow state and available transitions. GitHub decides current PR, branch, review, check, mergeability, authorship, and merge result facts.
-3. **SQLite owns Pi Symphony decisions.** Candidate claims, local attempt status, retry/no-retry decisions, processed feedback hashes, review classifications, merge blockers, cleanup decisions, leases, heartbeats, and terminal outcomes come from current-state SQLite rows. For Done workspace cleanup, the durable issue-attempt run status is the cleanup-policy status when present; terminal/evaluation outcome rows remain diagnostic context and do not override a present run status. If that run status is non-terminal, a durable SQLite PR mapping plus fresh GitHub confirmation that the expected issue branch PR is merged may serve as terminal cleanup evidence; missing PR mappings, wrong branches, closed-unmerged PRs, or failed GitHub refreshes must remain reconciliation-needed.
+3. **SQLite owns Agent Machine decisions.** Candidate claims, local attempt status, retry/no-retry decisions, processed feedback hashes, review classifications, merge blockers, cleanup decisions, leases, heartbeats, and terminal outcomes come from current-state SQLite rows. For Done workspace cleanup, the durable issue-attempt run status is the cleanup-policy status when present; terminal/evaluation outcome rows remain diagnostic context and do not override a present run status. If that run status is non-terminal, a durable SQLite PR mapping plus fresh GitHub confirmation that the expected issue branch PR is merged may serve as terminal cleanup evidence; missing PR mappings, wrong branches, closed-unmerged PRs, or failed GitHub refreshes must remain reconciliation-needed.
 4. **The SQLite event log explains committed local decisions.** It may support reconciliation or verified repair, but normal scheduling, retry, merge, and cleanup read current-state rows first.
 5. **Workspace artifacts are evidence exports.** They can seed initial migration, compatibility repair, diagnostics, or missing export regeneration; they must not override newer SQLite rows or fresh external facts.
 6. **Operator input is required for policy choices or unsafe ambiguity.** Operators may approve repair, answer Needs Info, or change project configuration, but operator input must be recorded in SQLite before it affects later automated decisions.

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weskor/pi-symphony/internal/state"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 func TestRunReviewPendingAttemptConsumesPayloadAndQueuesHandoff(t *testing.T) {
@@ -240,7 +240,7 @@ func TestClaimNextReviewReadyAttemptClaimsOnlyReviewNotReadySuccess(t *testing.T
 	freshCandidate := testIssue("CAG-167", "Ready for Agent")
 	pr := pullRequestSummary{
 		Number:            166,
-		URL:               "https://github.com/weskor/pi-symphony/pull/166",
+		URL:               "https://github.com/weskor/agent-machine/pull/166",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch(reviewCandidate.Identifier),
 		Author:            prAuthor{Login: githubAppPRAuthorLogin},
@@ -304,7 +304,7 @@ func TestClaimNextReviewReadyAttemptUsesSQLiteReviewNotReadyWithoutProgressSnaps
 	}
 	pr := pullRequestSummary{
 		Number:            187,
-		URL:               "https://github.com/weskor/pi-symphony/pull/187",
+		URL:               "https://github.com/weskor/agent-machine/pull/187",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch(reviewCandidate.Identifier),
 		Author:            prAuthor{Login: githubAppPRAuthorLogin},
@@ -364,7 +364,7 @@ func TestScheduleReviewReadyWorkerTasksEnqueuesSQLiteReviewResumeWithoutProgress
 	}
 	pr := pullRequestSummary{
 		Number:            188,
-		URL:               "https://github.com/weskor/pi-symphony/pull/188",
+		URL:               "https://github.com/weskor/agent-machine/pull/188",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch(reviewCandidate.Identifier),
 		Author:            prAuthor{Login: githubAppPRAuthorLogin},
@@ -416,7 +416,7 @@ func TestClaimNextQueuedReviewReadyAttemptClaimsQueuedTaskWithoutCandidateDiscov
 	}
 	pr := pullRequestSummary{
 		Number:            189,
-		URL:               "https://github.com/weskor/pi-symphony/pull/189",
+		URL:               "https://github.com/weskor/agent-machine/pull/189",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch(reviewCandidate.Identifier),
 		Author:            prAuthor{Login: githubAppPRAuthorLogin},
@@ -497,7 +497,7 @@ func upsertReviewNotReadyAttempt(t *testing.T, store *state.Store, candidate iss
 		BranchName:    expectedWorkspaceBranch(candidate.Identifier),
 		BaseBranch:    "develop",
 		Status:        runAttemptStatusReviewNotReady,
-		Repository:    "weskor/pi-symphony",
+		Repository:    "weskor/agent-machine",
 		PRURL:         prURL,
 		UpdatedAt:     time.Now().UTC(),
 	}); err != nil {

@@ -130,5 +130,5 @@ func Quote(value string) string {
 }
 
 func log(command string) {
-	fmt.Printf("[pi-symphony] $ %s\n", command)
+	fmt.Printf("[am] $ %s\n", command)
 }

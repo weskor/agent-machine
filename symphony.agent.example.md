@@ -1,6 +1,6 @@
 # Target Repository Agent
 
-Use this prompt to tell Pi Symphony how to work in the target repository. Keep it repository-specific and explicit about scope, validation, and handoff rules.
+Use this prompt to tell Agent Machine how to work in the target repository. Keep it repository-specific and explicit about scope, validation, and handoff rules.
 
 Standard ticket contract:
 

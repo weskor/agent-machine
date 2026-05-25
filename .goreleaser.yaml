@@ -1,15 +1,15 @@
 version: 2
 
-project_name: pi-symphony
+project_name: agent-machine
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: pi-symphony
+  - id: agent-machine
     main: .
-    binary: pi-symphony
+    binary: am
     env:
       - CGO_ENABLED=0
     goos:
@@ -19,12 +19,12 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X github.com/weskor/pi-symphony/internal/cli.Version={{ .Version }}
+      - -s -w -X github.com/weskor/agent-machine/internal/cli.Version={{ .Version }}
 
 archives:
   - id: archive
     ids:
-      - pi-symphony
+      - agent-machine
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - LICENSE
@@ -46,25 +46,25 @@ changelog:
 release:
   github:
     owner: weskor
-    name: pi-symphony
+    name: agent-machine
   prerelease: auto
 
 homebrew_casks:
-  - name: pi-symphony
+  - name: agent-machine
     ids:
       - archive
     binaries:
-      - pi-symphony
+      - am
     repository:
       owner: weskor
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    homepage: "https://github.com/weskor/pi-symphony"
+    homepage: "https://github.com/weskor/agent-machine"
     description: "Local-first runner for moving Linear issues through isolated agent workspaces to GitHub PR handoff."
     skip_upload: "{{ if index .Env \"HOMEBREW_TAP_GITHUB_TOKEN\" }}false{{ else }}true{{ end }}"
     hooks:
       post:
         install: |
           if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/pi-symphony"]
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/am"]
           end

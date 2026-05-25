@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/weskor/pi-symphony/internal/cli"
-	cfg "github.com/weskor/pi-symphony/internal/config"
+	"github.com/weskor/agent-machine/internal/cli"
+	cfg "github.com/weskor/agent-machine/internal/config"
 )
 
 type testClient struct{ id string }

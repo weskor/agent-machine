@@ -1,4 +1,4 @@
-# Pi Symphony GitHub behavior contract
+# Agent Machine GitHub behavior contract
 
 Phase 1 inventory plus Phase 2/3 parity notes for replacing core `gh` CLI behavior.
 

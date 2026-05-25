@@ -28,7 +28,7 @@ func TestRunRecordJSONRoundTripPreservesArtifactFields(t *testing.T) {
 		ReviewClassification: "clean",
 		ReviewFindings:       "none",
 		ReviewUsage:          &Usage{TotalTokens: 11},
-		PRURL:                "https://github.com/weskor/pi-symphony/pull/73",
+		PRURL:                "https://github.com/weskor/agent-machine/pull/73",
 		FeedbackHash:         "abc123",
 		Status:               "handoff",
 		OriginalStatus:       "In Progress",

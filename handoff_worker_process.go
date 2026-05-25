@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weskor/pi-symphony/internal/state"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 type claimedHandoffPendingAttempt struct {

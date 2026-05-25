@@ -92,7 +92,7 @@ func (h *scenarioHarness) simulateSuccessfulRun(identifier string) string {
 	}
 	h.mutate("linear", "move_to_running:"+identifier)
 	h.mutate("agentruntime", "run:"+identifier)
-	prURL := "https://github.com/weskor/pi-symphony/pull/900"
+	prURL := "https://github.com/weskor/agent-machine/pull/900"
 	h.mutate("github", "open_pr:"+identifier)
 	h.mutate("state", "record_attempt:"+identifier)
 	h.mutate("workspace", "export_run_artifact:"+identifier)
@@ -111,7 +111,7 @@ func TestScenarioHarnessExplainsCandidateMergeAndCleanupWithoutMutation(t *testi
 		withCandidate("CAG-90", "Ready for Agent").
 		withCandidate("CAG-91", "Ready for Agent", "blocked").
 		withCandidate("CAG-92", "Human Review").
-		withPR("CAG-92", pullRequestSummary{URL: "https://github.com/weskor/pi-symphony/pull/92", HeadRefName: "symphony/CAG-92-workspace", ReviewDecision: "APPROVED", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"}).
+		withPR("CAG-92", pullRequestSummary{URL: "https://github.com/weskor/agent-machine/pull/92", HeadRefName: "symphony/CAG-92-workspace", ReviewDecision: "APPROVED", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"}).
 		withDoneWorkspace("CAG-93", "success")
 
 	report := h.explainDryRun()
@@ -136,7 +136,7 @@ func TestScenarioHarnessCharacterizesReconciliationSkipsBlockedAndOpenPRCandidat
 	h := newScenarioHarness(t).
 		withCandidate("CAG-94", "Ready for Agent", "blocked").
 		withCandidate("CAG-95", "Ready for Agent").
-		withPR("CAG-95", pullRequestSummary{URL: "https://github.com/weskor/pi-symphony/pull/95", HeadRefName: "symphony/CAG-95-workspace", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"}).
+		withPR("CAG-95", pullRequestSummary{URL: "https://github.com/weskor/agent-machine/pull/95", HeadRefName: "symphony/CAG-95-workspace", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"}).
 		withArtifact("CAG-96", artifactSummary{Issue: "CAG-96", HasArtifact: true, Status: "failed", NextAction: "inspect_run_log"})
 
 	decisions := h.reconcile()

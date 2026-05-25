@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/weskor/pi-symphony/internal/ghapi"
+	"github.com/weskor/agent-machine/internal/ghapi"
 )
 
 type githubAPI = ghapi.Client

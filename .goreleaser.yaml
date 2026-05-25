@@ -1,0 +1,70 @@
+version: 2
+
+project_name: pi-symphony
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: pi-symphony
+    main: .
+    binary: pi-symphony
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/weskor/pi-symphony/internal/cli.Version={{ .Version }}
+
+archives:
+  - id: archive
+    ids:
+      - pi-symphony
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  github:
+    owner: weskor
+    name: pi-symphony
+  prerelease: auto
+
+homebrew_casks:
+  - name: pi-symphony
+    ids:
+      - archive
+    binaries:
+      - pi-symphony
+    repository:
+      owner: weskor
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/weskor/pi-symphony"
+    description: "Local-first runner for moving Linear issues through isolated agent workspaces to GitHub PR handoff."
+    skip_upload: "{{ if index .Env \"HOMEBREW_TAP_GITHUB_TOKEN\" }}false{{ else }}true{{ end }}"
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/pi-symphony"]
+          end

@@ -10,7 +10,7 @@ Follow the runner harness rather than inventing a new workflow:
 - Prefer behavior-driven or characterization tests before refactors, replacements, or state-machine changes.
 - Use `mise exec go -- go test ./...` as the default validation command.
 - Use `git diff --check` before PR handoff.
-- When config/status/cleanup/merge behavior changes, also run `mise exec go -- go run . status --config /home/wes/Workspace/weskor/pi-symphony/symphony.yaml` when it is safe and relevant.
+- When config/status/cleanup/merge behavior changes, also run `mise exec go -- go run . status --config symphony.yaml` when it is safe and relevant.
 - Leave the scoped code/test/doc diff in the workspace with validation notes; the Pi Symphony runner commits, pushes, and creates or updates exactly one PR from `symphony/<issue>-workspace` into `main`.
 - Stop at Human Review after a passing pre-handoff review; do not auto-merge implementation PRs unless the merge lane later sees explicit approval and green checks.
 

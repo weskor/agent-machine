@@ -4,10 +4,10 @@ Pi Symphony is a local-first runner for moving well-scoped Linear issues through
 an isolated workspace, an Agent implementation pass, optional review, and a
 GitHub PR handoff.
 
-The project is private/experimental and currently dogfoods itself. The design
-goal is conservative automation: Pi Symphony should make small, reviewable PRs,
-record useful evidence, and fail closed when ownership, state, credentials, or
-scope are unclear.
+The project is preparing for a v0.1 open-source release and currently dogfoods
+itself. The design goal is conservative automation: Pi Symphony should make
+small, reviewable PRs, record useful evidence, and fail closed when ownership,
+state, credentials, or scope are unclear.
 
 ## What It Does
 
@@ -27,8 +27,36 @@ scope are unclear.
 ## Current Status
 
 This repo owns the runner implementation, tests, specs, GitHub/Linear
-integrations, CLI, and dogfood configuration. Consumer repos should keep only their
-`symphony.yaml`, `symphony.agent.md`, and ignored `.symphony/` runtime state.
+integrations, CLI, release packaging, and dogfood configuration. Consumer repos
+should keep only their `symphony.yaml`, `symphony.agent.md`, and ignored
+`.symphony/` runtime state.
+
+Pi Symphony is released under the MIT License.
+
+See `docs/release/v0.1-readiness.md` for the current release checklist.
+
+## Install
+
+For local development:
+
+```bash
+mise install
+mise exec go -- go run . --version
+```
+
+After the first tagged release, GitHub Releases will publish macOS and Linux
+archives for `amd64` and `arm64`. Download the archive for your platform, verify
+it against `checksums.txt`, and put the `pi-symphony` binary on `PATH`.
+
+When the Homebrew tap is configured:
+
+```bash
+brew install --cask weskor/tap/pi-symphony
+pi-symphony --version
+```
+
+The Homebrew cask is a convenience install path for macOS. Linux users should use
+the release archives unless and until Linux packages are added.
 
 ## Requirements
 
@@ -141,6 +169,7 @@ Run commands from this repository. `--config` defaults to `symphony.yaml`.
 | Command | Purpose |
 | --- | --- |
 | `go run . config print` | Print the resolved, redacted config. No Linear/GitHub access required. |
+| `go run . --version` | Print the binary version. No config or credentials required. |
 | `go run . status` | Print Linear, PR, workspace, SQLite, and artifact status. |
 | `go run . run-status CAG-123` | Print one local progress line for an issue. No Linear/GitHub access required. |
 | `go run . explain` | Print the next scheduling decision, merge blockers, and cleanup eligibility without mutating state. |
@@ -329,6 +358,30 @@ passing CI/tests, clean `git diff --check`, review evidence or clear blocker
 notes, and an expected `symphony/<issue>-workspace` PR into the configured base
 branch.
 
+## Release
+
+Tagged releases are built by `.github/workflows/release.yml` with GoReleaser.
+The workflow runs `make ci`, builds `pi-symphony` for macOS and Linux on `amd64`
+and `arm64`, attaches archives and `checksums.txt` to the GitHub release, and
+publishes a Homebrew cask when `HOMEBREW_TAP_GITHUB_TOKEN` can write to
+`weskor/homebrew-tap`.
+
+Preflight a release locally:
+
+```bash
+mise exec go -- make ci
+git diff --check
+mise exec go -- make release-check
+mise exec go -- make release-snapshot
+```
+
+Tag the first release only after the v0.1 checklist is complete:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 ## Repository Map
 
 - `cmd/pi-symphony-live-smoke/`: live smoke harness.
@@ -350,3 +403,8 @@ branch.
   the cleanup reason clear.
 - Treat missing Linear/GitHub credentials, ambiguous tickets, stale locks,
   conflicting SQLite/artifact facts, and unexpected PR ownership as blockers.
+
+## Security
+
+See `SECURITY.md`. Do not report credentials, private keys, or vulnerable target
+repository details in public issues.

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security report
+    url: https://github.com/weskor/pi-symphony/security/advisories/new
+    about: Report vulnerabilities privately. Do not open public issues for secrets or security bugs.

@@ -1,8 +1,9 @@
 GO_PACKAGES := ./...
 GOIMPORTS ?= go run golang.org/x/tools/cmd/goimports@v0.31.0
 GOLANGCI_LINT ?= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.4.0
+GORELEASER ?= go run github.com/goreleaser/goreleaser/v2@v2.16.0
 
-.PHONY: fmt fmt-check vet lint test ci
+.PHONY: fmt fmt-check vet lint test ci release-check release-snapshot
 
 fmt:
 	gofmt -w $$(find . -name '*.go' -not -path './.git/*' -not -path './.symphony/*')
@@ -23,3 +24,8 @@ test:
 
 ci: fmt-check vet lint test
 
+release-check:
+	$(GORELEASER) check
+
+release-snapshot:
+	$(GORELEASER) release --snapshot --clean

@@ -84,6 +84,7 @@ type parsedArgs struct {
 }
 
 const (
+	modeVersion     = "version"
 	modeMerge       = "merge-approved"
 	modeRepair      = "repair-artifacts"
 	modeRepairTask  = "repair-worker-task"
@@ -99,10 +100,16 @@ const (
 	modeRemoved     = "removed"
 )
 
+var Version = "dev"
+
 // Run parses CLI args, loads local environment, reads the project, validates
 // required config, and dispatches the selected mode.
 func Run[Client any](args []string, deps Dependencies[Client]) error {
 	parsed := parseArgs(args)
+	if parsed.mode == modeVersion {
+		fmt.Printf("pi-symphony %s\n", Version)
+		return nil
+	}
 	for _, envFile := range parsed.envFiles {
 		loadDotEnvLocal(envFile)
 	}
@@ -199,6 +206,8 @@ func parseArgs(args []string) parsedArgs {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch arg {
+		case "version":
+			setMode(modeVersion, 10)
 		case "start":
 			setMode(modeContinuous, 1)
 		case "status":
@@ -249,6 +258,10 @@ func parseArgs(args []string) parsedArgs {
 			setMode(modeStatus, 3)
 		case "--run-status":
 			setMode(modeRunStatus, 3)
+			if i+1 < len(args) {
+				parsed.runStatusID = args[i+1]
+				i++
+			}
 		case "--explain", "--dry-run":
 			setMode(modeExplain, 7)
 		case "--surface-snapshot":
@@ -259,6 +272,8 @@ func parseArgs(args []string) parsedArgs {
 			setMode(modeContinuous, 1)
 		case "--once":
 			setMode(modeRemoved, 0)
+		case "--version", "-v":
+			setMode(modeVersion, 10)
 		case "--config", "-c":
 			if i+1 < len(args) {
 				parsed.configPath = args[i+1]

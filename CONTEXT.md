@@ -6,7 +6,7 @@ Pi Symphony is a runner harness for taking one well-scoped Linear issue through 
 
 **Pi Symphony**:
 The standalone runner harness in this repository. It coordinates Linear, local workspaces, Pi CLI execution, review, GitHub PRs, merge gates, and cleanup.
-_Avoid_: compound-web runner, generic bot.
+_Avoid_: generic bot.
 
 **Project config**:
 The repository-local `symphony.yaml` plus `symphony.agent.md` prompt that tell Pi Symphony which Linear project, repository, workspace root, branch, runtime, hooks, states, budgets, and agent instructions to use.

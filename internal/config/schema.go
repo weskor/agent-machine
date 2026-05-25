@@ -28,7 +28,7 @@ type Config struct {
 	Pi         PiConfig
 	Review     ReviewConfig
 	Budgets    Budget
-	Compound   CompoundConfig
+	Workflow   WorkflowConfig
 	GitHub     GitHubConfig
 }
 
@@ -91,7 +91,7 @@ type ReviewConfig struct {
 	Guidance string
 }
 
-type CompoundConfig struct {
+type WorkflowConfig struct {
 	HandoffState       string
 	RunningState       string
 	NeedsInfoState     string
@@ -116,7 +116,7 @@ func ParseConfig(yaml string) (Config, error) {
 	runtimeYAML := Section(yaml, "runtime")
 	piYAML := Section(yaml, "pi")
 	reviewYAML := Section(yaml, "review")
-	compoundYAML := Section(yaml, "compound")
+	workflowYAML := Section(yaml, "workflow")
 	githubYAML := Section(yaml, "github")
 
 	budgets, err := ParseBudgetValidated(yaml)
@@ -174,13 +174,13 @@ func ParseConfig(yaml string) (Config, error) {
 			Guidance: BlockUnder(reviewYAML, "guidance"),
 		},
 		Budgets: budgets,
-		Compound: CompoundConfig{
-			HandoffState:       Scalar(compoundYAML, "  handoff_state", "Human Review"),
-			RunningState:       Scalar(compoundYAML, "  running_state", "In Progress"),
-			NeedsInfoState:     Scalar(compoundYAML, "  needs_info_state", "Needs Info"),
-			DoneState:          Scalar(compoundYAML, "  done_state", "Done"),
-			AutoMerge:          boolFromYAML(compoundYAML, "auto_merge", false),
-			RequiredValidation: ListUnder(compoundYAML, "required_validation"),
+		Workflow: WorkflowConfig{
+			HandoffState:       Scalar(workflowYAML, "  handoff_state", "Human Review"),
+			RunningState:       Scalar(workflowYAML, "  running_state", "In Progress"),
+			NeedsInfoState:     Scalar(workflowYAML, "  needs_info_state", "Needs Info"),
+			DoneState:          Scalar(workflowYAML, "  done_state", "Done"),
+			AutoMerge:          boolFromYAML(workflowYAML, "auto_merge", false),
+			RequiredValidation: ListUnder(workflowYAML, "required_validation"),
 		},
 		GitHub: GitHubConfig{
 			AppSlug:          Scalar(githubYAML, "  app_slug", ""),

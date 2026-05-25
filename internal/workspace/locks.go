@@ -237,7 +237,7 @@ func DescribeExisting(path string, now time.Time) error {
 	}
 	staleNote := ""
 	if age > RunLockStaleAfter {
-		staleNote = fmt.Sprintf("; heartbeat is stale (%s old). Run `bun run symphony:pi:repair-artifacts` after confirming no owner process is active", age.Round(time.Second))
+		staleNote = fmt.Sprintf("; heartbeat is stale (%s old). Run `go run . repair-artifacts --config <path>` after confirming no owner process is active", age.Round(time.Second))
 	}
 	return fmt.Errorf("%w: %s is owned by %s pid=%d host=%s issue=%s branch=%s heartbeat=%s%s", ErrRunLocked, path, lock.Owner, lock.PID, lock.Host, lock.IssueIdentifier, lock.Branch, lock.HeartbeatAt.Format(time.RFC3339), staleNote)
 }
@@ -319,12 +319,6 @@ func (m LockManager) MirrorReleaseContext(ctx context.Context, lock domain.RunLo
 			return err
 		}
 		return store.ReleaseLease(ctx, RunLockLeaseName(lock), at, reason)
-	})
-}
-
-func (m LockManager) withStateStore(workspace string, fn func(*state.Store) error) {
-	m.withStateStoreContext(context.Background(), workspace, func(_ context.Context, store *state.Store) error {
-		return fn(store)
 	})
 }
 

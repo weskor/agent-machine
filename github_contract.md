@@ -8,8 +8,8 @@ Phase 1 inventory plus Phase 2/3 parity notes for replacing core `gh` CLI behavi
 - [x] Open PR metadata uses GitHub App-compatible REST endpoints instead of GraphQL `statusCheckRollup` fields so status and merge lanes can run with installation tokens.
 - [x] Symphony-owned PRs are selected by CAG issue IDs in `headRefName`.
 - [x] Branch/base sanity requires base `develop` (or configured base) and head `symphony/<issue>-workspace`.
-- [x] App-authored PR invariant accepts both valid GitHub API shapes for the same installed app: GraphQL/gh-style `app/compound-symphony-bot` and REST/go-github `compound-symphony-bot[bot]`.
-- [x] Bot commit identity is separate: commit author name/email must be `compound-symphony-bot[bot] <285402021+compound-symphony-bot[bot]@users.noreply.github.com>` when commit evidence is available.
+- [x] App-authored PR invariant accepts both valid GitHub API shapes for the same installed app: GraphQL/gh-style `app/pi-symphony-bot` and REST/go-github `pi-symphony-bot[bot]`.
+- [x] Bot commit identity is separate: commit author name/email must be `pi-symphony-bot[bot] <285402021+pi-symphony-bot[bot]@users.noreply.github.com>` when commit evidence is available.
 - [x] Human-authored PRs are quarantined before merge.
 - [x] Green checks allow merge only when every `CheckRun` is completed/success and every `StatusContext` is success.
 - [x] Pending, failed, cancelled, timed-out, action-required, neutral, missing, and unknown check shapes block merge.

@@ -26,7 +26,7 @@ func (f failingReconciliationReader) Lease(context.Context, string) (state.Lease
 
 func TestReconcileIssueAllowsFeedbackRetryToSupersedeTerminalArtifact(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","pr_url":"https://github.com/pennywise-investments/compound-web/pull/434"}`)
+	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","pr_url":"https://github.com/weskor/pi-symphony/pull/434"}`)
 	workspace := filepath.Join(root, "CAG-34")
 	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-feedback.md"), []byte("unresolved feedback"), 0o600); err != nil {
 		t.Fatal(err)
@@ -41,7 +41,7 @@ func TestReconcileIssueAllowsFeedbackRetryToSupersedeTerminalArtifact(t *testing
 
 func TestReconcileIssueBlocksTerminalArtifactWithoutNewFeedback(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","pr_url":"https://github.com/pennywise-investments/compound-web/pull/434"}`)
+	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","pr_url":"https://github.com/weskor/pi-symphony/pull/434"}`)
 
 	decision := reconcileIssue(testRunnerConfig(root), testIssue("CAG-34", "Ready for Agent"), nil)
 
@@ -84,7 +84,7 @@ func TestReconcileIssueBlocksPRWithoutSQLiteAttemptState(t *testing.T) {
 	config.BaseBranch = "develop"
 	pr := pullRequestSummary{
 		Number:            434,
-		URL:               "https://github.com/pennywise-investments/compound-web/pull/434",
+		URL:               "https://github.com/weskor/pi-symphony/pull/434",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch("CAG-34"),
 		Author:            prAuthor{Login: githubAppPRAuthorLogin},
@@ -114,7 +114,7 @@ func TestReconcileIssueDoesNotFallbackToArtifactWhenSQLiteStatusMissing(t *testi
 	if err := sh.Run("git init -q", workspace); err != nil {
 		t.Fatal(err)
 	}
-	writeRunRecordFixture(t, root, "CAG-37", `{"status":"success","review_status":"passed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/437"}`)
+	writeRunRecordFixture(t, root, "CAG-37", `{"status":"success","review_status":"passed","pr_url":"https://github.com/weskor/pi-symphony/pull/437"}`)
 	if err := store.UpsertAttemptResult(context.Background(), state.AttemptResult{
 		IssueKey:      "CAG-37",
 		IssueID:       "issue-id",
@@ -122,7 +122,7 @@ func TestReconcileIssueDoesNotFallbackToArtifactWhenSQLiteStatusMissing(t *testi
 		WorkspacePath: workspace,
 		BranchName:    expectedWorkspaceBranch("CAG-37"),
 		BaseBranch:    "develop",
-		PRURL:         "https://github.com/pennywise-investments/compound-web/pull/437",
+		PRURL:         "https://github.com/weskor/pi-symphony/pull/437",
 		ReviewStatus:  "passed",
 		ReviewPassed:  true,
 		UpdatedAt:     time.Now().UTC(),
@@ -131,7 +131,7 @@ func TestReconcileIssueDoesNotFallbackToArtifactWhenSQLiteStatusMissing(t *testi
 	}
 	pr := pullRequestSummary{
 		Number:            437,
-		URL:               "https://github.com/pennywise-investments/compound-web/pull/437",
+		URL:               "https://github.com/weskor/pi-symphony/pull/437",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch("CAG-37"),
 		Author:            prAuthor{Login: githubAppPRAuthorLogin},
@@ -149,10 +149,10 @@ func TestReconcileIssueDoesNotFallbackToArtifactWhenSQLiteStatusMissing(t *testi
 
 func TestReconcileIssueAllowsChangesRequestedToSupersedeReviewFailedArtifact(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-35", `{"status":"review_failed","review_status":"failed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/440"}`)
+	writeRunRecordFixture(t, root, "CAG-35", `{"status":"review_failed","review_status":"failed","pr_url":"https://github.com/weskor/pi-symphony/pull/440"}`)
 	config := testRunnerConfig(root)
 	config.BaseBranch = "develop"
-	pr := pullRequestSummary{Number: 440, URL: "https://github.com/pennywise-investments/compound-web/pull/440", BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-35"), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "CHANGES_REQUESTED"}
+	pr := pullRequestSummary{Number: 440, URL: "https://github.com/weskor/pi-symphony/pull/440", BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-35"), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "CHANGES_REQUESTED"}
 
 	decision := reconcileIssue(config, testIssue("CAG-35", "Ready for Agent"), &pr)
 
@@ -166,7 +166,7 @@ func TestReconcileIssueAllowsReviewReadinessRetryAfterChecksSucceed(t *testing.T
 	config := testRunnerConfig(root)
 	config.BaseBranch = "develop"
 	store := openTestStateStore(t, root)
-	prURL := "https://github.com/pennywise-investments/compound-web/pull/522"
+	prURL := "https://github.com/weskor/pi-symphony/pull/522"
 	upsertReviewNotReadyAttempt(t, store, testIssue("CAG-122", "In Progress"), filepath.Join(root, "CAG-122"), prURL)
 	pr := pullRequestSummary{Number: 522, URL: prURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-122"), Author: prAuthor{Login: githubAppPRAuthorLogin}, StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS", Name: "build"}}}
 
@@ -182,7 +182,7 @@ func TestReconcileIssueKeepsFailedChecksBlockedBeforeReview(t *testing.T) {
 	config := testRunnerConfig(root)
 	config.BaseBranch = "develop"
 	store := openTestStateStore(t, root)
-	prURL := "https://github.com/pennywise-investments/compound-web/pull/522"
+	prURL := "https://github.com/weskor/pi-symphony/pull/522"
 	upsertReviewNotReadyAttempt(t, store, testIssue("CAG-122", "In Progress"), filepath.Join(root, "CAG-122"), prURL)
 	pr := pullRequestSummary{Number: 522, URL: prURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch("CAG-122"), Author: prAuthor{Login: githubAppPRAuthorLogin}, StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "FAILURE", Name: "build"}}}
 
@@ -409,10 +409,10 @@ func TestReconcileIssueQuarantinesWrongBaseAuthorAndHead(t *testing.T) {
 	config := testRunnerConfig(root)
 	config.HandoffState = "Human Review"
 	config.BaseBranch = "develop"
-	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","review_status":"passed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/434"}`)
+	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","review_status":"passed","pr_url":"https://github.com/weskor/pi-symphony/pull/434"}`)
 	pr := pullRequestSummary{
 		Number:            434,
-		URL:               "https://github.com/pennywise-investments/compound-web/pull/434",
+		URL:               "https://github.com/weskor/pi-symphony/pull/434",
 		BaseRefName:       "main",
 		HeadRefName:       "feature/CAG-34",
 		Author:            prAuthor{Login: "human"},
@@ -446,10 +446,10 @@ func TestReconcileIssueApprovesMergeOnlyWithCleanInvariants(t *testing.T) {
 	if err := sh.Run("git init -q", workspace); err != nil {
 		t.Fatal(err)
 	}
-	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","review_status":"passed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/434"}`)
+	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","review_status":"passed","pr_url":"https://github.com/weskor/pi-symphony/pull/434"}`)
 	pr := pullRequestSummary{
 		Number:            434,
-		URL:               "https://github.com/pennywise-investments/compound-web/pull/434",
+		URL:               "https://github.com/weskor/pi-symphony/pull/434",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch("CAG-34"),
 		Author:            prAuthor{Login: githubAppPRAuthorLogin},
@@ -477,11 +477,11 @@ func TestReconcileIssueDistinguishesPRAuthorFromCommitAuthor(t *testing.T) {
 	if err := sh.Run("git init -q", workspace); err != nil {
 		t.Fatal(err)
 	}
-	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","review_status":"passed","pr_url":"https://github.com/pennywise-investments/compound-web/pull/434"}`)
+	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","review_status":"passed","pr_url":"https://github.com/weskor/pi-symphony/pull/434"}`)
 
 	validPR := pullRequestSummary{
 		Number:            434,
-		URL:               "https://github.com/pennywise-investments/compound-web/pull/434",
+		URL:               "https://github.com/weskor/pi-symphony/pull/434",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch("CAG-34"),
 		Author:            prAuthor{Login: githubAppPRAuthorLogin},

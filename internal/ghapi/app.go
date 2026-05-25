@@ -41,10 +41,10 @@ func AppEnvFromEnvironment() (map[string]string, string, error) {
 	return map[string]string{"GH_TOKEN": token, "GITHUB_TOKEN": token}, "github_app_installation", nil
 }
 
-const AppPRAuthorLogin = "app/compound-symphony-bot"
-const AppRESTPRAuthorLogin = "compound-symphony-bot[bot]"
-const AppBotName = "compound-symphony-bot[bot]"
-const AppBotEmail = "285402021+compound-symphony-bot[bot]@users.noreply.github.com"
+const AppPRAuthorLogin = "app/pi-symphony-bot"
+const AppRESTPRAuthorLogin = "pi-symphony-bot[bot]"
+const AppBotName = "pi-symphony-bot[bot]"
+const AppBotEmail = "285402021+pi-symphony-bot[bot]@users.noreply.github.com"
 
 func IsExpectedAppPRAuthor(login string) bool {
 	switch strings.TrimSpace(login) {

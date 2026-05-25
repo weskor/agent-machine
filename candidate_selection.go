@@ -136,10 +136,6 @@ func workerTaskBlocksDispatch(status string) bool {
 	}
 }
 
-func skipCandidateForSelectionOptions(config runnerConfig, candidate issue, pr *pullRequestSummary, store *state.Store, options candidateSelectionOptions) bool {
-	return skipCandidateForSelectionOptionsContext(context.Background(), config, candidate, pr, store, options)
-}
-
 func skipCandidateForSelectionOptionsContext(ctx context.Context, config runnerConfig, candidate issue, pr *pullRequestSummary, store *state.Store, options candidateSelectionOptions) bool {
 	if !options.SkipReviewReadyResumes || strings.TrimSpace(config.ReviewCommand) == "" || pr == nil {
 		return false
@@ -234,10 +230,6 @@ func retryBackoffDuration(retryCount int, max time.Duration) time.Duration {
 		return max
 	}
 	return d
-}
-
-func emitCandidateEvent(store *state.Store, eventType string, candidate issue, payload map[string]any) {
-	emitCandidateEventContext(context.Background(), store, eventType, candidate, payload)
 }
 
 func emitCandidateEventContext(ctx context.Context, store *state.Store, eventType string, candidate issue, payload map[string]any) {

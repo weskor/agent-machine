@@ -44,7 +44,7 @@ budgets:
   github_timeout: 2m
 github:
   app_slug: pi-symphony-bot
-compound:
+workflow:
   handoff_state: Human Review
   running_state: In Progress
   needs_info_state: Needs Info

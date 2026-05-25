@@ -11,7 +11,7 @@ import (
 
 func TestEvaluationArtifactSuccessfulRun(t *testing.T) {
 	workspace := t.TempDir()
-	record := testRunRecord("success", "https://github.com/pennywise-investments/compound-web/pull/402")
+	record := testRunRecord("success", "https://github.com/weskor/pi-symphony/pull/402")
 	record.ReviewStatus = "passed"
 	record.RuntimeUsage = &usage{TotalTokens: 1000, Cost: &usageCost{Total: 0.01}}
 	record.ReviewUsage = &usage{TotalTokens: 200, Cost: &usageCost{Total: 0.02}}
@@ -37,7 +37,7 @@ func TestEvaluationArtifactSuccessfulRun(t *testing.T) {
 
 func TestEvaluationArtifactRecordsBehaviorContractEvidence(t *testing.T) {
 	workspace := t.TempDir()
-	record := testRunRecord("review_failed", "https://github.com/pennywise-investments/compound-web/pull/438")
+	record := testRunRecord("review_failed", "https://github.com/weskor/pi-symphony/pull/438")
 	record.ReviewStatus = "failed"
 	record.ReviewFindings = "REVIEW_FAIL missing existing-behavior inventory and parity checklist"
 
@@ -52,7 +52,7 @@ func TestEvaluationArtifactRecordsBehaviorContractEvidence(t *testing.T) {
 
 func TestEvaluationArtifactRecordsTicketContractEvidence(t *testing.T) {
 	workspace := t.TempDir()
-	record := testRunRecord("review_failed", "https://github.com/pennywise-investments/compound-web/pull/440")
+	record := testRunRecord("review_failed", "https://github.com/weskor/pi-symphony/pull/440")
 	record.ReviewStatus = "failed"
 	record.ReviewFindings = "REVIEW_FAIL violated MUST use github.com/google/go-github/v66/github and MUST NOT add bespoke net/http wrappers"
 
@@ -77,7 +77,7 @@ func TestEvaluationArtifactRecordsNeedsInfoForIncompleteTicketContract(t *testin
 }
 
 func TestEvaluationArtifactReviewFailed(t *testing.T) {
-	record := testRunRecord("review_failed", "https://github.com/pennywise-investments/compound-web/pull/402")
+	record := testRunRecord("review_failed", "https://github.com/weskor/pi-symphony/pull/402")
 	record.ReviewStatus = "failed"
 	record.ReviewFindings = "REVIEW_FAIL: scope drift and out-of-scope change"
 
@@ -97,7 +97,7 @@ func TestEvaluationArtifactReviewFailed(t *testing.T) {
 }
 
 func TestEvaluationArtifactMissingEvidenceOnlyRoutesHumanReviewWithoutRetry(t *testing.T) {
-	record := testRunRecord("success", "https://github.com/pennywise-investments/compound-web/pull/402")
+	record := testRunRecord("success", "https://github.com/weskor/pi-symphony/pull/402")
 	record.ReviewStatus = "failed"
 	record.ReviewClassification = reviewClassificationMissingEvidenceOnly
 	record.ReviewFindings = "REVIEW_FAIL\nREVIEW_CLASSIFICATION: missing_evidence_only\nBehavior Contract Evidence missing from PR body."
@@ -132,7 +132,7 @@ func TestEvaluationArtifactFeedbackRequested(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	evaluation := evaluationForRun(workspace, testRunRecord("success", "https://github.com/pennywise-investments/compound-web/pull/402"))
+	evaluation := evaluationForRun(workspace, testRunRecord("success", "https://github.com/weskor/pi-symphony/pull/402"))
 
 	if evaluation.FeedbackRetryCount != 1 || !containsString(evaluation.FrictionSignals, "changes_requested") {
 		t.Fatalf("expected feedback retry signal: %#v", evaluation)
@@ -140,7 +140,7 @@ func TestEvaluationArtifactFeedbackRequested(t *testing.T) {
 }
 
 func TestEvaluationArtifactMergeBlocked(t *testing.T) {
-	record := testRunRecord("failed", "https://github.com/pennywise-investments/compound-web/pull/402")
+	record := testRunRecord("failed", "https://github.com/weskor/pi-symphony/pull/402")
 	record.Error = "check pending: preview deployment"
 
 	evaluation := evaluationForRun(t.TempDir(), record)
@@ -155,7 +155,7 @@ func TestEvaluationArtifactMergeBlocked(t *testing.T) {
 
 func TestWriteEvaluationArtifactAlongsideRunRecord(t *testing.T) {
 	workspace := t.TempDir()
-	writeEvaluationArtifact(workspace, testRunRecord("success", "https://github.com/pennywise-investments/compound-web/pull/402"))
+	writeEvaluationArtifact(workspace, testRunRecord("success", "https://github.com/weskor/pi-symphony/pull/402"))
 
 	data, err := os.ReadFile(filepath.Join(workspace, evaluationArtifactName))
 	if err != nil {

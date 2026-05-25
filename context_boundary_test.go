@@ -94,7 +94,6 @@ func TestWorkerContextBoundariesDoNotUseBackgroundContext(t *testing.T) {
 			"withStateStoreContext",
 		},
 		"linear.go": {
-			"firstCandidateContext",
 			"candidatesContext",
 			"issueIdentifiersByStateContext",
 			"workflowStatesContext",
@@ -123,7 +122,6 @@ func TestWorkerContextBoundariesDoNotUseBackgroundContext(t *testing.T) {
 		},
 		"reconciler.go": {
 			"reconcileIssueContext",
-			"reconcileIssueWithArtifactContext",
 			"ReconcileIssueContext",
 			"ReconcileIssueWithArtifactContext",
 			"runReconciliationScanContext",
@@ -177,7 +175,6 @@ func TestWorkerContextBoundariesDoNotUseBackgroundContext(t *testing.T) {
 			"writeRunRecordWithStateFallbackContext",
 			"stateStoreForRunRecordExportContext",
 			"recordArtifactExportFailureContext",
-			"mirrorRunRecordToStateContext",
 		},
 	}
 

@@ -28,7 +28,7 @@ func TestWriteSmokeConfigUsesSafeGeneratedConfig(t *testing.T) {
 		Agent:     cfg.AgentConfig{MaxRetryBackoffText: "300000"},
 		Pi:        cfg.PiConfig{AfterCreate: "git clone --branch main git@github.com:weskor/pi-symphony.git ."},
 		GitHub:    cfg.GitHubConfig{AppSlug: "pi-symphony-bot"},
-		Compound:  cfg.CompoundConfig{HandoffState: "Human Review", RunningState: "In Progress", NeedsInfoState: "Needs Info", DoneState: "Done"},
+		Workflow:  cfg.WorkflowConfig{HandoffState: "Human Review", RunningState: "In Progress", NeedsInfoState: "Needs Info", DoneState: "Done"},
 	}
 
 	path, err := writeSmokeConfig(options{workspaceRoot: root, concurrency: 2}, config)

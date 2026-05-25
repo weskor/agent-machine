@@ -26,9 +26,8 @@ scope are unclear.
 
 ## Current Status
 
-Pi Symphony is extracted from `pennywise-investments/compound-web`. This repo
-owns the runner implementation, tests, specs, GitHub/Linear integrations, CLI,
-and dogfood configuration. Consumer repos should keep only their
+This repo owns the runner implementation, tests, specs, GitHub/Linear
+integrations, CLI, and dogfood configuration. Consumer repos should keep only their
 `symphony.yaml`, `symphony.agent.md`, and ignored `.symphony/` runtime state.
 
 ## Requirements
@@ -63,7 +62,7 @@ Edit `/path/to/target/symphony.yaml`:
 - `workspace.base_branch`: PR base branch, for example `main` or `develop`.
 - `runtime.provider`: usually `codex_cli`; use `pi_cli` only for the legacy Pi
   CLI runtime.
-- `compound.*`: Linear lane names for running, handoff, needs-info, and done.
+- `workflow.*`: Linear lane names for running, handoff, needs-info, and done.
 
 Put secrets in the process environment, an explicit `--env-file`, or
 `.env.local` next to the selected `symphony.yaml`:
@@ -341,7 +340,6 @@ branch.
 - `docs/agents/`: repository-specific agent guidance.
 - `docs/specs/`: observable behavior contracts.
 - `docs/adr/`: durable architecture decisions.
-- `examples/`: consumer repository config examples.
 
 ## Safety Notes
 

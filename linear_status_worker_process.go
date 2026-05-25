@@ -112,7 +112,7 @@ func executeLinearStatusTransitionTask(ctx context.Context, client linearClient,
 		return true, completeLinearStatusTask(ctx, store, task.TaskKey, "failed", err)
 	}
 	if !moved {
-		err = fmt.Errorf("Linear status transition for %s to %q was not available", payload.IssueIdentifier, payload.TargetState)
+		err = fmt.Errorf("linear status transition for %s to %q was not available", payload.IssueIdentifier, payload.TargetState)
 		return true, completeLinearStatusTask(ctx, store, task.TaskKey, "failed", err)
 	}
 	return true, completeLinearStatusTask(ctx, store, task.TaskKey, "completed", nil)
@@ -150,19 +150,19 @@ func normalizeLinearStatusTransitionPayload(payload linearStatusTransitionPayloa
 	payload.TeamID = strings.TrimSpace(payload.TeamID)
 	payload.TargetState = strings.TrimSpace(payload.TargetState)
 	if payload.Kind != linearStatusTaskKindTransition {
-		return linearStatusTransitionPayload{}, fmt.Errorf("unsupported Linear status task kind %q", payload.Kind)
+		return linearStatusTransitionPayload{}, fmt.Errorf("unsupported linear status task kind %q", payload.Kind)
 	}
 	if payload.IssueID == "" {
-		return linearStatusTransitionPayload{}, fmt.Errorf("Linear status transition issue_id is required")
+		return linearStatusTransitionPayload{}, fmt.Errorf("linear status transition issue_id is required")
 	}
 	if payload.IssueIdentifier == "" {
-		return linearStatusTransitionPayload{}, fmt.Errorf("Linear status transition issue_identifier is required")
+		return linearStatusTransitionPayload{}, fmt.Errorf("linear status transition issue_identifier is required")
 	}
 	if payload.TeamID == "" {
-		return linearStatusTransitionPayload{}, fmt.Errorf("Linear status transition team_id is required")
+		return linearStatusTransitionPayload{}, fmt.Errorf("linear status transition team_id is required")
 	}
 	if payload.TargetState == "" {
-		return linearStatusTransitionPayload{}, fmt.Errorf("Linear status transition target_state is required")
+		return linearStatusTransitionPayload{}, fmt.Errorf("linear status transition target_state is required")
 	}
 	return payload, nil
 }

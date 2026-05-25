@@ -11,7 +11,7 @@ func TestRenderPRHandoffCommentIsReadableAndBounded(t *testing.T) {
 		IssueIdentifier: "CAG-15",
 		IssueTitle:      "Readable handoff comments",
 		IssueURL:        "https://linear.app/wessismore/issue/CAG-15/example",
-		PRURL:           "https://github.com/pennywise-investments/compound-web/pull/407",
+		PRURL:           "https://github.com/weskor/pi-symphony/pull/407",
 		RuntimeUsage:    &usage{Input: 10, Output: 5, TotalTokens: 15, Cost: &usageCost{Total: 0.25}},
 		Review:          &reviewResult{Status: "passed"},
 		Duration:        90 * time.Second,
@@ -35,7 +35,7 @@ func TestRenderPRHandoffCommentSanitizesAndTruncates(t *testing.T) {
 	markdown := renderPRHandoffComment(handoffSummary{
 		IssueIdentifier: "CAG-15",
 		IssueTitle:      "Title with\nnewline and `ticks`",
-		PRURL:           "https://github.com/pennywise-investments/compound-web/pull/407",
+		PRURL:           "https://github.com/weskor/pi-symphony/pull/407",
 		Validation:      []string{"bun run check\nsecond line", "raw `code` marker", long},
 		FollowUps:       []string{long},
 	})
@@ -52,7 +52,7 @@ func TestRenderPRHandoffCommentSanitizesAndTruncates(t *testing.T) {
 }
 
 func TestPRNumberFromURL(t *testing.T) {
-	if got := prNumberFromURL("https://github.com/pennywise-investments/compound-web/pull/407"); got != "407" {
+	if got := prNumberFromURL("https://github.com/weskor/pi-symphony/pull/407"); got != "407" {
 		t.Fatalf("unexpected PR number: %q", got)
 	}
 	if got := prNumberFromURL("https://example.com/pull/407"); got != "" {

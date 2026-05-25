@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -104,6 +105,30 @@ func TestLockManagerCleanupStaleContextHonorsCanceledContext(t *testing.T) {
 	}
 	if _, err := os.Stat(Path(workspace)); err != nil {
 		t.Fatalf("lock file stat after canceled cleanup = %v; want lock retained", err)
+	}
+}
+
+func TestDescribeExistingStaleLockUsesCurrentRepairCommand(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	workspace := filepath.Join(t.TempDir(), "CAG-199")
+	writeLockFixture(t, workspace, domain.RunLock{
+		Workspace:       workspace,
+		IssueIdentifier: "CAG-199",
+		Host:            "other",
+		PID:             os.Getpid(),
+		HeartbeatAt:     now.Add(-RunLockStaleAfter - time.Second),
+		StartedAt:       now.Add(-RunLockStaleAfter - time.Second),
+		Owner:           "owner",
+		Branch:          "symphony/CAG-199-workspace",
+	})
+
+	err := DescribeExisting(Path(workspace), now)
+
+	if err == nil || !strings.Contains(err.Error(), "go run . repair-artifacts --config <path>") {
+		t.Fatalf("DescribeExisting() error = %v, want current repair command", err)
+	}
+	if strings.Contains(err.Error(), "bun run symphony:pi:repair-artifacts") {
+		t.Fatalf("DescribeExisting() error = %v, contains stale repair command", err)
 	}
 }
 

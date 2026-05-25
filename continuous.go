@@ -141,18 +141,7 @@ func recoverStaleWorkerTasks(ctx context.Context, stateStore *state.Store, now t
 	return len(recovered) > 0, nil
 }
 
-func runClaimedAttemptBatch(client linearClient, proj project, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {
-	if stateStore == nil {
-		return false, fmt.Errorf("SQLite state store unavailable for continuous attempt batch at %s", state.DefaultDBPath(config.WorkspaceRoot))
-	}
-	return runClaimedAttemptBatchWithClaimer(client, proj, config, stateStore, capacity, claimNextRunAttemptContext)
-}
-
 type claimedAttemptFunc func(context.Context, linearClient, project, runnerConfig, *state.Store) (*claimedRunAttempt, bool, error)
-
-func runClaimedAttemptBatchWithClaimer(client linearClient, proj project, config runnerConfig, stateStore *state.Store, capacity int, claim claimedAttemptFunc) (bool, error) {
-	return runClaimedAttemptBatchWithClaimerContext(context.Background(), client, proj, config, stateStore, capacity, claim)
-}
 
 func runClaimedAttemptBatchWithClaimerContext(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store, capacity int, claim claimedAttemptFunc) (bool, error) {
 	if err := ctx.Err(); err != nil {

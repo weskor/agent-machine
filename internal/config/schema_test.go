@@ -22,7 +22,7 @@ pi:
 	if config.Tracker.Kind != "linear" || config.Tracker.Endpoint == "" {
 		t.Fatalf("tracker defaults not applied: %#v", config.Tracker)
 	}
-	if config.Workspace.BaseBranch != "develop" || config.Compound.HandoffState != "Human Review" {
+	if config.Workspace.BaseBranch != "develop" || config.Workflow.HandoffState != "Human Review" {
 		t.Fatalf("compatibility defaults not applied: %#v", config)
 	}
 	if config.Budgets.WallClock != 2*time.Hour || config.Pi.Command != "pi --print" {
@@ -134,29 +134,6 @@ review:
 	}
 }
 
-func TestCompoundConfigExampleRelocatesDomainReviewGuidance(t *testing.T) {
-	content, err := os.ReadFile(filepath.Join("..", "..", "examples", "compound-web.symphony.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	config, err := ParseConfig(string(content))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for _, expected := range []string{
-		"Compound Web domain review policy",
-		"direct data writes",
-		"auth, onboarding, invitation",
-		"KYC, payment",
-		"non-authoritative domain sources",
-	} {
-		if !strings.Contains(config.Review.Guidance, expected) {
-			t.Fatalf("compound project review guidance missing %q:\n%s", expected, config.Review.Guidance)
-		}
-	}
-}
-
 func TestParseConfigExpandsEnvironment(t *testing.T) {
 	t.Setenv("SYMPHONY_WORKSPACE_ROOT", "/tmp/from-env")
 	config, err := ParseConfig(`tracker:
@@ -221,7 +198,7 @@ workspace:
   root: /tmp/workspaces
 github:
   app_slug: ""
-compound:
+workflow:
   required_validation: []
   future_field: accepted
 `)
@@ -231,7 +208,7 @@ compound:
 }
 
 func TestParseConfigExamples(t *testing.T) {
-	for _, path := range []string{"../../symphony.example.yaml", "../../examples/compound-web.symphony.yaml"} {
+	for _, path := range []string{"../../symphony.example.yaml"} {
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			proj, err := ReadProject(path)
 			if err != nil {

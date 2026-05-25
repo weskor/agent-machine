@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -26,6 +27,7 @@ func TestRunDispatchesRepresentativeArgCombinations(t *testing.T) {
 	}{
 		{name: "status", args: []string{"--status", configPath}, wantMode: modeStatus},
 		{name: "run status", args: []string{"--run-status=CAG-119", configPath}, wantMode: modeRunStatus},
+		{name: "run status flag argument", args: []string{"--run-status", "CAG-119", "--config", configPath}, wantMode: modeRunStatus},
 		{name: "run status command", args: []string{"run-status", "CAG-119", "--config", configPath}, wantMode: modeRunStatus},
 		{name: "explain", args: []string{"--explain", configPath}, wantMode: modeExplain},
 		{name: "surface snapshot", args: []string{"surface", "snapshot", "--config", configPath}, wantMode: modeSurface},
@@ -78,6 +80,31 @@ func TestRunRejectsRemovedOnceMode(t *testing.T) {
 	}
 }
 
+func TestRunVersionDoesNotRequireConfigOrLinearClient(t *testing.T) {
+	originalVersion := Version
+	Version = "0.1.0-test"
+	t.Cleanup(func() { Version = originalVersion })
+
+	calledClient := false
+	deps := testDeps(t, nil, nil, nil)
+	deps.NewLinearClient = func(apiKey, endpoint string) fakeClient {
+		calledClient = true
+		return fakeClient{}
+	}
+
+	output := captureStdout(t, func() {
+		if err := Run([]string{"--version"}, deps); err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+	})
+	if calledClient {
+		t.Fatal("NewLinearClient called for version")
+	}
+	if strings.TrimSpace(output) != "pi-symphony 0.1.0-test" {
+		t.Fatalf("version output = %q", output)
+	}
+}
+
 func TestRunRejectsMissingModeWithoutLinearClient(t *testing.T) {
 	configPath := writeConfig(t, "tracker:\n  api_key: \"\"\n")
 	calledClient := false
@@ -94,6 +121,27 @@ func TestRunRejectsMissingModeWithoutLinearClient(t *testing.T) {
 	if calledClient {
 		t.Fatal("NewLinearClient called for missing mode")
 	}
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	original := os.Stdout
+	readPipe, writePipe, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = writePipe
+	t.Cleanup(func() { os.Stdout = original })
+
+	fn()
+	if err := writePipe.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if _, err := output.ReadFrom(readPipe); err != nil {
+		t.Fatal(err)
+	}
+	return output.String()
 }
 
 func TestRunStatusDoesNotRequireLinearClient(t *testing.T) {

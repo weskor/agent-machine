@@ -79,7 +79,7 @@ func TestCodexCLIAdapterReviewAttemptWritesPromptAndClassifiesFindings(t *testin
 	workspace := t.TempDir()
 	runtime := CodexCLIAdapter{
 		RunCommand: func(command, workdir string, env map[string]string, timeout time.Duration, phase string) (string, error) {
-			if phase != "review" || !strings.Contains(command, ".pi-symphony-review-prompt.md") || !strings.Contains(command, " - < ") {
+			if phase != "review" || !strings.Contains(command, ".am-review-prompt.md") || !strings.Contains(command, " - < ") {
 				t.Fatalf("unexpected review command phase=%q command=%q", phase, command)
 			}
 			return "REVIEW_FAIL\nREVIEW_CLASSIFICATION: missing_evidence_only\nAdd evidence.", nil

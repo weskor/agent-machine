@@ -90,10 +90,10 @@ func sanitizeRawArtifactPhase(phase string) string {
 
 func rawArtifactEvidenceRoot(workspace string) string {
 	workspaceRoot := filepath.Dir(workspace)
-	if filepath.Base(workspaceRoot) == "workspaces" && filepath.Base(filepath.Dir(workspaceRoot)) == ".symphony" {
+	if filepath.Base(workspaceRoot) == "workspaces" && filepath.Base(filepath.Dir(workspaceRoot)) == ".am" {
 		return filepath.Dir(workspaceRoot)
 	}
-	return filepath.Join(workspaceRoot, ".symphony")
+	return filepath.Join(workspaceRoot, ".am")
 }
 
 func rawAgentOutputLimitBytes() int {
@@ -109,17 +109,11 @@ func rawAgentOutputLimitBytes() int {
 }
 
 func debugRawOutputFlag() string {
-	if value := strings.TrimSpace(os.Getenv("AM_DEBUG_RAW_OUTPUT")); value != "" {
-		return value
-	}
-	return strings.TrimSpace(os.Getenv("PI_SYMPHONY_DEBUG_RAW_OUTPUT"))
+	return strings.TrimSpace(os.Getenv("AM_DEBUG_RAW_OUTPUT"))
 }
 
 func debugRawOutputLimit() string {
-	if value := strings.TrimSpace(os.Getenv("AM_DEBUG_RAW_OUTPUT_LIMIT_BYTES")); value != "" {
-		return value
-	}
-	return strings.TrimSpace(os.Getenv("PI_SYMPHONY_DEBUG_RAW_OUTPUT_LIMIT_BYTES"))
+	return strings.TrimSpace(os.Getenv("AM_DEBUG_RAW_OUTPUT_LIMIT_BYTES"))
 }
 
 func logHandoffRunSummary(issueIdentifier, prURL string, review *reviewResult, validation []string) {

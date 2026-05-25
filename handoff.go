@@ -38,7 +38,7 @@ type prHandoffPendingPayload struct {
 }
 
 func hasUnresolvedReviewFailure(workspaceRoot, identifier string) bool {
-	data, err := os.ReadFile(filepath.Join(workspaceRoot, identifier, ".pi-symphony-run.json"))
+	data, err := os.ReadFile(filepath.Join(workspaceRoot, identifier, ".am-run.json"))
 	if err != nil {
 		return false
 	}
@@ -159,7 +159,7 @@ func behaviorContractEvidenceForRun(record runRecord) []string {
 }
 
 func expectedWorkspaceBranch(identifier string) string {
-	return "symphony/" + strings.TrimSpace(identifier) + "-workspace"
+	return "am/" + strings.TrimSpace(identifier) + "-workspace"
 }
 
 func validatePRForHandoff(config runnerConfig, candidate *issue, prURL string) (string, string, error) {
@@ -255,7 +255,7 @@ func executeRunnerPRHandoffContext(ctx context.Context, config runnerConfig, can
 	if base == "" {
 		base = "main"
 	}
-	worktreePathspec := "-- . ':!.pi-symphony-*' ':!.pi-symphony/**'"
+	worktreePathspec := "-- . ':!.am-*' ':!.am/**'"
 	status, err := sh.CaptureQuietContext(ctx, "git status --porcelain "+worktreePathspec, workspace)
 	if err != nil {
 		return "", fmt.Errorf("git status failed before PR handoff: %w", err)

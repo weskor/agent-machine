@@ -9,7 +9,7 @@ import (
 
 func TestReadProjectLoadsYamlAndPrompt(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "symphony.yaml")
+	path := filepath.Join(dir, "am.yaml")
 	content := "title: Test project\nstate: ready\nagent:\n  prompt_path: agent.md\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
@@ -31,7 +31,7 @@ func TestReadProjectLoadsYamlAndPrompt(t *testing.T) {
 }
 
 func TestReadProjectRejectsFrontMatter(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "symphony.yaml")
+	path := filepath.Join(t.TempDir(), "am.yaml")
 	if err := os.WriteFile(path, []byte("---\n# old format\n---\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -42,13 +42,13 @@ func TestReadProjectRejectsFrontMatter(t *testing.T) {
 }
 
 func TestScalarHandlesFallbacksQuotesAndEnvironment(t *testing.T) {
-	t.Setenv("SYMPHONY_LABEL", "from-env")
+	t.Setenv("AM_LABEL", "from-env")
 	yaml := "" +
 		"title: 'Quoted value'\n" +
 		"empty: \"\"\n" +
 		"nullish: null\n" +
 		"json_path: $.issue.identifier\n" +
-		"env_value: $SYMPHONY_LABEL\n" +
+		"env_value: $AM_LABEL\n" +
 		"missing_env: $DOES_NOT_EXIST\n"
 
 	tests := []struct {
@@ -123,7 +123,7 @@ func TestCommandUnderSupportsInlineAndFoldedCommands(t *testing.T) {
 		"steps:\n" +
 		"  inline: bun run check\n" +
 		"  folded: >-\n" +
-		"    bun run symphony:pi:test\n" +
+		"    bun run am:pi:test\n" +
 		"    -- --run TestWorkflow\n" +
 		"  literal: |\n" +
 		"    git diff --check\n"
@@ -131,7 +131,7 @@ func TestCommandUnderSupportsInlineAndFoldedCommands(t *testing.T) {
 	if got := CommandUnder(yaml, "inline", "fallback"); got != "bun run check" {
 		t.Fatalf("inline command = %q, want bun run check", got)
 	}
-	if got := CommandUnder(yaml, "folded", "fallback"); got != "bun run symphony:pi:test -- --run TestWorkflow" {
+	if got := CommandUnder(yaml, "folded", "fallback"); got != "bun run am:pi:test -- --run TestWorkflow" {
 		t.Fatalf("folded command = %q", got)
 	}
 	if got := CommandUnder(yaml, "literal", "fallback"); got != "git diff --check" {

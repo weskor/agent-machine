@@ -15,12 +15,12 @@ func TestRenderPRHandoffCommentIsReadableAndBounded(t *testing.T) {
 		RuntimeUsage:    &usage{Input: 10, Output: 5, TotalTokens: 15, Cost: &usageCost{Total: 0.25}},
 		Review:          &reviewResult{Status: "passed"},
 		Duration:        90 * time.Second,
-		Validation:      []string{"bun run symphony:pi:test", "git diff --check"},
+		Validation:      []string{"bun run am:pi:test", "git diff --check"},
 		Classification:  &runClassification{Outcome: "handoff_ready", NextAction: "await_approval_and_green_checks"},
 	}
 
 	markdown := renderPRHandoffComment(summary)
-	for _, expected := range []string{prSummaryMarker, "## Agent Machine handoff", "### Validation", "### Behavior Contract Evidence", "docs/specs/harness-behavior.md", "docs/agents/review-policy.md", "Specs: preserved", "Run classification: outcome=handoff_ready", "### Remaining follow-up", "bun run symphony:pi:test", "passed"} {
+	for _, expected := range []string{prSummaryMarker, "## Agent Machine handoff", "### Validation", "### Behavior Contract Evidence", "docs/specs/harness-behavior.md", "docs/agents/review-policy.md", "Specs: preserved", "Run classification: outcome=handoff_ready", "### Remaining follow-up", "bun run am:pi:test", "passed"} {
 		if !strings.Contains(markdown, expected) {
 			t.Fatalf("expected %q in markdown:\n%s", expected, markdown)
 		}
@@ -62,10 +62,10 @@ func TestPRNumberFromURL(t *testing.T) {
 
 func TestValidationLinesExtractsSafeCommandSummaries(t *testing.T) {
 	output := `noise
-{"message":{"role":"assistant","content":[{"type":"text","text":"Validation:\n- bun run symphony:pi:test\n- git diff --check\n- unrelated prose"}]}}
+{"message":{"role":"assistant","content":[{"type":"text","text":"Validation:\n- bun run am:pi:test\n- git diff --check\n- unrelated prose"}]}}
 `
 	got := validationLines(output)
-	if len(got) != 3 || got[1] != "bun run symphony:pi:test" || got[2] != "git diff --check" {
+	if len(got) != 3 || got[1] != "bun run am:pi:test" || got[2] != "git diff --check" {
 		t.Fatalf("unexpected validation lines: %#v", got)
 	}
 }

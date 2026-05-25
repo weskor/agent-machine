@@ -8,7 +8,7 @@ The desired V1 experience is boring in the best way: operators can let Agent Mac
 
 ## V1 promise
 
-Given a configured `symphony.yaml`, a matching agent prompt, repository guidance, and a queue of well-specified Linear issues, Agent Machine should:
+Given a configured `am.yaml`, a matching agent prompt, repository guidance, and a queue of well-specified Linear issues, Agent Machine should:
 
 1. Select eligible Candidates deterministically.
 2. Claim work with durable coordination.

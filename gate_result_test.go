@@ -6,7 +6,7 @@ import (
 )
 
 func TestMergeGateUsesDeterministicGateResult(t *testing.T) {
-	pr := pullRequestSummary{URL: "https://github.com/acme/repo/pull/7", HeadRefName: "symphony/CAG-7-workspace", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"}
+	pr := pullRequestSummary{URL: "https://github.com/acme/repo/pull/7", HeadRefName: "am/CAG-7-workspace", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"}
 
 	gate := evaluatePullRequestMergeGate(pr)
 

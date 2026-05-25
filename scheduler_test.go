@@ -303,7 +303,7 @@ func TestContinuousWorkerTaskRenewsLeaseAndActiveHeartbeatWhileRunning(t *testin
 	workerTaskLeaseRenewInterval = 5 * time.Millisecond
 	defer func() { workerTaskLeaseRenewInterval = oldRenewInterval }()
 
-	recordHeartbeat := daemonHeartbeatRecorder(ctx, runnerConfig{ConfigPath: "/repo/symphony.yaml"}, store)
+	recordHeartbeat := daemonHeartbeatRecorder(ctx, runnerConfig{ConfigPath: "/repo/am.yaml"}, store)
 	didWork, err := runContinuousWorkerTask(ctx, store, continuousWorkerTask{
 		TaskKey:         "continuous:implementation",
 		Role:            implementationWorkerRole,

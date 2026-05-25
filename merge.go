@@ -62,8 +62,8 @@ func mergeApprovedPRsWithStoreContext(parent context.Context, client linearClien
 		recordMergeErrorContext(ctx, store, "", "", 0, err)
 		return fmt.Errorf("GitHub API open PR metadata lookup failed: %w", err)
 	}
-	prs = symphonyPRs(prs)
-	log("found %d Symphony-owned open PR(s)", len(prs))
+	prs = amPRs(prs)
+	log("found %d Agent Machine-owned open PR(s)", len(prs))
 	worker := mergeWorker{client: client, config: config, store: store, github: github}
 	for _, pr := range prs {
 		if err := worker.HandlePullRequest(ctx, pr); err != nil {
@@ -90,7 +90,7 @@ func scheduleMergeWorkerTasks(ctx context.Context, client linearClient, config r
 	}
 	didWork := false
 	now := time.Now().UTC()
-	for _, pr := range symphonyPRs(prs) {
+	for _, pr := range amPRs(prs) {
 		identifier := issueIdentifierFromBranch(pr.HeadRefName)
 		if identifier == "" {
 			continue
@@ -145,7 +145,7 @@ func runQueuedMergeWorkerTaskContext(parent context.Context, client linearClient
 		recordMergeErrorContext(ctx, store, task.IssueKey, task.IssueID, taskPayload.PRNumber, err)
 		return true, errors.Join(fmt.Errorf("GitHub API open PR metadata lookup failed: %w", err), completeClaimedMergeWorkerTask(ctx, store, task, "failed", true, "github_open_pr_lookup_failed", err.Error(), startedAt, finishedAt))
 	}
-	pr, ok := findMergeTaskPullRequest(symphonyPRs(prs), task, taskPayload)
+	pr, ok := findMergeTaskPullRequest(amPRs(prs), task, taskPayload)
 	if !ok {
 		finishedAt := time.Now().UTC()
 		return true, completeClaimedMergeWorkerTask(ctx, store, task, "completed", true, "pull_request_not_open", "", startedAt, finishedAt)
@@ -244,7 +244,7 @@ func emptyAsUnknown(value string) string {
 	return value
 }
 
-func symphonyPRs(prs []pullRequestSummary) []pullRequestSummary {
+func amPRs(prs []pullRequestSummary) []pullRequestSummary {
 	filtered := make([]pullRequestSummary, 0, len(prs))
 	for _, pr := range prs {
 		if issueIdentifierFromBranch(pr.HeadRefName) == "" {
@@ -302,7 +302,7 @@ func workspaceLockedOrModified(workspaceRoot, identifier, _ string) (bool, strin
 	}
 	for _, lockPath := range []string{
 		filepath.Join(workspace, ".git", "index.lock"),
-		filepath.Join(workspace, ".pi-symphony.lock"),
+		filepath.Join(workspace, ".am.lock"),
 	} {
 		if _, err := os.Stat(lockPath); err == nil {
 			return true, fmt.Sprintf("workspace %s is locked", workspace)
@@ -321,7 +321,7 @@ func workspaceLockedOrModified(workspaceRoot, identifier, _ string) (bool, strin
 func runArtifactMergeBlockReason(workspaceRoot, identifier, prURL string) string {
 	record, ok := readRunArtifact(filepath.Join(workspaceRoot, identifier))
 	if !ok {
-		return "missing run artifact for approved Symphony PR"
+		return "missing run artifact for approved Agent Machine PR"
 	}
 	if strings.TrimSpace(record.PRURL) != "" && strings.TrimSpace(prURL) != "" && strings.TrimSpace(record.PRURL) != strings.TrimSpace(prURL) {
 		return fmt.Sprintf("run artifact PR URL %s does not match candidate PR %s", record.PRURL, prURL)

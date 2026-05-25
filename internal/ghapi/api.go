@@ -430,8 +430,8 @@ func (c *goClient) SquashMergePullRequest(ctx context.Context, prNumber int) err
 }
 
 func (c *goClient) DeleteBranch(ctx context.Context, branch string) error {
-	if !strings.HasPrefix(branch, "symphony/") || IssueIdentifierFromBranch(branch) == "" || strings.Contains(branch, "..") || strings.HasPrefix(branch, "/") || strings.HasSuffix(branch, "/") {
-		return fmt.Errorf("refusing to delete non-Symphony branch %q", branch)
+	if !strings.HasPrefix(branch, "am/") || IssueIdentifierFromBranch(branch) == "" || strings.Contains(branch, "..") || strings.HasPrefix(branch, "/") || strings.HasSuffix(branch, "/") {
+		return fmt.Errorf("refusing to delete non-Agent Machine branch %q", branch)
 	}
 	_, err := c.client.Git.DeleteRef(ctx, c.owner, c.repo, "heads/"+branch)
 	return err

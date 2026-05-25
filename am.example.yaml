@@ -17,14 +17,14 @@ tracker:
 polling:
   interval_ms: 30000
 workspace:
-  root: .symphony/workspaces
+  root: .am/workspaces
   base_branch: develop
 hooks:
   timeout_ms: 120000
   before_run: git status --short --branch
   after_run: git diff --check
 agent:
-  prompt_path: symphony.agent.example.md
+  prompt_path: am.agent.example.md
   max_concurrent_agents: 1
   max_retry_backoff_ms: 300000
 runtime:

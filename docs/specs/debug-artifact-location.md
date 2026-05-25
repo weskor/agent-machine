@@ -12,7 +12,7 @@ how this affects cleanup safety.
 - Applies to `captureAgentOutput` and its raw trace writer used for implementation
   and review phases.
 - Does **not** change the required location for
-  `.pi-symphony-run.json` or `.pi-symphony-evaluation.json` in this slice.
+  `.am-run.json` or `.am-evaluation.json` in this slice.
 
 ## Contract
 
@@ -20,14 +20,14 @@ how this affects cleanup safety.
 
 When `AM_DEBUG_RAW_OUTPUT=1`:
 
-- For the standard workspace layout `<repo>/.symphony/workspaces/<issue>`,
+- For the standard workspace layout `<repo>/.am/workspaces/<issue>`,
   the implementation phase writes to
-  `<repo>/.symphony/debug/<issue>/implementation-raw.log`.
-- For the standard workspace layout `<repo>/.symphony/workspaces/<issue>`,
+  `<repo>/.am/debug/<issue>/implementation-raw.log`.
+- For the standard workspace layout `<repo>/.am/workspaces/<issue>`,
   the review phase writes to
-  `<repo>/.symphony/debug/<issue>/review-raw.log`.
+  `<repo>/.am/debug/<issue>/review-raw.log`.
 - For nonstandard workspace roots, the fallback remains the issue workspace
-  parent plus `.symphony/debug/<issue>/<phase>-raw.log`.
+  parent plus `.am/debug/<issue>/<phase>-raw.log`.
 - `<issue>` is derived from the issue workspace basename (`CAG-XX`).
 - The directory is created with secure permissions and the write is capped using
   `AM_DEBUG_RAW_OUTPUT_LIMIT_BYTES` (defaulting to
@@ -40,17 +40,17 @@ When `AM_DEBUG_RAW_OUTPUT=1`:
 - The primary daemon log must always include the resolved artifact path when output
   is written.
 
-### 3) Compatibility and migration
+### 3) Workspace-local trace cleanup
 
-- Legacy paths under `<workspace>/.pi-symphony-debug/*-raw.log` may exist from
-  earlier runs.
-- During this migration, those legacy paths must not prevent cleanup.
+- Workspace-local debug paths under `<workspace>/.am-debug/*-raw.log` are
+  generated traces, not domain evidence.
+- Those workspace-local trace paths must not prevent cleanup.
 
 ### 4) Workspace change detection
 
 - `workspaceHasChanges` / `internal/workspace.HasChanges` continues to ignore only
-  expected evidence files required by existing behavior (`.pi-symphony-run.json`,
-  `.pi-symphony-evaluation.json`, `.pi-symphony-prompt.md`, `.pi-symphony-review-prompt.md`).
+  expected evidence files required by existing behavior (`.am-run.json`,
+  `.am-evaluation.json`, `.am-prompt.md`, `.am-review-prompt.md`).
 - Operator-side review subagents can leave a top-level `false` scratch marker
   when their output file option is disabled. That marker is not domain evidence
   and must not block cleanup. Only an exact top-level regular file named `false`
@@ -63,15 +63,14 @@ When `AM_DEBUG_RAW_OUTPUT=1`:
 ## Acceptance criteria
 
 - With `AM_DEBUG_RAW_OUTPUT=1`, a standard
-  `<repo>/.symphony/workspaces/<issue>` run creates implementation and review
-  debug artifacts under `<repo>/.symphony/debug/<issue>/`.
+  `<repo>/.am/workspaces/<issue>` run creates implementation and review
+  debug artifacts under `<repo>/.am/debug/<issue>/`.
 - Nonstandard workspace roots continue to write under the workspace parent
-  fallback `.symphony/debug/<issue>/` path.
+  fallback `.am/debug/<issue>/` path.
 - The primary logs include the artifact path and truncation note when capped.
-- Completed workspaces containing only expected evidence files plus old
-  `implementation-raw.log`/`review-raw.log` in legacy locations can still be cleaned
-  by the cleanup lane.
+- Completed workspaces containing only expected evidence files plus
+  workspace-local `implementation-raw.log`/`review-raw.log` traces can still be
+  cleaned by the cleanup lane.
 - Completed workspaces containing only expected evidence files plus a matching
   top-level `false` scratch marker can still be cleaned by the cleanup lane.
 - No existing run/evaluation artifact behavior is changed in this slice.
-

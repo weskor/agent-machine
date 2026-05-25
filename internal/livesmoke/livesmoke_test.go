@@ -35,7 +35,7 @@ func TestAllowedPathFromPromptAcceptsScopedSmokePath(t *testing.T) {
 }
 
 func TestAllowedPathFromPromptRejectsUnsafePath(t *testing.T) {
-	prompt := "Allowed paths:\n- ../symphony.yaml"
+	prompt := "Allowed paths:\n- ../am.yaml"
 	if _, err := AllowedPathFromPrompt(prompt); err == nil {
 		t.Fatal("expected unsafe path to be rejected")
 	}

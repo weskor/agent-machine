@@ -75,7 +75,7 @@ func TestExplainMergeUsesMergeGateBlockers(t *testing.T) {
 	root := t.TempDir()
 	config := testRunnerConfig(root)
 	candidate := testIssue("CAG-7", config.HandoffState)
-	pr := pullRequestSummary{URL: "https://github.com/acme/repo/pull/7", HeadRefName: "symphony/CAG-7-workspace", ReviewDecision: "APPROVED", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"}
+	pr := pullRequestSummary{URL: "https://github.com/acme/repo/pull/7", HeadRefName: "am/CAG-7-workspace", ReviewDecision: "APPROVED", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"}
 
 	decisions := explainMergeDecisions(config, map[string]*pullRequestSummary{"CAG-7": &pr}, []issue{candidate}, nil)
 
@@ -135,7 +135,7 @@ func TestExplainCleanupDoesNotDeleteEligibleWorkspace(t *testing.T) {
 	if _, err := os.Stat(workspace); err != nil {
 		t.Fatalf("explain cleanup mutated workspace: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".symphony", "state", "pi-symphony.db")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, ".am", "state", "am.db")); !os.IsNotExist(err) {
 		t.Fatalf("explain cleanup wrote SQLite state: %v", err)
 	}
 	if data, err := json.Marshal(explainReport{Mode: "explain", Cleanup: decisions}); err != nil || !json.Valid(data) {
@@ -144,10 +144,10 @@ func TestExplainCleanupDoesNotDeleteEligibleWorkspace(t *testing.T) {
 }
 
 func TestExplainCleanupUsesSQLiteFactsDespiteStaleArtifactIdentity(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-138")
 	writeCleanRunArtifact(t, workspace, "success")
-	artifactPath := filepath.Join(workspace, ".pi-symphony-run.json")
+	artifactPath := filepath.Join(workspace, ".am-run.json")
 	artifact := strings.Replace(runArtifactJSON(workspace, "success"), `"issue_identifier":"CAG-138"`, `"issue_identifier":"CAG-other"`, 1)
 	if err := os.WriteFile(artifactPath, []byte(artifact), 0o600); err != nil {
 		t.Fatal(err)

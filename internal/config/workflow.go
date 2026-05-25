@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	DefaultConfigPath = "symphony.yaml"
-	DefaultPromptPath = "symphony.agent.md"
+	DefaultConfigPath = "am.yaml"
+	DefaultPromptPath = "am.agent.md"
 )
 
 type Project struct {
@@ -35,7 +35,7 @@ func ReadProject(path string) (Project, error) {
 		}
 		return Project{YAML: yaml, Prompt: strings.TrimSpace(string(prompt)), ConfigPath: path, PromptPath: promptPath}, nil
 	}
-	return Project{}, errors.New("symphony.yaml must be plain YAML; move agent instructions to symphony.agent.md")
+	return Project{}, errors.New("am.yaml must be plain YAML; move agent instructions to am.agent.md")
 }
 
 func projectPromptPath(configPath, yaml string) string {

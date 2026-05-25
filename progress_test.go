@@ -11,12 +11,12 @@ import (
 
 func TestRunProgressPathUsesRunnerStateOutsideIssueWorkspace(t *testing.T) {
 	repoRoot := t.TempDir()
-	workspaceRoot := filepath.Join(repoRoot, ".symphony", "workspaces")
+	workspaceRoot := filepath.Join(repoRoot, ".am", "workspaces")
 	path, err := runProgressPath(workspaceRoot, "CAG-119")
 	if err != nil {
 		t.Fatalf("runProgressPath() error = %v", err)
 	}
-	want := filepath.Join(repoRoot, ".symphony", "state", "run-progress", "CAG-119", runProgressArtifactName)
+	want := filepath.Join(repoRoot, ".am", "state", "run-progress", "CAG-119", runProgressArtifactName)
 	if path != want {
 		t.Fatalf("runProgressPath() = %q, want %q", path, want)
 	}
@@ -26,7 +26,7 @@ func TestRunProgressPathUsesRunnerStateOutsideIssueWorkspace(t *testing.T) {
 }
 
 func TestWriteReadAndFormatRunProgress(t *testing.T) {
-	workspaceRoot := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspaceRoot := filepath.Join(t.TempDir(), ".am", "workspaces")
 	started := time.Date(2026, 5, 20, 21, 0, 0, 0, time.UTC)
 	snapshot := runProgressSnapshot{
 		IssueIdentifier:      "CAG-119",
@@ -41,7 +41,7 @@ func TestWriteReadAndFormatRunProgress(t *testing.T) {
 		StartedAt:            started,
 		UpdatedAt:            started.Add(2 * time.Minute),
 		NextAction:           "repair_review_findings_before_handoff",
-		RunRecordPath:        filepath.Join(workspaceRoot, "CAG-119", ".pi-symphony-run.json"),
+		RunRecordPath:        filepath.Join(workspaceRoot, "CAG-119", ".am-run.json"),
 		EvaluationPath:       filepath.Join(workspaceRoot, "CAG-119", evaluationArtifactName),
 	}
 	if err := writeRunProgressResult(workspaceRoot, snapshot); err != nil {
@@ -75,8 +75,8 @@ func TestRunProgressForRecordSummarizesTerminalOutcome(t *testing.T) {
 		IssueTitle:           "Add progress",
 		Workspace:            workspace,
 		WorkspaceRoot:        filepath.Dir(workspace),
-		Branch:               "symphony/CAG-119-workspace",
-		ExpectedBranch:       "symphony/CAG-119-workspace",
+		Branch:               "am/CAG-119-workspace",
+		ExpectedBranch:       "am/CAG-119-workspace",
 		StartedAt:            time.Date(2026, 5, 20, 21, 0, 0, 0, time.UTC),
 		EndedAt:              time.Date(2026, 5, 20, 21, 5, 0, 0, time.UTC),
 		DurationMS:           300000,

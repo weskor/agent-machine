@@ -101,7 +101,7 @@ func TestFeedbackHashChangesWhenInlineReviewCommentsAppear(t *testing.T) {
 		Line      int    `json:"line"`
 		Body      string `json:"body"`
 		CreatedAt string `json:"created_at"`
-	}{Path: ".pi/skills/tdd/SKILL.md", Line: 3, Body: "It's not only for symphony, should also be for other agents in general in this repo"})
+	}{Path: ".pi/skills/tdd/SKILL.md", Line: 3, Body: "It's not only for am, should also be for other agents in general in this repo"})
 	feedback.ReviewComments[0].User.Login = "reviewer"
 	withInline := renderPRFeedback(429, feedback)
 

@@ -144,7 +144,7 @@ func TestHandoffWorkerRecordsFailedRunWhenHandoffTransitionFails(t *testing.T) {
 		t.Fatalf("result = %+v; want terminal transition failure", result)
 	}
 
-	data, err := os.ReadFile(filepath.Join(workspace, ".pi-symphony-run.json"))
+	data, err := os.ReadFile(filepath.Join(workspace, ".am-run.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

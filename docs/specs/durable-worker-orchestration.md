@@ -138,7 +138,7 @@ process-owned SQLite store. It must not run the cleanup worker's Done-issue
 refresh or workspace cleanup prepass.
 
 Continuous merge dispatch is task-backed: the scheduler creates stable
-`merge:<issue>:<pr>` worker tasks from fresh open Symphony PR metadata and the
+`merge:<issue>:<pr>` worker tasks from fresh open Agent Machine PR metadata and the
 current Linear handoff state. The merge lane claims one queued merge task,
 refreshes open GitHub PR metadata plus Linear/SQLite reconciliation facts before
 acting, and records a worker result for the claimed task. A missing closed PR is
@@ -311,7 +311,7 @@ The initial separate-process rollout started with non-destructive `status` and
 `cleanup`, `merge`, `reconciliation`, `review`, `implementation`, `handoff`,
 `linear-status`, and `work`. Each role runs through a durable worker task and
 SQLite lease, records a process heartbeat, and exits after one completed task.
-The `reconciliation` process refreshes Linear candidates, open Symphony PRs,
+The `reconciliation` process refreshes Linear candidates, open Agent Machine PRs,
 workspace artifacts, and SQLite facts, then records reconciliation-needed or
 quarantine evidence as SQLite events without repairing or mutating external
 systems. Continuous mode runs cleanup and merge as separate lanes: cleanup

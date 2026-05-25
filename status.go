@@ -31,7 +31,7 @@ func printStatus(client linearClient, config runnerConfig) error {
 		log("- %s [%s] %s", issue.Identifier, issue.State.Name, issue.Title)
 	}
 
-	prs, err := openSymphonyPRs()
+	prs, err := openAgentMachinePRs()
 	if err != nil {
 		return err
 	}
@@ -41,7 +41,7 @@ func printStatus(client linearClient, config runnerConfig) error {
 	}
 	artifacts := snapshot.Artifacts
 	artifactIndex := indexArtifacts(artifacts)
-	log("Open Symphony PRs: %d", len(prs))
+	log("Open Agent Machine PRs: %d", len(prs))
 	for _, pr := range prs {
 		log("- %s", summarizePR(pr, artifactIndex.matchPR(pr)))
 	}
@@ -326,7 +326,7 @@ func formatEventSummary(event eventSummary) string {
 	return fmt.Sprintf("- #%d %s issue=%s source=%s at=%s", event.Sequence, event.Type, issue, event.Source, event.OccurredAt.UTC().Format(time.RFC3339))
 }
 
-func openSymphonyPRs() ([]pullRequestSummary, error) {
+func openAgentMachinePRs() ([]pullRequestSummary, error) {
 	github, ctx, cancel, err := githubClientWithTimeout(defaultGitHubCommandTimeout)
 	if err != nil {
 		return nil, err
@@ -336,7 +336,7 @@ func openSymphonyPRs() ([]pullRequestSummary, error) {
 	if err != nil {
 		return nil, fmt.Errorf("GitHub API open PR metadata lookup failed: %w", err)
 	}
-	return symphonyPRs(prs), nil
+	return amPRs(prs), nil
 }
 
 type artifactSummary struct {
@@ -390,7 +390,7 @@ func workspaceArtifactSummaries(workspaceRoot string) ([]artifactSummary, error)
 		}
 		workspace := filepath.Join(workspaceRoot, entry.Name())
 		summary := artifactSummary{Issue: entry.Name()}
-		data, err := os.ReadFile(filepath.Join(workspace, ".pi-symphony-run.json"))
+		data, err := os.ReadFile(filepath.Join(workspace, ".am-run.json"))
 		if err == nil {
 			var record runRecord
 			if err := json.Unmarshal(data, &record); err != nil {

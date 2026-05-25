@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const prSummaryMarker = "<!-- pi-symphony-summary -->"
+const prSummaryMarker = "<!-- am-summary -->"
 
 var prNumberFromURLPattern = regexp.MustCompile(`/pull/([0-9]+)(?:$|[/?#])`)
 

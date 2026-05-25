@@ -2,9 +2,9 @@
 .env.*.local
 *.pem
 *.private-key.pem
-.symphony/
-.pi-symphony-*.json
-.pi-symphony-*.md
+.am/
+.am-*.json
+.am-*.md
 tmp/
 dist/
 bin/

@@ -64,7 +64,7 @@ Out of scope:
 ## Acceptance Criteria
 - Exactly one tracked file is changed: %s.
 - Validation passes.
-- The issue can move through the normal Symphony handoff flow to Human Review.
+- The issue can move through the normal Agent Machine handoff flow to Human Review.
 
 ## Validation
 - mise exec go -- go test ./...

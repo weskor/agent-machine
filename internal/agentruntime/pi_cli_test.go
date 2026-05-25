@@ -14,7 +14,7 @@ import (
 
 func TestPiCLIAdapterPreflightReportsProviderAndMissingCommand(t *testing.T) {
 	runtime := PiCLIAdapter{}
-	result, err := runtime.Preflight(context.Background(), PreflightInput{ImplementationCommand: "definitely-missing-pi-symphony-test-binary"})
+	result, err := runtime.Preflight(context.Background(), PreflightInput{ImplementationCommand: "definitely-missing-am-test-binary"})
 	if err == nil {
 		t.Fatal("expected preflight error")
 	}
@@ -22,10 +22,10 @@ func TestPiCLIAdapterPreflightReportsProviderAndMissingCommand(t *testing.T) {
 		t.Fatalf("unexpected preflight result: %+v", result)
 	}
 	check := result.Checks[0]
-	if check.OK || check.Name != "implementation_command" || check.Executable != "definitely-missing-pi-symphony-test-binary" || !strings.Contains(check.Message, "definitely-missing-pi-symphony-test-binary") {
+	if check.OK || check.Name != "implementation_command" || check.Executable != "definitely-missing-am-test-binary" || !strings.Contains(check.Message, "definitely-missing-am-test-binary") {
 		t.Fatalf("preflight result was not actionable: %+v", result)
 	}
-	if !strings.Contains(err.Error(), "pi_cli") || !strings.Contains(err.Error(), "definitely-missing-pi-symphony-test-binary") {
+	if !strings.Contains(err.Error(), "pi_cli") || !strings.Contains(err.Error(), "definitely-missing-am-test-binary") {
 		t.Fatalf("error did not mention provider and command: %v", err)
 	}
 }
@@ -166,7 +166,7 @@ func TestPiCLIAdapterReviewAttemptWritesPromptAndClassifiesFindings(t *testing.T
 	workspace := t.TempDir()
 	runtime := PiCLIAdapter{
 		RunCommand: func(command, workdir string, env map[string]string, timeout time.Duration, phase string) (string, error) {
-			if phase != "review" || !strings.Contains(command, ".pi-symphony-review-prompt.md") {
+			if phase != "review" || !strings.Contains(command, ".am-review-prompt.md") {
 				t.Fatalf("unexpected review command phase=%q command=%q", phase, command)
 			}
 			return "REVIEW_FAIL\nREVIEW_CLASSIFICATION: missing_evidence_only\nAdd evidence.", nil

@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	CurrentSchemaVersion = 7
+	CurrentSchemaVersion = 8
 	busyTimeoutMS        = 5000
 )
 
@@ -375,10 +375,10 @@ func DefaultDBPath(workspaceRoot string) string {
 		return ""
 	}
 	clean := filepath.Clean(workspaceRoot)
-	if filepath.Base(clean) == "workspaces" && filepath.Base(filepath.Dir(clean)) == ".symphony" {
-		return filepath.Join(filepath.Dir(clean), "state", "pi-symphony.db")
+	if filepath.Base(clean) == "workspaces" && filepath.Base(filepath.Dir(clean)) == ".am" {
+		return filepath.Join(filepath.Dir(clean), "state", "am.db")
 	}
-	return filepath.Join(clean, "state", "pi-symphony.db")
+	return filepath.Join(clean, "state", "am.db")
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
@@ -1561,9 +1561,9 @@ ON CONFLICT(issue_key, attempt) DO UPDATE SET issue_id=excluded.issue_id, worksp
 		return err
 	}
 	if result.PRURL != "" || result.Repository != "" {
-		_, err = tx.ExecContext(ctx, `INSERT INTO pr_mappings(attempt_id, repository, branch_name, base_branch, pr_number, pr_url, symphony_owned, updated_at)
+		_, err = tx.ExecContext(ctx, `INSERT INTO pr_mappings(attempt_id, repository, branch_name, base_branch, pr_number, pr_url, am_owned, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, 1, ?)
-ON CONFLICT(repository, branch_name) DO UPDATE SET attempt_id=excluded.attempt_id, base_branch=excluded.base_branch, pr_number=excluded.pr_number, pr_url=excluded.pr_url, symphony_owned=excluded.symphony_owned, updated_at=excluded.updated_at`, attemptID, result.Repository, result.BranchName, result.BaseBranch, nullZeroInt(result.PRNumber), result.PRURL, now.Format(time.RFC3339Nano))
+ON CONFLICT(repository, branch_name) DO UPDATE SET attempt_id=excluded.attempt_id, base_branch=excluded.base_branch, pr_number=excluded.pr_number, pr_url=excluded.pr_url, am_owned=excluded.am_owned, updated_at=excluded.updated_at`, attemptID, result.Repository, result.BranchName, result.BaseBranch, nullZeroInt(result.PRNumber), result.PRURL, now.Format(time.RFC3339Nano))
 		if err != nil {
 			return fmt.Errorf("upsert pr mapping: %w", err)
 		}
@@ -2077,6 +2077,11 @@ func (s *Store) init(ctx context.Context) error {
 			return err
 		}
 	}
+	if version < 8 {
+		if err := migrateV8(ctx, tx); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit state migration: %w", err)
 	}
@@ -2208,9 +2213,48 @@ func migrateV7(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
+func migrateV8(ctx context.Context, tx *sql.Tx) error {
+	exists, err := tableColumnExists(ctx, tx, "pr_mappings", "am_owned")
+	if err != nil {
+		return fmt.Errorf("inspect pr_mappings columns for migration v8: %w", err)
+	}
+	if !exists {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE pr_mappings ADD COLUMN am_owned INTEGER NOT NULL DEFAULT 1 CHECK (am_owned IN (0, 1))`); err != nil {
+			return fmt.Errorf("apply migration v8: %w", err)
+		}
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, checksum, applied_at, success) VALUES (?, ?, ?, ?, 1)`, 8, "agent machine ownership column", "v8", time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("record migration v8: %w", err)
+	}
+	return nil
+}
+
+func tableColumnExists(ctx context.Context, tx *sql.Tx, table, column string) (bool, error) {
+	rows, err := tx.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
 var v1Schema = []string{
 	`CREATE TABLE issue_attempts (id INTEGER PRIMARY KEY, issue_key TEXT NOT NULL, issue_id TEXT NOT NULL DEFAULT '', attempt INTEGER NOT NULL, workspace_path TEXT NOT NULL DEFAULT '', branch_name TEXT NOT NULL, base_branch TEXT NOT NULL, prompt_hash TEXT NOT NULL DEFAULT '', validation_summary TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(issue_key, attempt))`,
-	`CREATE TABLE pr_mappings (id INTEGER PRIMARY KEY, attempt_id INTEGER NOT NULL REFERENCES issue_attempts(id) ON DELETE CASCADE, repository TEXT NOT NULL, branch_name TEXT NOT NULL, base_branch TEXT NOT NULL, pr_number INTEGER, pr_url TEXT NOT NULL DEFAULT '', head_sha TEXT NOT NULL DEFAULT '', base_sha TEXT NOT NULL DEFAULT '', symphony_owned INTEGER NOT NULL CHECK (symphony_owned IN (0, 1)), updated_at TEXT NOT NULL, UNIQUE(repository, branch_name))`,
+	`CREATE TABLE pr_mappings (id INTEGER PRIMARY KEY, attempt_id INTEGER NOT NULL REFERENCES issue_attempts(id) ON DELETE CASCADE, repository TEXT NOT NULL, branch_name TEXT NOT NULL, base_branch TEXT NOT NULL, pr_number INTEGER, pr_url TEXT NOT NULL DEFAULT '', head_sha TEXT NOT NULL DEFAULT '', base_sha TEXT NOT NULL DEFAULT '', am_owned INTEGER NOT NULL CHECK (am_owned IN (0, 1)), updated_at TEXT NOT NULL, UNIQUE(repository, branch_name))`,
 	`CREATE TABLE review_states (attempt_id INTEGER PRIMARY KEY REFERENCES issue_attempts(id) ON DELETE CASCADE, command_status TEXT NOT NULL DEFAULT '', passed INTEGER NOT NULL DEFAULT 0 CHECK (passed IN (0, 1)), classification TEXT NOT NULL DEFAULT '', output_ref TEXT NOT NULL DEFAULT '', output_hash TEXT NOT NULL DEFAULT '', merge_eligible INTEGER NOT NULL DEFAULT 0 CHECK (merge_eligible IN (0, 1)), updated_at TEXT NOT NULL)`,
 	`CREATE TABLE feedback_states (attempt_id INTEGER PRIMARY KEY REFERENCES issue_attempts(id) ON DELETE CASCADE, feedback_hash TEXT NOT NULL DEFAULT '', incorporated INTEGER NOT NULL DEFAULT 0 CHECK (incorporated IN (0, 1)), stale INTEGER NOT NULL DEFAULT 0 CHECK (stale IN (0, 1)), next_action TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL)`,
 	`CREATE TABLE merge_blockers (id INTEGER PRIMARY KEY, attempt_id INTEGER NOT NULL REFERENCES issue_attempts(id) ON DELETE CASCADE, code TEXT NOT NULL, reason TEXT NOT NULL, external_state_hash TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)), updated_at TEXT NOT NULL, UNIQUE(attempt_id, code))`,

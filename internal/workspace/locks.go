@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	RunLockFile       = ".pi-symphony-lock.json"
-	RunLockDir        = ".pi-symphony-locks"
+	RunLockFile       = ".am-lock.json"
+	RunLockDir        = ".am-locks"
 	RunLockStaleAfter = 4 * time.Hour
 )
 

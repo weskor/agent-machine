@@ -41,8 +41,8 @@ func TestWriteRunRecordPersistsSQLiteBeforeArtifactsForTerminalOutcomes(t *testi
 			if err := writeRunRecordWithCommandState(store, workspace, record); err != nil {
 				t.Fatalf("writeRunRecordWithCommandState() error = %v", err)
 			}
-			assertFileExists(t, filepath.Join(workspace, ".pi-symphony-run.json"))
-			assertFileExists(t, filepath.Join(workspace, ".pi-symphony-evaluation.json"))
+			assertFileExists(t, filepath.Join(workspace, ".am-run.json"))
+			assertFileExists(t, filepath.Join(workspace, ".am-evaluation.json"))
 			assertSQLiteAttempt(t, store, record.IssueIdentifier, tc.status)
 			assertRunRecordEvents(t, store, record, tc.prURL != "", tc.review != nil, tc.status == runAttemptStatusFailed || tc.status == runAttemptStatusReviewFailed)
 		})
@@ -68,8 +68,8 @@ func TestWriteRunRecordDoesNotExportArtifactsWhenSQLiteCommitFails(t *testing.T)
 	if err == nil {
 		t.Fatal("expected SQLite commit failure")
 	}
-	assertFileMissing(t, filepath.Join(workspace, ".pi-symphony-run.json"))
-	assertFileMissing(t, filepath.Join(workspace, ".pi-symphony-evaluation.json"))
+	assertFileMissing(t, filepath.Join(workspace, ".am-run.json"))
+	assertFileMissing(t, filepath.Join(workspace, ".am-evaluation.json"))
 }
 
 func TestWriteRunRecordHonorsCanceledContextBeforeSQLiteAndArtifactWrites(t *testing.T) {
@@ -91,8 +91,8 @@ func TestWriteRunRecordHonorsCanceledContextBeforeSQLiteAndArtifactWrites(t *tes
 	if err != context.Canceled {
 		t.Fatalf("writeRunRecordWithCommandStateContext() error = %v, want %v", err, context.Canceled)
 	}
-	assertFileMissing(t, filepath.Join(workspace, ".pi-symphony-run.json"))
-	assertFileMissing(t, filepath.Join(workspace, ".pi-symphony-evaluation.json"))
+	assertFileMissing(t, filepath.Join(workspace, ".am-run.json"))
+	assertFileMissing(t, filepath.Join(workspace, ".am-evaluation.json"))
 	var attempts int
 	if err := store.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM issue_attempts WHERE issue_key = 'CAG-108'`).Scan(&attempts); err != nil {
 		t.Fatal(err)

@@ -12,7 +12,7 @@ state, credentials, or scope are unclear.
 ## What It Does
 
 - Polls a configured Linear project for runnable issues.
-- Creates one isolated workspace per issue under `.symphony/workspaces/`.
+- Creates one isolated workspace per issue under `.am/workspaces/`.
 - Runs an implementation Agent through a configured runtime provider.
 - Runs validation hooks before and after the Agent attempt.
 - Performs runner-owned GitHub handoff: branch, commit, push, PR create/update,
@@ -28,8 +28,8 @@ state, credentials, or scope are unclear.
 
 This repo owns the runner implementation, tests, specs, GitHub/Linear
 integrations, CLI, release packaging, and dogfood configuration. Consumer repos
-should keep only their `symphony.yaml`, `symphony.agent.md`, and ignored
-`.symphony/` runtime state.
+should keep only their `am.yaml`, `am.agent.md`, and ignored
+`.am/` runtime state.
 
 Agent Machine is released under the MIT License.
 
@@ -78,22 +78,22 @@ mise install
 Create the two project files in the target repository:
 
 ```bash
-cp symphony.example.yaml /path/to/target/symphony.yaml
-cp symphony.agent.example.md /path/to/target/symphony.agent.md
+cp am.example.yaml /path/to/target/am.yaml
+cp am.agent.example.md /path/to/target/am.agent.md
 ```
 
-Edit `/path/to/target/symphony.yaml`:
+Edit `/path/to/target/am.yaml`:
 
 - `repository.remote`: clone URL for new workspaces.
 - `tracker.project_slug`: Linear project slug.
-- `workspace.root`: workspace directory, usually `.symphony/workspaces`.
+- `workspace.root`: workspace directory, usually `.am/workspaces`.
 - `workspace.base_branch`: PR base branch, for example `main` or `develop`.
 - `runtime.provider`: usually `codex_cli`; use `pi_cli` only for the legacy Pi
   CLI runtime.
 - `workflow.*`: Linear lane names for running, handoff, needs-info, and done.
 
 Put secrets in the process environment, an explicit `--env-file`, or
-`.env.local` next to the selected `symphony.yaml`:
+`.env.local` next to the selected `am.yaml`:
 
 ```bash
 LINEAR_API_KEY=lin_...
@@ -114,30 +114,30 @@ private keys, absolute credential paths, or copied local env files.
 Check the resolved config without contacting Linear or GitHub:
 
 ```bash
-mise exec go -- go run . config print --config /path/to/target/symphony.yaml
+mise exec go -- go run . config print --config /path/to/target/am.yaml
 ```
 
 Inspect current runner status:
 
 ```bash
-mise exec go -- go run . status --config /path/to/target/symphony.yaml
+mise exec go -- go run . status --config /path/to/target/am.yaml
 ```
 
 Run one controlled implementation worker:
 
 ```bash
-mise exec go -- go run . worker implementation --config /path/to/target/symphony.yaml
+mise exec go -- go run . worker implementation --config /path/to/target/am.yaml
 ```
 
 Run the production loop:
 
 ```bash
-mise exec go -- go run . start --config /path/to/target/symphony.yaml
+mise exec go -- go run . start --config /path/to/target/am.yaml
 ```
 
 ## Project Files
 
-`symphony.yaml` is plain YAML for deterministic runner settings:
+`am.yaml` is plain YAML for deterministic runner settings:
 
 - repository clone remote;
 - Linear tracker details and active states;
@@ -148,7 +148,7 @@ mise exec go -- go run . start --config /path/to/target/symphony.yaml
 - GitHub app/author ownership;
 - lane names and required validation.
 
-`symphony.agent.md` is the target-repository prompt template. It should explain
+`am.agent.md` is the target-repository prompt template. It should explain
 the repo’s domain, validation expectations, allowed ticket shape, and handoff
 rules. It can use issue placeholders such as:
 
@@ -164,7 +164,7 @@ Use `agent.prompt_path` when the prompt file has a different name.
 
 ## Commands
 
-Run commands from this repository. `--config` defaults to `symphony.yaml`.
+Run commands from this repository. `--config` defaults to `am.yaml`.
 
 | Command | Purpose |
 | --- | --- |
@@ -177,9 +177,9 @@ Run commands from this repository. `--config` defaults to `symphony.yaml`.
 | `go run . worker implementation` | Run one selected implementation worker process. |
 | `go run . worker review` | Run one selected review worker process. |
 | `go run . worker handoff` | Run one selected handoff worker process. |
-| `go run . merge-approved` | Merge eligible Symphony-owned PRs whose gates pass. |
+| `go run . merge-approved` | Merge eligible Agent Machine-owned PRs whose gates pass. |
 | `go run . cleanup-workspaces` | Inspect cleanup eligibility. Add `--apply` to delete eligible workspaces. |
-| `go run . repair-artifacts` | Repair local Symphony artifacts. |
+| `go run . repair-artifacts` | Repair local Agent Machine artifacts. |
 | `go run . surface snapshot` | Print the read-only JSON snapshot used by product surfaces. |
 
 Legacy flag forms such as `--status`, `--explain`, `--continuous`,
@@ -195,7 +195,7 @@ does not mutate workspaces, merge, repair, or clean up.
 ```bash
 cd tui
 bun install
-bun run start -- --config ../symphony.yaml
+bun run start -- --config ../am.yaml
 ```
 
 Layout:
@@ -215,8 +215,7 @@ Controls:
 - `q`: quit.
 
 The TUI shells out to the local runner by default. Set `AM_BIN` to use an
-already-built binary instead of `go run .`. `PI_SYMPHONY_BIN` remains accepted
-as a legacy fallback.
+already-built binary instead of `go run .`.
 
 ## Runtime Providers
 
@@ -245,17 +244,15 @@ runner claims an issue or mutates a workspace.
 
 ## Local State And Artifacts
 
-Agent Machine stores runtime data under the configured workspace root. Some
-state and artifact filenames retain the original `pi-symphony` name for
-backward compatibility:
+Agent Machine stores runtime data under the configured workspace root:
 
-- `.symphony/workspaces/<issue>`: isolated git workspace for one issue.
-- `.symphony/state/pi-symphony.db`: SQLite orchestration state.
-- `.symphony/state/run-progress/<issue>/progress.json`: compact progress
+- `.am/workspaces/<issue>`: isolated git workspace for one issue.
+- `.am/state/am.db`: SQLite orchestration state.
+- `.am/state/run-progress/<issue>/progress.json`: compact progress
   snapshots for operators.
-- `.pi-symphony-run.json`: attempt record written in the issue workspace.
-- `.pi-symphony-evaluation.json`: evaluation and merge-readiness summary.
-- `.symphony/debug/<issue>/`: capped raw debug output when enabled.
+- `.am-run.json`: attempt record written in the issue workspace.
+- `.am-evaluation.json`: evaluation and merge-readiness summary.
+- `.am/debug/<issue>/`: capped raw debug output when enabled.
 
 SQLite state is the local source of truth for claims, leases, retries, worker
 tasks, PR mappings, cleanup decisions, and terminal outcomes where implemented.
@@ -296,7 +293,7 @@ git diff --check
 For config or status changes, also run a safe local smoke:
 
 ```bash
-mise exec go -- go run . config print --config symphony.yaml
+mise exec go -- go run . config print --config am.yaml
 ```
 
 ## Live Smoke Harness
@@ -315,7 +312,7 @@ Create one disposable issue and run the fake-agent path:
 
 ```bash
 LIVE_LINEAR=1 mise exec go -- go run ./cmd/agent-machine-live-smoke \
-  --config symphony.yaml \
+  --config am.yaml \
   --count 1
 ```
 
@@ -323,18 +320,18 @@ Run a concurrency-oriented smoke without merge:
 
 ```bash
 LIVE_LINEAR=1 mise exec go -- go run ./cmd/agent-machine-live-smoke \
-  --config symphony.yaml \
+  --config am.yaml \
   --count 2 \
   --concurrency 2
 ```
 
-The harness writes a JSON report under `.symphony/live-smoke/`. Merge checks are
+The harness writes a JSON report under `.am/live-smoke/`. Merge checks are
 disabled unless both controls are present:
 
 ```bash
 LIVE_LINEAR=1 LIVE_SMOKE_APPLY=1 mise exec go -- go run ./cmd/agent-machine-live-smoke \
-  --config symphony.yaml \
-  --from-report .symphony/live-smoke/live-smoke-YYYYMMDDTHHMMSSZ.json \
+  --config am.yaml \
+  --from-report .am/live-smoke/live-smoke-YYYYMMDDTHHMMSSZ.json \
   --apply-merge
 ```
 
@@ -349,8 +346,8 @@ or another target repository.
 1. Write tickets with `Goal`, `Scope`, `Requirements`, `Acceptance Criteria`,
    and `Validation`.
 2. Move exactly one ticket into `Ready for Agent` when it is safe to run.
-3. Run `go run . start --config symphony.yaml`, or use
-   `go run . worker implementation --config symphony.yaml` for a controlled
+3. Run `go run . start --config am.yaml`, or use
+   `go run . worker implementation --config am.yaml` for a controlled
    single-worker pass.
 4. Review the PR before activating the next ticket.
 5. Move unclear, unsafe, or credential-blocked work to `Needs Info` instead of
@@ -358,7 +355,7 @@ or another target repository.
 
 Objective review signals are scoped diff, no secrets, required validation,
 passing CI/tests, clean `git diff --check`, review evidence or clear blocker
-notes, and an expected `symphony/<issue>-workspace` PR into the configured base
+notes, and an expected `am/<issue>-workspace` PR into the configured base
 branch.
 
 ## Release
@@ -391,7 +388,7 @@ git push origin v0.1.1
 - `cmd/agent-machine-live-smoke-agent/`: deterministic fake smoke Agent.
 - `internal/agentruntime/`: runtime provider adapters.
 - `internal/cli/`: command parsing, config loading, env loading.
-- `internal/config/`: `symphony.yaml` parsing and defaults.
+- `internal/config/`: `am.yaml` parsing and defaults.
 - `internal/state/`: SQLite orchestration state.
 - `docs/agents/`: repository-specific agent guidance.
 - `docs/specs/`: observable behavior contracts.
@@ -400,7 +397,7 @@ git push origin v0.1.1
 ## Safety Notes
 
 - Do not commit `.env.local`, private keys, copied env files, or generated
-  `.symphony/` runtime state.
+  `.am/` runtime state.
 - Do not batch unrelated work through one Linear issue.
 - Do not run mutating cleanup with `--apply` unless status/explain output makes
   the cleanup reason clear.

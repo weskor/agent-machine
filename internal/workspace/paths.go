@@ -116,11 +116,11 @@ func IsIgnoredEvidencePath(workspace, path string) bool {
 	if path == "" {
 		return false
 	}
-	if strings.HasPrefix(path, ".pi-symphony-debug/") || path == ".pi-symphony-debug" {
+	if strings.HasPrefix(path, ".am-debug/") || path == ".am-debug" {
 		return true
 	}
 	switch path {
-	case ".pi-symphony-run.json", ".pi-symphony-evaluation.json", ".pi-symphony-prompt.md", ".pi-symphony-review-prompt.md":
+	case ".am-run.json", ".am-evaluation.json", ".am-prompt.md", ".am-review-prompt.md":
 		return true
 	case "false":
 		return isSubagentFalseScratch(filepath.Join(workspace, path))

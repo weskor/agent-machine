@@ -135,11 +135,11 @@ review:
 }
 
 func TestParseConfigExpandsEnvironment(t *testing.T) {
-	t.Setenv("SYMPHONY_WORKSPACE_ROOT", "/tmp/from-env")
+	t.Setenv("AM_WORKSPACE_ROOT", "/tmp/from-env")
 	config, err := ParseConfig(`tracker:
   project_slug: CAG
 workspace:
-  root: $SYMPHONY_WORKSPACE_ROOT
+  root: $AM_WORKSPACE_ROOT
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -208,7 +208,7 @@ workflow:
 }
 
 func TestParseConfigExamples(t *testing.T) {
-	for _, path := range []string{"../../symphony.example.yaml"} {
+	for _, path := range []string{"../../am.example.yaml"} {
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			proj, err := ReadProject(path)
 			if err != nil {
@@ -222,7 +222,7 @@ func TestParseConfigExamples(t *testing.T) {
 }
 
 func TestParseConfigCurrentConfigWhenAvailable(t *testing.T) {
-	path := "../../symphony.yaml"
+	path := "../../am.yaml"
 	if _, err := os.Stat(path); err != nil {
 		t.Skip(err)
 	}

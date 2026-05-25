@@ -112,7 +112,7 @@ runner can perform the operation with configured Git/GitHub credentials and type
 project facts, the runner owns:
 
 - commit creation or validation of the exact diff to hand off;
-- push to the expected `symphony/<issue>-workspace` branch;
+- push to the expected `am/<issue>-workspace` branch;
 - PR create/update against the configured repository and base branch;
 - PR URL resolution and validation by repository, branch, base, issue identifier,
   author/owner policy, and current attempt;
@@ -141,7 +141,7 @@ Shell-style runtime adapters accept an explicit structured outcome marker in
 stdout:
 
 ```text
-PI_SYMPHONY_OUTCOME: {"runtime_outcome":"needs_info","needs_info_questions":["Which tenant?"],"validation":["go test ./..."],"pr_url":"https://github.com/owner/repo/pull/123"}
+AM_OUTCOME: {"runtime_outcome":"needs_info","needs_info_questions":["Which tenant?"],"validation":["go test ./..."],"pr_url":"https://github.com/owner/repo/pull/123"}
 ```
 
 When this line is present, the adapter parses it as `AttemptOutcomeEnvelope` and

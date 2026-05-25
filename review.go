@@ -166,7 +166,7 @@ func reviewPrompt(candidate *issue, prURL, workspace, guidance string, evidence 
 		evidenceBlock = evidence.PromptBlock()
 	}
 	guidanceBlock := reviewGuidancePromptBlock(guidance)
-	return fmt.Sprintf(`Review the final Symphony/Pi runner output for %s.
+	return fmt.Sprintf(`Review the final Agent Machine/Pi runner output for %s.
 
 PR: %s
 Workspace: %s

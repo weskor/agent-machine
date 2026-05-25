@@ -17,7 +17,7 @@ assignees: ""
 
 ## Configuration Shape
 
-Paste only redacted, relevant `symphony.yaml` fields. Do not include tokens,
+Paste only redacted, relevant `am.yaml` fields. Do not include tokens,
 private keys, local `.env.local` values, or private target-repository details.
 
 ```yaml

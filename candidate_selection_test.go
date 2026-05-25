@@ -289,7 +289,7 @@ func upsertRepairableReviewFailedAttempt(t *testing.T, store *state.Store, candi
 func writeRetryConfig(t *testing.T, maxRetryBackoffMS int) string {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "symphony.yaml")
+	path := filepath.Join(dir, "am.yaml")
 	content := `
 tracker:
   project_slug: CAG
@@ -301,7 +301,7 @@ agent:
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write project: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "symphony.agent.md"), []byte("# Test project\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "am.agent.md"), []byte("# Test project\n"), 0o600); err != nil {
 		t.Fatalf("write prompt: %v", err)
 	}
 	return path

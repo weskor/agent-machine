@@ -27,7 +27,7 @@ func TestOrchestrationSnapshotEmptyState(t *testing.T) {
 }
 
 func TestOrchestrationSnapshotMissingWorkspaceRootDegradesToEmpty(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	snap, err := buildOrchestrationSnapshot(context.Background(), runnerConfig{WorkspaceRoot: root}, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +45,7 @@ func TestOrchestrationSnapshotMissingWorkspaceRootDegradesToEmpty(t *testing.T) 
 
 func TestOrchestrationSnapshotIncludesRecentEventSummaries(t *testing.T) {
 	ctx := context.Background()
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestOrchestrationSnapshotIncludesActiveLaneData(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err := store.UpsertDaemonHeartbeat(context.Background(), state.DaemonHeartbeat{ProcessID: "pid-1", LaneName: "work", WorkflowPath: "symphony.yaml", CycleNumber: 7, LastSuccessAt: now, ActiveTaskKey: "continuous:work", ActiveTaskRole: "implementation", ActiveLeaseName: "lane:work", ActiveTaskStartedAt: now.Add(-time.Minute), UpdatedAt: now}); err != nil {
+	if err := store.UpsertDaemonHeartbeat(context.Background(), state.DaemonHeartbeat{ProcessID: "pid-1", LaneName: "work", WorkflowPath: "am.yaml", CycleNumber: 7, LastSuccessAt: now, ActiveTaskKey: "continuous:work", ActiveTaskRole: "implementation", ActiveLeaseName: "lane:work", ActiveTaskStartedAt: now.Add(-time.Minute), UpdatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 	snap, err := buildOrchestrationSnapshot(context.Background(), runnerConfig{WorkspaceRoot: root}, now)
@@ -248,7 +248,7 @@ func writeSnapshotArtifact(t *testing.T, root, issue string, record runRecord) {
 		t.Fatal(err)
 	}
 	data, _ := json.Marshal(record)
-	if err := os.WriteFile(filepath.Join(dir, ".pi-symphony-run.json"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".am-run.json"), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -18,9 +18,9 @@ import (
 )
 
 const (
-	RunRecordName  = ".pi-symphony-run.json"
-	EvaluationName = ".pi-symphony-evaluation.json"
-	FeedbackName   = ".pi-symphony-feedback.md"
+	RunRecordName  = ".am-run.json"
+	EvaluationName = ".am-evaluation.json"
+	FeedbackName   = ".am-feedback.md"
 
 	CurrentArtifactSchemaVersion = 1
 	ArtifactSchemaSourceCurrent  = "current"

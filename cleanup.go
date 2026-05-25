@@ -270,7 +270,7 @@ func cleanupDecisionForRootWithChanges(workspaceRoot, workspace string, doneIssu
 		decision.IssueIdentifier = ""
 		return decision, nil
 	}
-	recordPath := filepath.Join(workspace, ".pi-symphony-run.json")
+	recordPath := filepath.Join(workspace, ".am-run.json")
 	data, err := os.ReadFile(recordPath)
 	if err != nil {
 		if os.IsNotExist(err) {

@@ -17,7 +17,7 @@ func TestStateProjectionRunArtifactMatchesMirroringContract(t *testing.T) {
 		IssueIdentifier:      "CAG-67",
 		IssueID:              "issue-id",
 		Workspace:            workspace,
-		Branch:               "symphony/CAG-67-workspace",
+		Branch:               "am/CAG-67-workspace",
 		Status:               "success",
 		PRURL:                "https://github.com/weskor/agent-machine/pull/67",
 		ReviewStatus:         "passed",
@@ -37,7 +37,7 @@ func TestStateProjectionRunArtifactMatchesMirroringContract(t *testing.T) {
 	if !snapshot.ReviewPassed || !snapshot.MergeEligible || snapshot.TerminalOutcome != "handoff_ready" || snapshot.TerminalReason != "none" {
 		t.Fatalf("unexpected run artifact decision projection: %+v", snapshot)
 	}
-	if snapshot.RunArtifactRef != filepath.Join(workspace, ".pi-symphony-run.json") || snapshot.EvaluationRef != filepath.Join(workspace, evaluationArtifactName) {
+	if snapshot.RunArtifactRef != filepath.Join(workspace, ".am-run.json") || snapshot.EvaluationRef != filepath.Join(workspace, evaluationArtifactName) {
 		t.Fatalf("unexpected artifact refs: %+v", snapshot)
 	}
 
@@ -87,7 +87,7 @@ func TestStateProjectionCleanupLeaseAndHeartbeat(t *testing.T) {
 		t.Fatalf("unexpected lease projection: %+v", lease)
 	}
 
-	heartbeat := projection.DaemonHeartbeat("host:123", runnerConfig{ConfigPath: "/repo/symphony.yaml"}, continuousHeartbeat{LaneName: "merge", CycleNumber: 3, Err: errors.New("boom"), ActiveTaskKey: "continuous:merge", ActiveTaskRole: "merge", ActiveLeaseName: "lane:merge", ActiveTaskStartedAt: now.Add(-time.Minute), At: now})
+	heartbeat := projection.DaemonHeartbeat("host:123", runnerConfig{ConfigPath: "/repo/am.yaml"}, continuousHeartbeat{LaneName: "merge", CycleNumber: 3, Err: errors.New("boom"), ActiveTaskKey: "continuous:merge", ActiveTaskRole: "merge", ActiveLeaseName: "lane:merge", ActiveTaskStartedAt: now.Add(-time.Minute), At: now})
 	if heartbeat.ProcessID != "host:123" || heartbeat.LaneName != "merge" || !heartbeat.RecoveryRequired || heartbeat.LastError != "boom" || heartbeat.UpdatedAt != now || heartbeat.ActiveTaskKey != "continuous:merge" || heartbeat.ActiveLeaseName != "lane:merge" {
 		t.Fatalf("unexpected heartbeat projection: %+v", heartbeat)
 	}

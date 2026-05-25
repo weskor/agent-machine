@@ -26,7 +26,7 @@ func TestSurfaceSnapshotBuildsReadOnlyControlPlaneJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	snap, err := buildSurfaceSnapshot(ctx, runnerConfig{ConfigPath: filepath.Join(root, "symphony.yaml"), ProjectSlug: "CAG", WorkspaceRoot: root}, now)
+	snap, err := buildSurfaceSnapshot(ctx, runnerConfig{ConfigPath: filepath.Join(root, "am.yaml"), ProjectSlug: "CAG", WorkspaceRoot: root}, now)
 	if err != nil {
 		t.Fatal(err)
 	}

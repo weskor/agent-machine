@@ -111,7 +111,7 @@ func TestScenarioHarnessExplainsCandidateMergeAndCleanupWithoutMutation(t *testi
 		withCandidate("CAG-90", "Ready for Agent").
 		withCandidate("CAG-91", "Ready for Agent", "blocked").
 		withCandidate("CAG-92", "Human Review").
-		withPR("CAG-92", pullRequestSummary{URL: "https://github.com/weskor/agent-machine/pull/92", HeadRefName: "symphony/CAG-92-workspace", ReviewDecision: "APPROVED", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"}).
+		withPR("CAG-92", pullRequestSummary{URL: "https://github.com/weskor/agent-machine/pull/92", HeadRefName: "am/CAG-92-workspace", ReviewDecision: "APPROVED", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"}).
 		withDoneWorkspace("CAG-93", "success")
 
 	report := h.explainDryRun()
@@ -136,7 +136,7 @@ func TestScenarioHarnessCharacterizesReconciliationSkipsBlockedAndOpenPRCandidat
 	h := newScenarioHarness(t).
 		withCandidate("CAG-94", "Ready for Agent", "blocked").
 		withCandidate("CAG-95", "Ready for Agent").
-		withPR("CAG-95", pullRequestSummary{URL: "https://github.com/weskor/agent-machine/pull/95", HeadRefName: "symphony/CAG-95-workspace", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"}).
+		withPR("CAG-95", pullRequestSummary{URL: "https://github.com/weskor/agent-machine/pull/95", HeadRefName: "am/CAG-95-workspace", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"}).
 		withArtifact("CAG-96", artifactSummary{Issue: "CAG-96", HasArtifact: true, Status: "failed", NextAction: "inspect_run_log"})
 
 	decisions := h.reconcile()

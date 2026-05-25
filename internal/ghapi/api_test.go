@@ -34,7 +34,7 @@ func withFakeGitHubAppEnv(t interface{ Cleanup(func()) }, fn func() (map[string]
 
 func TestConfigureGitHubRepositoryFromConfigUsesConfigRepoRemote(t *testing.T) {
 	repo := t.TempDir()
-	configDir := filepath.Join(repo, ".symphony", "workspaces", "CAG-1")
+	configDir := filepath.Join(repo, ".am", "workspaces", "CAG-1")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestConfigureGitHubRepositoryFromConfigUsesConfigRepoRemote(t *testing.T) {
 	}
 
 	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
-	ConfigureRepositoryFromConfig(filepath.Join(configDir, "symphony.yaml"))
+	ConfigureRepositoryFromConfig(filepath.Join(configDir, "am.yaml"))
 
 	if got := os.Getenv("GITHUB_REPOSITORY"); got != "weskor/agent-machine" {
 		t.Fatalf("GITHUB_REPOSITORY = %q, want weskor/agent-machine", got)
@@ -133,9 +133,9 @@ func TestOpenPullRequestsUsesGitHubAppCompatibleRESTMetadata(t *testing.T) {
 			}
 			_, _ = w.Write([]byte(`[{"number":7}]`))
 		case "/repos/acme/rocket/pulls/7":
-			_, _ = w.Write([]byte(`{"number":7,"html_url":"https://github.com/acme/rocket/pull/7","user":{"login":"pi-symphony-bot[bot]"},"base":{"ref":"develop"},"head":{"ref":"symphony/CAG-43-workspace","sha":"abc123"},"mergeable":true,"mergeable_state":"clean"}`))
+			_, _ = w.Write([]byte(`{"number":7,"html_url":"https://github.com/acme/rocket/pull/7","user":{"login":"agent-machine-bot[bot]"},"base":{"ref":"develop"},"head":{"ref":"am/CAG-43-workspace","sha":"abc123"},"mergeable":true,"mergeable_state":"clean"}`))
 		case "/repos/acme/rocket/pulls/7/commits":
-			_, _ = w.Write([]byte(`[{"sha":"c0ffee","commit":{"author":{"name":"pi-symphony-bot[bot]","email":"285402021+pi-symphony-bot[bot]@users.noreply.github.com","date":"2026-05-19T06:40:15Z"}},"author":{"login":"pi-symphony-bot[bot]"}}]`))
+			_, _ = w.Write([]byte(`[{"sha":"c0ffee","commit":{"author":{"name":"agent-machine-bot[bot]","email":"agent-machine-bot[bot]@users.noreply.github.com","date":"2026-05-19T06:40:15Z"}},"author":{"login":"agent-machine-bot[bot]"}}]`))
 		case "/repos/acme/rocket/pulls/7/reviews":
 			_, _ = w.Write([]byte(`[{"state":"APPROVED","user":{"login":"human-reviewer"}}]`))
 		case "/repos/acme/rocket/commits/abc123/status":
@@ -160,10 +160,10 @@ func TestOpenPullRequestsUsesGitHubAppCompatibleRESTMetadata(t *testing.T) {
 		t.Fatalf("expected one PR, got %d", len(prs))
 	}
 	pr := prs[0]
-	if pr.Number != 7 || pr.URL != "https://github.com/acme/rocket/pull/7" || pr.BaseRefName != "develop" || pr.HeadRefName != "symphony/CAG-43-workspace" {
+	if pr.Number != 7 || pr.URL != "https://github.com/acme/rocket/pull/7" || pr.BaseRefName != "develop" || pr.HeadRefName != "am/CAG-43-workspace" {
 		t.Fatalf("unexpected PR metadata: %+v", pr)
 	}
-	if pr.AuthorLogin() != "pi-symphony-bot[bot]" || pr.Mergeable != "MERGEABLE" || pr.MergeStateStatus != "CLEAN" || pr.ReviewDecision != "APPROVED" {
+	if pr.AuthorLogin() != "agent-machine-bot[bot]" || pr.Mergeable != "MERGEABLE" || pr.MergeStateStatus != "CLEAN" || pr.ReviewDecision != "APPROVED" {
 		t.Fatalf("unexpected PR gates: %+v", pr)
 	}
 	if len(pr.Commits) != 1 || pr.Commits[0].Author.Name != AppBotName || pr.Commits[0].Author.Email != AppBotEmail {
@@ -181,9 +181,9 @@ func TestOpenPullRequestsUsesCleanMergeStateWhenCheckRunsAreInaccessible(t *test
 		case "/repos/acme/rocket/pulls":
 			_, _ = w.Write([]byte(`[{"number":8}]`))
 		case "/repos/acme/rocket/pulls/8":
-			_, _ = w.Write([]byte(`{"number":8,"html_url":"https://github.com/acme/rocket/pull/8","user":{"login":"app/pi-symphony-bot"},"base":{"ref":"develop"},"head":{"ref":"symphony/CAG-43-workspace","sha":"def456"},"mergeable":true,"mergeable_state":"clean"}`))
+			_, _ = w.Write([]byte(`{"number":8,"html_url":"https://github.com/acme/rocket/pull/8","user":{"login":"app/agent-machine-bot"},"base":{"ref":"develop"},"head":{"ref":"am/CAG-43-workspace","sha":"def456"},"mergeable":true,"mergeable_state":"clean"}`))
 		case "/repos/acme/rocket/pulls/8/commits":
-			_, _ = w.Write([]byte(`[{"sha":"def456","commit":{"author":{"name":"pi-symphony-bot[bot]","email":"285402021+pi-symphony-bot[bot]@users.noreply.github.com","date":"2026-05-19T06:40:15Z"}},"author":{"login":"pi-symphony-bot[bot]"}}]`))
+			_, _ = w.Write([]byte(`[{"sha":"def456","commit":{"author":{"name":"agent-machine-bot[bot]","email":"agent-machine-bot[bot]@users.noreply.github.com","date":"2026-05-19T06:40:15Z"}},"author":{"login":"agent-machine-bot[bot]"}}]`))
 		case "/repos/acme/rocket/pulls/8/reviews":
 			_, _ = w.Write([]byte(`[{"state":"APPROVED","user":{"login":"human-reviewer"}}]`))
 		case "/repos/acme/rocket/commits/def456/status":
@@ -220,7 +220,7 @@ func TestOpenPullRequestsKeepsInaccessibleCheckRunsBlockingWhenMergeStateIsNotCl
 		case "/repos/acme/rocket/pulls":
 			_, _ = w.Write([]byte(`[{"number":9}]`))
 		case "/repos/acme/rocket/pulls/9":
-			_, _ = w.Write([]byte(`{"number":9,"html_url":"https://github.com/acme/rocket/pull/9","user":{"login":"app/pi-symphony-bot"},"base":{"ref":"develop"},"head":{"ref":"symphony/CAG-44-workspace","sha":"ghi789"},"mergeable":true,"mergeable_state":"unstable"}`))
+			_, _ = w.Write([]byte(`{"number":9,"html_url":"https://github.com/acme/rocket/pull/9","user":{"login":"app/agent-machine-bot"},"base":{"ref":"develop"},"head":{"ref":"am/CAG-44-workspace","sha":"ghi789"},"mergeable":true,"mergeable_state":"unstable"}`))
 		case "/repos/acme/rocket/pulls/9/commits":
 			_, _ = w.Write([]byte(`[]`))
 		case "/repos/acme/rocket/pulls/9/reviews":
@@ -281,7 +281,7 @@ func TestMapPullRequestFeedbackPreservesGhShapedReviewAndCommentFields(t *testin
 	feedback := MapPullRequestFeedback(
 		[]*github.PullRequestReview{{User: &github.User{Login: github.Ptr("weskor")}, State: github.Ptr("CHANGES_REQUESTED"), Body: github.Ptr("fix typed client parity"), SubmittedAt: &submittedAt}},
 		[]*github.IssueComment{{User: &github.User{Login: github.Ptr("vercel")}, Body: github.Ptr("preview ready"), CreatedAt: &createdAt}},
-		[]*github.PullRequestComment{{User: &github.User{Login: github.Ptr("reviewer")}, Path: github.Ptr("tools/pi-symphony/github_api.go"), Line: github.Ptr(42), Body: github.Ptr("inline note"), CreatedAt: &reviewCreatedAt}},
+		[]*github.PullRequestComment{{User: &github.User{Login: github.Ptr("reviewer")}, Path: github.Ptr("tools/agent-machine/github_api.go"), Line: github.Ptr(42), Body: github.Ptr("inline note"), CreatedAt: &reviewCreatedAt}},
 	)
 	if len(feedback.Reviews) != 1 || feedback.Reviews[0].Author.Login != "weskor" || feedback.Reviews[0].State != "CHANGES_REQUESTED" {
 		t.Fatalf("unexpected mapped reviews: %+v", feedback.Reviews)
@@ -289,7 +289,7 @@ func TestMapPullRequestFeedbackPreservesGhShapedReviewAndCommentFields(t *testin
 	if len(feedback.Comments) != 1 || feedback.Comments[0].Author.Login != "vercel" {
 		t.Fatalf("unexpected mapped comments: %+v", feedback.Comments)
 	}
-	if len(feedback.ReviewComments) != 1 || feedback.ReviewComments[0].Path != "tools/pi-symphony/github_api.go" || feedback.ReviewComments[0].Line != 42 {
+	if len(feedback.ReviewComments) != 1 || feedback.ReviewComments[0].Path != "tools/agent-machine/github_api.go" || feedback.ReviewComments[0].Line != 42 {
 		t.Fatalf("unexpected mapped review comments: %+v", feedback.ReviewComments)
 	}
 }

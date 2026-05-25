@@ -44,7 +44,7 @@ func TestSummarizeArtifactsReportsUsageAndTerminalStatus(t *testing.T) {
 func TestSummarizeStateStoreReportsHealthyDB(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
-	workspaceRoot := filepath.Join(root, ".symphony", "workspaces")
+	workspaceRoot := filepath.Join(root, ".am", "workspaces")
 	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -52,10 +52,10 @@ func TestSummarizeStateStoreReportsHealthyDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	if err := store.UpsertRunArtifact(ctx, state.RunArtifactSnapshot{IssueKey: "CAG-62", Attempt: 1, BranchName: "symphony/CAG-62-workspace", BaseBranch: "main", Status: "success", Repository: "weskor/agent-machine", PRNumber: 62, PRURL: "https://github.com/weskor/agent-machine/pull/62", ReviewStatus: "passed", TerminalOutcome: "handoff_ready"}); err != nil {
+	if err := store.UpsertRunArtifact(ctx, state.RunArtifactSnapshot{IssueKey: "CAG-62", Attempt: 1, BranchName: "am/CAG-62-workspace", BaseBranch: "main", Status: "success", Repository: "weskor/agent-machine", PRNumber: 62, PRURL: "https://github.com/weskor/agent-machine/pull/62", ReviewStatus: "passed", TerminalOutcome: "handoff_ready"}); err != nil {
 		t.Fatalf("UpsertRunArtifact() error = %v", err)
 	}
-	if err := store.UpsertDaemonHeartbeat(ctx, state.DaemonHeartbeat{ProcessID: "host:123", LaneName: "merge", WorkflowPath: "/repo/symphony.yaml", CycleNumber: 1}); err != nil {
+	if err := store.UpsertDaemonHeartbeat(ctx, state.DaemonHeartbeat{ProcessID: "host:123", LaneName: "merge", WorkflowPath: "/repo/am.yaml", CycleNumber: 1}); err != nil {
 		t.Fatalf("UpsertDaemonHeartbeat() error = %v", err)
 	}
 	if err := store.UpsertWorkerTask(ctx, state.WorkerTask{TaskKey: "review:CAG-62:1", Role: "review", IssueKey: "CAG-62", Attempt: 1, Status: "queued", Priority: 7}); err != nil {
@@ -69,7 +69,7 @@ func TestSummarizeStateStoreReportsHealthyDB(t *testing.T) {
 	}
 
 	joined := strings.Join(summarizeStateStore(workspaceRoot), "\n")
-	for _, expected := range []string{"SQLite state path: " + state.DefaultDBPath(workspaceRoot), "SQLite state health: healthy", "schema_version=7", "journal_mode=wal", "busy_timeout_ms=5000", "issue_attempts=1", "pr_mappings=1", "review_states=1", "terminal_outcomes=1", "daemon_heartbeats=1", "cleanup_states=0", "worker_tasks=1", "worker_results=1", "worker_payload_refs=0", "pr_handoff_intents=0", "events=3", "SQLite active lanes: total=1", "lane=merge", "SQLite worker tasks: total=1 review:queued=1", "SQLite worker results: total=1 review:failed=1", "task=review:CAG-62:1", "role=review", "status=queued", "reason=worker_error"} {
+	for _, expected := range []string{"SQLite state path: " + state.DefaultDBPath(workspaceRoot), "SQLite state health: healthy", "schema_version=8", "journal_mode=wal", "busy_timeout_ms=5000", "issue_attempts=1", "pr_mappings=1", "review_states=1", "terminal_outcomes=1", "daemon_heartbeats=1", "cleanup_states=0", "worker_tasks=1", "worker_results=1", "worker_payload_refs=0", "pr_handoff_intents=0", "events=3", "SQLite active lanes: total=1", "lane=merge", "SQLite worker tasks: total=1 review:queued=1", "SQLite worker results: total=1 review:failed=1", "task=review:CAG-62:1", "role=review", "status=queued", "reason=worker_error"} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("expected %q in %q", expected, joined)
 		}
@@ -78,7 +78,7 @@ func TestSummarizeStateStoreReportsHealthyDB(t *testing.T) {
 
 func TestSummarizeStateStoreReportsRecentEvents(t *testing.T) {
 	ctx := context.Background()
-	workspaceRoot := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspaceRoot := filepath.Join(t.TempDir(), ".am", "workspaces")
 	store, err := state.Open(ctx, state.DefaultDBPath(workspaceRoot))
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ func TestSummarizeStateStoreReportsRecentEvents(t *testing.T) {
 }
 
 func TestSummarizeStateStoreReportsMissingDB(t *testing.T) {
-	workspaceRoot := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspaceRoot := filepath.Join(t.TempDir(), ".am", "workspaces")
 	joined := strings.Join(summarizeStateStore(workspaceRoot), "\n")
 	for _, expected := range []string{"SQLite state path: " + state.DefaultDBPath(workspaceRoot), "SQLite state health: missing", "action=run am start"} {
 		if !strings.Contains(joined, expected) {
@@ -109,7 +109,7 @@ func TestSummarizeStateStoreReportsMissingDB(t *testing.T) {
 }
 
 func TestSummarizeStateStoreReportsUnopenableDB(t *testing.T) {
-	workspaceRoot := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	workspaceRoot := filepath.Join(t.TempDir(), ".am", "workspaces")
 	if err := os.MkdirAll(state.DefaultDBPath(workspaceRoot), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestStatusIssueStatesIncludesHandoffState(t *testing.T) {
 
 func TestSummarizePRAnnotatesArtifactGate(t *testing.T) {
 	artifact := artifactSummary{HasEvaluation: true, Outcome: "review_failed", NextAction: "repair_review_findings_before_handoff", ShouldRetry: true, OperatorAttention: true}
-	line := summarizePR(pullRequestSummary{Number: 402, URL: "https://github.com/weskor/agent-machine/pull/402", HeadRefName: "symphony/CAG-12-workspace", Mergeable: "MERGEABLE", ReviewDecision: "CHANGES_REQUESTED"}, &artifact)
+	line := summarizePR(pullRequestSummary{Number: 402, URL: "https://github.com/weskor/agent-machine/pull/402", HeadRefName: "am/CAG-12-workspace", Mergeable: "MERGEABLE", ReviewDecision: "CHANGES_REQUESTED"}, &artifact)
 	for _, expected := range []string{"#402", "artifact_gate=outcome:review_failed", "merge_eligible:false", "retry:true", "attention:true", "next:repair_review_findings_before_handoff"} {
 		if !strings.Contains(line, expected) {
 			t.Fatalf("expected %q in %q", expected, line)
@@ -311,14 +311,14 @@ func TestSummarizeArtifactsReportsMissingArtifact(t *testing.T) {
 
 func TestWorkspaceArtifactSummariesSkipsHiddenLockDirectory(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".pi-symphony-locks"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, ".am-locks"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	workspace := filepath.Join(root, "CAG-1")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(`{"issue_identifier":"CAG-1","issue_url":"https://linear.app/wessismore/issue/CAG-1/test","status":"success"}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-run.json"), []byte(`{"issue_identifier":"CAG-1","issue_url":"https://linear.app/wessismore/issue/CAG-1/test","status":"success"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

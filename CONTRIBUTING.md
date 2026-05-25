@@ -22,5 +22,5 @@ mise exec go -- make ci
 git diff --check
 ```
 
-Do not commit `.env.local`, private keys, `.symphony/` runtime state, generated
+Do not commit `.env.local`, private keys, `.am/` runtime state, generated
 release artifacts, or target-repository secrets.

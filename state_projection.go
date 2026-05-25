@@ -50,7 +50,7 @@ func (stateProjection) RunArtifact(workspace string, record runRecord, evaluatio
 		RetryNextState:        result.RetryNextState,
 		TerminalOutcome:       result.TerminalOutcome,
 		TerminalReason:        result.TerminalReason,
-		RunArtifactRef:        filepath.Join(workspace, ".pi-symphony-run.json"),
+		RunArtifactRef:        filepath.Join(workspace, ".am-run.json"),
 		EvaluationRef:         filepath.Join(workspace, evaluationArtifactName),
 	}
 }

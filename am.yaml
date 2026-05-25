@@ -17,14 +17,14 @@ tracker:
 polling:
   interval_ms: 30000
 workspace:
-  root: .symphony/workspaces
+  root: .am/workspaces
   base_branch: main
 hooks:
   timeout_ms: 120000
   before_run: mise exec go -- go test ./...
   after_run: mise exec go -- go test ./... && git diff --check
 agent:
-  prompt_path: symphony.agent.md
+  prompt_path: am.agent.md
   max_concurrent_agents: 1
   max_retry_backoff_ms: 300000
 runtime:
@@ -43,7 +43,7 @@ budgets:
   merge_timeout: 10m
   github_timeout: 2m
 github:
-  app_slug: pi-symphony-bot
+  app_slug: agent-machine-bot
 workflow:
   handoff_state: Human Review
   running_state: In Progress

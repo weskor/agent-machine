@@ -27,7 +27,7 @@ func TestWriteSmokeConfigUsesSafeGeneratedConfig(t *testing.T) {
 		Hooks:     cfg.HooksConfig{TimeoutText: "120000"},
 		Agent:     cfg.AgentConfig{MaxRetryBackoffText: "300000"},
 		Pi:        cfg.PiConfig{AfterCreate: "git clone --branch main git@github.com:weskor/agent-machine.git ."},
-		GitHub:    cfg.GitHubConfig{AppSlug: "pi-symphony-bot"},
+		GitHub:    cfg.GitHubConfig{AppSlug: "agent-machine-bot"},
 		Workflow:  cfg.WorkflowConfig{HandoffState: "Human Review", RunningState: "In Progress", NeedsInfoState: "Needs Info", DoneState: "Done"},
 	}
 
@@ -43,7 +43,7 @@ func TestWriteSmokeConfigUsesSafeGeneratedConfig(t *testing.T) {
 	for _, expected := range []string{
 		"repository:\n  remote: \"git@github.com:weskor/agent-machine.git\"",
 		"root: \"" + root + "\"",
-		"prompt_path: \"symphony.live-smoke.agent.md\"",
+		"prompt_path: \"am.live-smoke.agent.md\"",
 		"max_concurrent_agents: 2",
 		"go run ./cmd/agent-machine-live-smoke-agent --role implementation",
 		"go run ./cmd/agent-machine-live-smoke-agent --role review",
@@ -90,12 +90,12 @@ func TestLoadDotEnvLocalSetsMissingValues(t *testing.T) {
 }
 
 func TestApplyReportOptionsReusesWorkspaceAndIssues(t *testing.T) {
-	opts := applyReportOptions(options{project: "symphony.yaml"}, livesmoke.Report{
-		ConfigPath:    "symphony.yaml",
-		WorkspaceRoot: "/tmp/smoke/.symphony/workspaces",
+	opts := applyReportOptions(options{project: "am.yaml"}, livesmoke.Report{
+		ConfigPath:    "am.yaml",
+		WorkspaceRoot: "/tmp/smoke/.am/workspaces",
 		Issues:        []livesmoke.IssueRef{{Identifier: "CAG-1"}, {Identifier: "CAG-2"}},
 	})
-	if opts.workspaceRoot != "/tmp/smoke/.symphony/workspaces" {
+	if opts.workspaceRoot != "/tmp/smoke/.am/workspaces" {
 		t.Fatalf("workspaceRoot = %q", opts.workspaceRoot)
 	}
 	if opts.count != 2 || strings.Join(opts.issues, ",") != "CAG-1,CAG-2" {

@@ -28,7 +28,7 @@ func TestReconcileIssueAllowsFeedbackRetryToSupersedeTerminalArtifact(t *testing
 	root := t.TempDir()
 	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","pr_url":"https://github.com/weskor/agent-machine/pull/434"}`)
 	workspace := filepath.Join(root, "CAG-34")
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-feedback.md"), []byte("unresolved feedback"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-feedback.md"), []byte("unresolved feedback"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -528,7 +528,7 @@ func TestReconcileIssueDerivesPRAuthorFromConfiguredAppSlug(t *testing.T) {
 	config := testRunnerConfig(root)
 	config.HandoffState = "Human Review"
 	config.BaseBranch = "develop"
-	config.GitHubAppSlug = "pi-symphony-bot"
+	config.GitHubAppSlug = "agent-machine-bot"
 	workspace := filepath.Join(root, "CAG-84")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
@@ -543,7 +543,7 @@ func TestReconcileIssueDerivesPRAuthorFromConfiguredAppSlug(t *testing.T) {
 		URL:               "https://github.com/weskor/agent-machine/pull/84",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch("CAG-84"),
-		Author:            prAuthor{Login: "pi-symphony-bot[bot]"},
+		Author:            prAuthor{Login: "agent-machine-bot[bot]"},
 		ReviewDecision:    "APPROVED",
 		Mergeable:         "MERGEABLE",
 		StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS", Name: "build"}},
@@ -554,7 +554,7 @@ func TestReconcileIssueDerivesPRAuthorFromConfiguredAppSlug(t *testing.T) {
 	}
 
 	appPR := validPR
-	appPR.Author = prAuthor{Login: "app/pi-symphony-bot"}
+	appPR.Author = prAuthor{Login: "app/agent-machine-bot"}
 	if decision := reconcileIssue(config, testIssue("CAG-84", "Human Review"), &appPR); !decision.CanMerge {
 		t.Fatalf("expected configured GitHub App REST PR author to be merge-ready, got %#v", decision)
 	}
@@ -568,7 +568,7 @@ func TestReconcileIssueDerivesPRAuthorFromConfiguredAppSlug(t *testing.T) {
 	}
 
 	overrideConfig := missingIdentityConfig
-	overrideConfig.GitHubPRAuthorOverride = "pi-symphony-bot[bot]"
+	overrideConfig.GitHubPRAuthorOverride = "agent-machine-bot[bot]"
 	if decision := reconcileIssue(overrideConfig, testIssue("CAG-84", "Human Review"), &validPR); !decision.CanMerge {
 		t.Fatalf("expected explicit PR author override to pass, got %#v", decision)
 	}

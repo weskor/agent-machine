@@ -46,7 +46,7 @@ func runProgressRoot(workspaceRoot string) string {
 		return ""
 	}
 	clean := filepath.Clean(workspaceRoot)
-	if filepath.Base(clean) == "workspaces" && filepath.Base(filepath.Dir(clean)) == ".symphony" {
+	if filepath.Base(clean) == "workspaces" && filepath.Base(filepath.Dir(clean)) == ".am" {
 		return filepath.Join(filepath.Dir(clean), "state", "run-progress")
 	}
 	return filepath.Join(clean, "state", "run-progress")
@@ -264,7 +264,7 @@ func runProgressForRecord(workspace string, record runRecord, evaluation evaluat
 		DurationMS:           record.DurationMS,
 		NextAction:           evaluation.NextAction,
 		Error:                record.Error,
-		RunRecordPath:        filepath.Join(workspace, ".pi-symphony-run.json"),
+		RunRecordPath:        filepath.Join(workspace, ".am-run.json"),
 		EvaluationPath:       filepath.Join(workspace, evaluationArtifactName),
 	}
 }

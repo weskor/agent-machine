@@ -34,7 +34,7 @@ func TestWriteRunRecordPersistsBudgetTerminalStatus(t *testing.T) {
 	record := runRecordFor(&issue{ID: "issue-id", Identifier: "CAG-1", Title: "title"}, workspace, "pi", "", now, now, nil, nil, "", "timeout", "command timed out", (&runBudget{RuntimeText: "1s", RuntimeTimeout: time.Second}).Active(), "command timed out")
 	writeRunRecord(workspace, record)
 
-	data, err := os.ReadFile(filepath.Join(workspace, ".pi-symphony-run.json"))
+	data, err := os.ReadFile(filepath.Join(workspace, ".am-run.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,15 +52,15 @@ func TestWriteRunRecordPersistsBudgetTerminalStatus(t *testing.T) {
 
 func TestWriteRunRecordMirrorsSQLiteStateIdempotently(t *testing.T) {
 	root := t.TempDir()
-	workspaceRoot := filepath.Join(root, ".symphony", "workspaces")
+	workspaceRoot := filepath.Join(root, ".am", "workspaces")
 	workspace := filepath.Join(workspaceRoot, "CAG-61")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, "symphony.yaml"), []byte("workspace:\n  base_branch: integration\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, "am.yaml"), []byte("workspace:\n  base_branch: integration\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, "symphony.agent.md"), []byte("# Test\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, "am.agent.md"), []byte("# Test\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
@@ -70,8 +70,8 @@ func TestWriteRunRecordMirrorsSQLiteStateIdempotently(t *testing.T) {
 		IssueTitle:           "Mirror artifacts",
 		Workspace:            workspace,
 		WorkspaceRoot:        workspaceRoot,
-		Branch:               "symphony/CAG-61-workspace",
-		ExpectedBranch:       "symphony/CAG-61-workspace",
+		Branch:               "am/CAG-61-workspace",
+		ExpectedBranch:       "am/CAG-61-workspace",
 		StartedAt:            now,
 		EndedAt:              now.Add(time.Second),
 		ReviewStatus:         "passed",
@@ -85,12 +85,12 @@ func TestWriteRunRecordMirrorsSQLiteStateIdempotently(t *testing.T) {
 	writeRunRecord(workspace, record)
 	writeRunRecord(workspace, record)
 
-	for _, name := range []string{".pi-symphony-run.json", evaluationArtifactName} {
+	for _, name := range []string{".am-run.json", evaluationArtifactName} {
 		if _, err := os.Stat(filepath.Join(workspace, name)); err != nil {
 			t.Fatalf("expected artifact %s: %v", name, err)
 		}
 	}
-	db, err := sql.Open("sqlite", filepath.Join(root, ".symphony", "state", "pi-symphony.db"))
+	db, err := sql.Open("sqlite", filepath.Join(root, ".am", "state", "am.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestWriteRunRecordMirrorsSQLiteStateIdempotently(t *testing.T) {
 
 func TestCompatibilityArtifactReadersRejectUnsupportedSchemaVersion(t *testing.T) {
 	workspace := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(`{"schema_version":99,"issue_identifier":"CAG-201","status":"success"}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-run.json"), []byte(`{"schema_version":99,"issue_identifier":"CAG-201","status":"success"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if record, ok := readRunArtifact(workspace); ok {
@@ -138,13 +138,13 @@ func TestWriteRunRecordWithoutWorkspaceRootSkipsSQLiteMirror(t *testing.T) {
 	workspace := t.TempDir()
 	record := runRecord{IssueIdentifier: "CAG-legacy", Workspace: workspace, Status: "success", StartedAt: time.Now(), EndedAt: time.Now()}
 	writeRunRecord(workspace, record)
-	if _, err := os.Stat(filepath.Join(workspace, ".pi-symphony-run.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(workspace, ".am-run.json")); err != nil {
 		t.Fatalf("expected run artifact: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(workspace, evaluationArtifactName)); err != nil {
 		t.Fatalf("expected evaluation artifact: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(workspace, "state", "pi-symphony.db")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(workspace, "state", "am.db")); !os.IsNotExist(err) {
 		t.Fatalf("unexpected sqlite state for legacy helper path: %v", err)
 	}
 }
@@ -166,7 +166,7 @@ func TestRepairArtifactMarksManuallyMergedPRWithoutDroppingUsage(t *testing.T) {
 	t.Cleanup(func() { prStateForURL = old })
 
 	workspace := t.TempDir()
-	path := filepath.Join(workspace, ".pi-symphony-run.json")
+	path := filepath.Join(workspace, ".am-run.json")
 	record := runRecord{IssueIdentifier: "CAG-1", IssueURL: "https://linear.app/acme/issue/CAG-1/title", Workspace: workspace, Status: "success", PRURL: "https://github.com/acme/repo/pull/1", RuntimeUsage: &usage{TotalTokens: 123, Cost: &usageCost{Total: 0.45}}}
 	data, err := json.Marshal(record)
 	if err != nil {
@@ -202,7 +202,7 @@ func TestRepairArtifactMarksClosedPRSuperseded(t *testing.T) {
 	t.Cleanup(func() { prStateForURL = old })
 
 	workspace := t.TempDir()
-	path := filepath.Join(workspace, ".pi-symphony-run.json")
+	path := filepath.Join(workspace, ".am-run.json")
 	record := runRecord{IssueIdentifier: "CAG-2", IssueURL: "https://linear.app/acme/issue/CAG-2/title", Workspace: workspace, Status: "review_failed", PRURL: "https://github.com/acme/repo/pull/2"}
 	data, err := json.Marshal(record)
 	if err != nil {

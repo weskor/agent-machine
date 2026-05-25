@@ -196,7 +196,7 @@ func TestReviewWorkerRecordsNotReadyWithoutRunningReview(t *testing.T) {
 	if snapshot.Phase != "review_not_ready" || snapshot.Outcome != "waiting_for_checks" || snapshot.NextAction != "wait_for_github_checks_then_retry" || !strings.Contains(snapshot.Error, "review not ready") {
 		t.Fatalf("progress = %+v; want waiting-for-checks progress", snapshot)
 	}
-	data, err := os.ReadFile(filepath.Join(workspace, ".pi-symphony-run.json"))
+	data, err := os.ReadFile(filepath.Join(workspace, ".am-run.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -54,9 +54,8 @@ The snapshot includes:
 
 The snapshot intentionally excludes secrets and raw agent output.
 
-Product surfaces may use `AM_BIN` to call a built runner binary. `PI_SYMPHONY_BIN`
-is still accepted as a legacy fallback. The command contract remains
-`surface snapshot --config <path>`.
+Product surfaces may use `AM_BIN` to call a built runner binary. The command
+contract remains `surface snapshot --config <path>`.
 
 ## Future commands
 

@@ -19,11 +19,11 @@ func TestAcquireRunLockWritesOwnerAndReleaseRemovesLock(t *testing.T) {
 	candidate := testIssue("CAG-21", "In Progress")
 	now := time.Date(2026, 5, 17, 12, 0, 0, 0, time.UTC)
 
-	lock, release, err := acquireRunLock(workspace, &candidate, "symphony/CAG-21", now)
+	lock, release, err := acquireRunLock(workspace, &candidate, "am/CAG-21", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lock.IssueIdentifier != "CAG-21" || lock.Branch != "symphony/CAG-21" || lock.Workspace != workspace || lock.PID == 0 {
+	if lock.IssueIdentifier != "CAG-21" || lock.Branch != "am/CAG-21" || lock.Workspace != workspace || lock.PID == 0 {
 		t.Fatalf("unexpected lock: %#v", lock)
 	}
 	if _, err := os.Stat(runLockPath(workspace)); err != nil {
@@ -41,7 +41,7 @@ func TestAcquireRunLockMirrorsLeaseAndReleaseMarksReleased(t *testing.T) {
 	candidate := testIssue("CAG-64", "In Progress")
 	now := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
 
-	_, release, err := acquireRunLock(workspace, &candidate, "symphony/CAG-64", now)
+	_, release, err := acquireRunLock(workspace, &candidate, "am/CAG-64", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestHeartbeatRunLockRenewsMirroredLease(t *testing.T) {
 	workspace := filepath.Join(root, "CAG-64")
 	candidate := testIssue("CAG-64", "In Progress")
 	now := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
-	_, release, err := acquireRunLock(workspace, &candidate, "symphony/CAG-64", now)
+	_, release, err := acquireRunLock(workspace, &candidate, "am/CAG-64", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestHeartbeatRunLockWithStateUsesCommandScopedStore(t *testing.T) {
 	defer store.Close()
 	candidate := testIssue("CAG-107", "In Progress")
 	now := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
-	_, release, err := acquireRunLockWithState(store, workspace, &candidate, "symphony/CAG-107", now)
+	_, release, err := acquireRunLockWithState(store, workspace, &candidate, "am/CAG-107", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,13 +113,13 @@ func TestAcquireRunLockWithStateBlocksConcurrentSQLiteLease(t *testing.T) {
 	defer store.Close()
 	candidate := testIssue("CAG-109", "In Progress")
 	now := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
-	_, release, err := acquireRunLockWithState(store, workspace, &candidate, "symphony/CAG-109", now)
+	_, release, err := acquireRunLockWithState(store, workspace, &candidate, "am/CAG-109", now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer release()
 
-	_, _, err = acquireRunLockWithState(store, workspace, &candidate, "symphony/CAG-109-retry", now.Add(time.Minute))
+	_, _, err = acquireRunLockWithState(store, workspace, &candidate, "am/CAG-109-retry", now.Add(time.Minute))
 	if !errors.Is(err, errRunLocked) {
 		t.Fatalf("second acquire err=%v, want errRunLocked", err)
 	}
@@ -137,7 +137,7 @@ func TestAcquireRunLockWithStateTreatsJSONLockAsExport(t *testing.T) {
 	writeRunLockFixture(t, workspace, runLock{IssueIdentifier: "CAG-109", Workspace: workspace, Owner: "stale-json", HeartbeatAt: now})
 	candidate := testIssue("CAG-109", "In Progress")
 
-	lock, release, err := acquireRunLockWithState(store, workspace, &candidate, "symphony/CAG-109", now)
+	lock, release, err := acquireRunLockWithState(store, workspace, &candidate, "am/CAG-109", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestHeartbeatRunLockWithStateRenewsWithoutJSONExport(t *testing.T) {
 	defer store.Close()
 	candidate := testIssue("CAG-109", "In Progress")
 	now := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
-	_, release, err := acquireRunLockWithState(store, workspace, &candidate, "symphony/CAG-109", now)
+	_, release, err := acquireRunLockWithState(store, workspace, &candidate, "am/CAG-109", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestAcquireRunLockDoesNotDirtyFreshWorkspace(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "CAG-21")
 	candidate := testIssue("CAG-21", "In Progress")
 
-	_, release, err := acquireRunLock(workspace, &candidate, "symphony/CAG-21", time.Now())
+	_, release, err := acquireRunLock(workspace, &candidate, "am/CAG-21", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +337,7 @@ func TestCleanupStaleRunLocksRemovesDeadOwnerLocksOnSameHost(t *testing.T) {
 func TestIsEmptyIgnoringRunLockAllowsBootstrap(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "CAG-1")
 	candidate := testIssue("CAG-1", "In Progress")
-	_, release, err := acquireRunLock(workspace, &candidate, "symphony/CAG-1", time.Now())
+	_, release, err := acquireRunLock(workspace, &candidate, "am/CAG-1", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

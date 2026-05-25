@@ -22,4 +22,4 @@ Include:
 
 Agent Machine reads Linear, GitHub token, and GitHub App credentials from the
 environment, `--env-file`, or local `.env.local` files. Never commit real tokens,
-private keys, generated `.symphony/` state, or copied local environment files.
+private keys, generated `.am/` state, or copied local environment files.

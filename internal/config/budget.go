@@ -184,7 +184,7 @@ func durationFromYAML(yaml, key string, fallback time.Duration, fallbackText str
 	duration, err := time.ParseDuration(value)
 	if err != nil {
 		if strict {
-			return 0, "", fmt.Errorf("symphony.yaml budgets.%s must be a Go duration such as 10m or 2h", key)
+			return 0, "", fmt.Errorf("am.yaml budgets.%s must be a Go duration such as 10m or 2h", key)
 		}
 		return fallback, fallbackText, nil
 	}

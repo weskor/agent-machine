@@ -254,7 +254,7 @@ func openPRsByIssue(config runnerConfig) (map[string]*pullRequestSummary, error)
 	if err != nil {
 		return nil, fmt.Errorf("GitHub API open PR metadata lookup failed: %w", err)
 	}
-	prs = symphonyPRs(prs)
+	prs = amPRs(prs)
 	byIssue := map[string]*pullRequestSummary{}
 	for i := range prs {
 		identifier := issueIdentifierFromBranch(prs[i].HeadRefName)

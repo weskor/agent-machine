@@ -128,7 +128,7 @@ func TestEvaluationArtifactNeedsInfo(t *testing.T) {
 
 func TestEvaluationArtifactFeedbackRequested(t *testing.T) {
 	workspace := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-feedback.md"), []byte("changes requested"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-feedback.md"), []byte("changes requested"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

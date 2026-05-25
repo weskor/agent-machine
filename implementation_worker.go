@@ -94,7 +94,7 @@ func (w implementationWorker) Prepare(ctx context.Context) error {
 	}
 	feedback = repairReviewFailedPromptFeedback(w.stateStore, w.candidate.Identifier, feedback)
 	prompt := implementationPrompt(w.project.Prompt, w.candidate, feedback, w.config)
-	promptPath := filepath.Join(w.workspace, ".pi-symphony-prompt.md")
+	promptPath := filepath.Join(w.workspace, ".am-prompt.md")
 	if err := os.WriteFile(promptPath, []byte(prompt), 0o600); err != nil {
 		return err
 	}
@@ -103,7 +103,7 @@ func (w implementationWorker) Prepare(ctx context.Context) error {
 
 func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]string, githubAuth string) (implementationWorkerResult, error) {
 	linearStatus := linearStatusWorker{client: w.client, candidate: w.candidate, states: w.states}
-	promptPath := filepath.Join(w.workspace, ".pi-symphony-prompt.md")
+	promptPath := filepath.Join(w.workspace, ".am-prompt.md")
 	runtime, err := newAgentRuntime(w.config.RuntimeProvider)
 	if err != nil {
 		return implementationWorkerResult{}, err

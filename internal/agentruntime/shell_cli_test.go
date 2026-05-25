@@ -38,7 +38,7 @@ func TestShellCLIAdapterRunAttemptUsesConfiguredCommandBuilder(t *testing.T) {
 
 func TestShellCLIAdapterRunAttemptPrefersStructuredOutcomeEnvelope(t *testing.T) {
 	output := `legacy text without parseable questions
-PI_SYMPHONY_OUTCOME: {"runtime_outcome":"needs_info","needs_info_questions":["Which tenant?"],"validation":["typed validation"],"pr_url":"https://github.com/acme/repo/pull/9"}`
+AM_OUTCOME: {"runtime_outcome":"needs_info","needs_info_questions":["Which tenant?"],"validation":["typed validation"],"pr_url":"https://github.com/acme/repo/pull/9"}`
 	runtime := ShellCLIAdapter{
 		Provider:       "test_cli",
 		MissingCommand: "missing test command",
@@ -71,7 +71,7 @@ func TestShellCLIAdapterRunAttemptRejectsMalformedStructuredOutcomeEnvelope(t *t
 		Provider:       "test_cli",
 		MissingCommand: "missing test command",
 		RunCommand: func(string, string, map[string]string, time.Duration, string) (string, error) {
-			return `PI_SYMPHONY_OUTCOME: {"runtime_outcome":`, nil
+			return `AM_OUTCOME: {"runtime_outcome":`, nil
 		},
 	}
 
@@ -90,7 +90,7 @@ func TestShellCLIAdapterReviewAttemptCanTransformFindings(t *testing.T) {
 		Provider:       "test_cli",
 		MissingCommand: "missing test command",
 		RunCommand: func(command, workdir string, env map[string]string, timeout time.Duration, phase string) (string, error) {
-			if phase != "review" || !strings.Contains(command, ".pi-symphony-review-prompt.md") {
+			if phase != "review" || !strings.Contains(command, ".am-review-prompt.md") {
 				t.Fatalf("unexpected review command phase=%q command=%q", phase, command)
 			}
 			return "json wrapper\nREVIEW_PASS", nil

@@ -96,10 +96,10 @@ func run(ctx context.Context, args []string, environ []string) error {
 		if err != nil {
 			return err
 		}
-		opts.workspaceRoot = filepath.Join(tempRoot, ".symphony", "workspaces")
+		opts.workspaceRoot = filepath.Join(tempRoot, ".am", "workspaces")
 	}
 	if opts.reportPath == "" {
-		opts.reportPath = filepath.Join(".symphony", "live-smoke", fmt.Sprintf("live-smoke-%s.json", time.Now().UTC().Format("20060102T150405Z")))
+		opts.reportPath = filepath.Join(".am", "live-smoke", fmt.Sprintf("live-smoke-%s.json", time.Now().UTC().Format("20060102T150405Z")))
 	}
 
 	client := linearClient{endpoint: config.Tracker.Endpoint, apiKey: env["LINEAR_API_KEY"]}
@@ -254,8 +254,8 @@ func writeSmokeConfig(opts options, config cfg.Config) (string, error) {
 	if err := os.MkdirAll(opts.workspaceRoot, 0o755); err != nil {
 		return "", err
 	}
-	path := filepath.Join(filepath.Dir(opts.workspaceRoot), "symphony.live-smoke.yaml")
-	promptPath := filepath.Join(filepath.Dir(opts.workspaceRoot), "symphony.live-smoke.agent.md")
+	path := filepath.Join(filepath.Dir(opts.workspaceRoot), "am.live-smoke.yaml")
+	promptPath := filepath.Join(filepath.Dir(opts.workspaceRoot), "am.live-smoke.agent.md")
 	repositoryRemote := strings.TrimSpace(config.Repository.Remote)
 	if repositoryRemote == "" {
 		repositoryRemote = "git@github.com:weskor/agent-machine.git"

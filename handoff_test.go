@@ -108,7 +108,7 @@ func TestEnsureRunnerPRHandoffCreatesPRWhenAgentEmitsStaleMissingURL(t *testing.
 	withFakeGitHubAPI(t, fakeGitHubAPI{
 		handoffErrorsByURL: map[string]error{"https://github.com/weskor/agent-machine/pull/73": errors.New("GitHub API PR handoff lookup failed: 404 Not Found")},
 		prs: []pullRequestSummary{
-			{Number: 73, URL: "https://github.com/weskor/agent-machine/pull/73", BaseRefName: "main", HeadRefName: "symphony/other-workspace"},
+			{Number: 73, URL: "https://github.com/weskor/agent-machine/pull/73", BaseRefName: "main", HeadRefName: "am/other-workspace"},
 		},
 	})
 
@@ -162,7 +162,7 @@ func TestEnsureRunnerPRHandoffIgnoresWrongBranchAdvisoryPR(t *testing.T) {
 	config.BaseBranch = "main"
 	staleURL := "https://github.com/weskor/agent-machine/pull/25"
 	withFakeGitHubAPI(t, fakeGitHubAPI{
-		handoffDetailsByURL: map[string]prHandoffDetails{staleURL: {Number: 25, URL: staleURL, BaseRefName: "main", HeadRefName: "symphony/CAG-86-workspace"}},
+		handoffDetailsByURL: map[string]prHandoffDetails{staleURL: {Number: 25, URL: staleURL, BaseRefName: "main", HeadRefName: "am/CAG-86-workspace"}},
 	})
 
 	prURL, err := ensureRunnerPRHandoff(config, &candidate, workspace, staleURL, nil)
@@ -287,7 +287,7 @@ func TestValidatePRForHandoffFallbackFailsWhenNoBranchMatch(t *testing.T) {
 	withFakeGitHubAPI(t, fakeGitHubAPI{
 		handoffErr: errors.New("GitHub API PR handoff lookup failed: 404 Not Found"),
 		prs: []pullRequestSummary{
-			{Number: 73, URL: "https://github.com/weskor/agent-machine/pull/73", BaseRefName: "develop", HeadRefName: "symphony/CAG-96-workspace"},
+			{Number: 73, URL: "https://github.com/weskor/agent-machine/pull/73", BaseRefName: "develop", HeadRefName: "am/CAG-96-workspace"},
 		},
 	})
 

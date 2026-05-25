@@ -7,7 +7,7 @@ Accepted
 ## Context
 
 Agent Machine currently writes capped raw implementation/review output to
-`.pi-symphony-debug/*-raw.log` inside each issue workspace when
+`.am-debug/*-raw.log` inside each issue workspace when
 `AM_DEBUG_RAW_OUTPUT=1`.
 
 Because cleanup and merge safety checks still use `git status`-style workspace
@@ -28,10 +28,10 @@ run/evaluation artifacts in their existing workspace locations.
 Specifically:
 
 - Raw implementation/review traces are written to:
-  - `<workspace-root>/.symphony/debug/<issue>/implementation-raw.log`
-  - `<workspace-root>/.symphony/debug/<issue>/review-raw.log`
+  - `<workspace-root>/.am/debug/<issue>/implementation-raw.log`
+  - `<workspace-root>/.am/debug/<issue>/review-raw.log`
 - `<workspace-root>` means the configured daemon/workspace root (for example
-  `.symphony/workspaces`).
+  `.am/workspaces`).
 - The `<issue>` segment is derived from the workspace basename, e.g.
   `CAG-86`.
 - `captureAgentOutput` (or its wrapper) must accept/resolve an artifact export
@@ -45,19 +45,18 @@ Specifically:
 - Cleanup and merge safety checks can treat completed workspaces as empty unless they
   contain real diff/untracked evidence.
 - Debug artifacts become auditable and persistent beyond workspace lifecycle.
-- Existing scripts and tests that inspect `.pi-symphony-debug` inside workspaces
-  must be updated to the new path convention.
-- Legacy `.pi-symphony-debug` directories left from prior runs should not be
-  treated as a hard block for cleanup during migration.
+- Existing scripts and tests that inspect workspace-local `.am-debug`
+  directories must be updated to the new path convention.
+- Workspace-local `.am-debug` directories should not be treated as a hard block
+  for cleanup.
 
 ## Alternatives considered
 
 - Keep debug files in-workspace and expand ignored paths to include
-  `.pi-symphony-debug`.
+  `.am-debug`.
   This preserves local file locality but leaves workspace cleanup semantics coupled
   to the debug collector and weakens workspace-signal clarity.
-- Always keep all evidence out-of-workspace (including `.pi-symphony-run.json` and
-  `.pi-symphony-evaluation.json`).
+- Always keep all evidence out-of-workspace (including `.am-run.json` and
+  `.am-evaluation.json`).
   This is a larger behavior migration than needed for the current cleanup leak and
   would be addressed only after DB-backed decision classes are authoritative.
-

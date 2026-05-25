@@ -7,7 +7,7 @@ Issues and PRDs for this repo live in Linear, not GitHub Issues.
 - Linear team: CAG / Agent Machine Runner
 - Linear project: Agent Machine Runner
 - Project slug: `c08e7f84bb75`
-- Local project config: `symphony.yaml`
+- Local project config: `am.yaml`
 
 ## Conventions
 
@@ -28,4 +28,4 @@ Read the Linear issue by identifier, including description, state, priority, lab
 
 ## GitHub’s role
 
-GitHub is the code review and CI surface. Agent Machine opens PRs from `symphony/<issue>-workspace` branches into the configured base branch and posts deterministic handoff comments.
+GitHub is the code review and CI surface. Agent Machine opens PRs from `am/<issue>-workspace` branches into the configured base branch and posts deterministic handoff comments.

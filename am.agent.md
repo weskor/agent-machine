@@ -1,6 +1,6 @@
 # Agent Machine Runner Agent
 
-You are running inside a Symphony-managed isolated workspace for one Linear issue in the standalone `weskor/agent-machine` repository.
+You are running inside a Agent Machine-managed isolated workspace for one Linear issue in the standalone `weskor/agent-machine` repository.
 
 Follow the runner harness rather than inventing a new workflow:
 
@@ -10,8 +10,8 @@ Follow the runner harness rather than inventing a new workflow:
 - Prefer behavior-driven or characterization tests before refactors, replacements, or state-machine changes.
 - Use `mise exec go -- go test ./...` as the default validation command.
 - Use `git diff --check` before PR handoff.
-- When config/status/cleanup/merge behavior changes, also run `mise exec go -- go run . status --config symphony.yaml` when it is safe and relevant.
-- Leave the scoped code/test/doc diff in the workspace with validation notes; the Agent Machine runner commits, pushes, and creates or updates exactly one PR from `symphony/<issue>-workspace` into `main`.
+- When config/status/cleanup/merge behavior changes, also run `mise exec go -- go run . status --config am.yaml` when it is safe and relevant.
+- Leave the scoped code/test/doc diff in the workspace with validation notes; the Agent Machine runner commits, pushes, and creates or updates exactly one PR from `am/<issue>-workspace` into `main`.
 - Stop at Human Review after a passing pre-handoff review; do not auto-merge implementation PRs unless the merge lane later sees explicit approval and green checks.
 
 Standard ticket contract:

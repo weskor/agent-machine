@@ -21,7 +21,7 @@ func TestLockManagerLifecycleTable(t *testing.T) {
 		run  func(*testing.T, string, time.Time)
 	}{
 		{name: "release removes active lock", run: func(t *testing.T, workspace string, now time.Time) {
-			_, release, err := (LockManager{}).Acquire(workspace, &domain.Issue{Identifier: "CAG-1", ID: "issue-id"}, "symphony/CAG-1-workspace", now)
+			_, release, err := (LockManager{}).Acquire(workspace, &domain.Issue{Identifier: "CAG-1", ID: "issue-id"}, "am/CAG-1-workspace", now)
 			if err != nil {
 				t.Fatalf("Acquire error = %v", err)
 			}
@@ -31,11 +31,11 @@ func TestLockManagerLifecycleTable(t *testing.T) {
 			}
 		}},
 		{name: "active lock rejection", run: func(t *testing.T, workspace string, now time.Time) {
-			_, _, err := (LockManager{}).Acquire(workspace, &domain.Issue{Identifier: "CAG-1", ID: "issue-id"}, "symphony/CAG-1-workspace", now)
+			_, _, err := (LockManager{}).Acquire(workspace, &domain.Issue{Identifier: "CAG-1", ID: "issue-id"}, "am/CAG-1-workspace", now)
 			if err != nil {
 				t.Fatalf("first Acquire error = %v", err)
 			}
-			_, _, err = (LockManager{}).Acquire(workspace, &domain.Issue{Identifier: "CAG-1", ID: "issue-id"}, "symphony/CAG-1-workspace", now)
+			_, _, err = (LockManager{}).Acquire(workspace, &domain.Issue{Identifier: "CAG-1", ID: "issue-id"}, "am/CAG-1-workspace", now)
 			if !errors.Is(err, ErrRunLocked) {
 				t.Fatalf("second Acquire error = %v, want ErrRunLocked", err)
 			}
@@ -64,7 +64,7 @@ func TestLockManagerAcquireContextHonorsCanceledContext(t *testing.T) {
 	cancel()
 	workspace := filepath.Join(t.TempDir(), "CAG-199")
 
-	_, _, err := (LockManager{}).AcquireContext(ctx, workspace, &domain.Issue{Identifier: "CAG-199", ID: "issue-id"}, "symphony/CAG-199-workspace", time.Now())
+	_, _, err := (LockManager{}).AcquireContext(ctx, workspace, &domain.Issue{Identifier: "CAG-199", ID: "issue-id"}, "am/CAG-199-workspace", time.Now())
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("AcquireContext() error = %v; want context.Canceled", err)
 	}
@@ -80,7 +80,7 @@ func TestLockManagerMirrorAcquireContextHonorsCanceledContext(t *testing.T) {
 	}
 	defer store.Close()
 	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
-	lock := domain.RunLock{Owner: Owner(), PID: os.Getpid(), Host: Hostname(), IssueIdentifier: "CAG-199", IssueID: "issue-id", Branch: "symphony/CAG-199-workspace", Workspace: filepath.Join(t.TempDir(), "CAG-199"), StartedAt: now, HeartbeatAt: now}
+	lock := domain.RunLock{Owner: Owner(), PID: os.Getpid(), Host: Hostname(), IssueIdentifier: "CAG-199", IssueID: "issue-id", Branch: "am/CAG-199-workspace", Workspace: filepath.Join(t.TempDir(), "CAG-199"), StartedAt: now, HeartbeatAt: now}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -119,7 +119,7 @@ func TestDescribeExistingStaleLockUsesCurrentRepairCommand(t *testing.T) {
 		HeartbeatAt:     now.Add(-RunLockStaleAfter - time.Second),
 		StartedAt:       now.Add(-RunLockStaleAfter - time.Second),
 		Owner:           "owner",
-		Branch:          "symphony/CAG-199-workspace",
+		Branch:          "am/CAG-199-workspace",
 	})
 
 	err := DescribeExisting(Path(workspace), now)
@@ -127,7 +127,7 @@ func TestDescribeExistingStaleLockUsesCurrentRepairCommand(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "go run . repair-artifacts --config <path>") {
 		t.Fatalf("DescribeExisting() error = %v, want current repair command", err)
 	}
-	if strings.Contains(err.Error(), "bun run symphony:pi:repair-artifacts") {
+	if strings.Contains(err.Error(), "bun run am:pi:repair-artifacts") {
 		t.Fatalf("DescribeExisting() error = %v, contains stale repair command", err)
 	}
 }
@@ -141,11 +141,11 @@ func TestLockManagerReclaimsDeadOwnerSQLiteLease(t *testing.T) {
 	defer store.Close()
 	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
 	workspace := filepath.Join(t.TempDir(), "CAG-113")
-	oldLock := domain.RunLock{Owner: Owner(), PID: 999999, Host: Hostname(), IssueIdentifier: "CAG-113", IssueID: "issue-id", Branch: "symphony/CAG-113-workspace", Workspace: workspace, StartedAt: now.Add(-time.Hour), HeartbeatAt: now.Add(-time.Hour)}
+	oldLock := domain.RunLock{Owner: Owner(), PID: 999999, Host: Hostname(), IssueIdentifier: "CAG-113", IssueID: "issue-id", Branch: "am/CAG-113-workspace", Workspace: workspace, StartedAt: now.Add(-time.Hour), HeartbeatAt: now.Add(-time.Hour)}
 	if acquired, err := store.AcquireLease(ctx, RunLockLease(oldLock, oldLock.HeartbeatAt), oldLock.HeartbeatAt); err != nil || !acquired {
 		t.Fatalf("seed AcquireLease acquired=%v err=%v", acquired, err)
 	}
-	lock, release, err := (LockManager{StateStore: store}).Acquire(workspace, &domain.Issue{Identifier: "CAG-113", ID: "issue-id"}, "symphony/CAG-113-workspace", now)
+	lock, release, err := (LockManager{StateStore: store}).Acquire(workspace, &domain.Issue{Identifier: "CAG-113", ID: "issue-id"}, "am/CAG-113-workspace", now)
 	if err != nil {
 		t.Fatalf("Acquire() error = %v", err)
 	}
@@ -171,11 +171,11 @@ func TestLockManagerDoesNotReclaimLiveOwnerSQLiteLease(t *testing.T) {
 	defer store.Close()
 	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
 	workspace := filepath.Join(t.TempDir(), "CAG-113")
-	oldLock := domain.RunLock{Owner: Owner(), PID: os.Getpid(), Host: Hostname(), IssueIdentifier: "CAG-113", IssueID: "issue-id", Branch: "symphony/CAG-113-workspace", Workspace: workspace, StartedAt: now.Add(-time.Hour), HeartbeatAt: now.Add(-time.Hour)}
+	oldLock := domain.RunLock{Owner: Owner(), PID: os.Getpid(), Host: Hostname(), IssueIdentifier: "CAG-113", IssueID: "issue-id", Branch: "am/CAG-113-workspace", Workspace: workspace, StartedAt: now.Add(-time.Hour), HeartbeatAt: now.Add(-time.Hour)}
 	if acquired, err := store.AcquireLease(ctx, RunLockLease(oldLock, oldLock.HeartbeatAt), oldLock.HeartbeatAt); err != nil || !acquired {
 		t.Fatalf("seed AcquireLease acquired=%v err=%v", acquired, err)
 	}
-	_, _, err = (LockManager{StateStore: store}).Acquire(workspace, &domain.Issue{Identifier: "CAG-113", ID: "issue-id"}, "symphony/CAG-113-workspace", now)
+	_, _, err = (LockManager{StateStore: store}).Acquire(workspace, &domain.Issue{Identifier: "CAG-113", ID: "issue-id"}, "am/CAG-113-workspace", now)
 	if !errors.Is(err, ErrRunLocked) {
 		t.Fatalf("Acquire() error = %v, want ErrRunLocked", err)
 	}

@@ -11,7 +11,7 @@ func EmptyAsUnknown(value string) string {
 
 func IssueIdentifierFromBranch(branch string) string {
 	branch = strings.TrimSpace(branch)
-	branch = strings.TrimPrefix(branch, "symphony/")
+	branch = strings.TrimPrefix(branch, "am/")
 	branch = strings.TrimSuffix(branch, "-workspace")
 	return strings.TrimSpace(branch)
 }

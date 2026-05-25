@@ -69,7 +69,7 @@ func TestRunReviewCharacterizesInvocationAndOutcome(t *testing.T) {
 				t.Fatalf("classification = %q, want %q", result.Classification, tc.wantClass)
 			}
 			if tc.wantStatus == "passed" {
-				for _, want := range []string{"cwd=" + workspace, "env=from-test", "--thinking xhigh", "@" + filepath.Join(workspace, ".pi-symphony-review-prompt.md")} {
+				for _, want := range []string{"cwd=" + workspace, "env=from-test", "--thinking xhigh", "@" + filepath.Join(workspace, ".am-review-prompt.md")} {
 					if !strings.Contains(result.Findings, want) {
 						t.Fatalf("findings %q missing %q", result.Findings, want)
 					}
@@ -94,7 +94,7 @@ func TestRunReviewIncludesGuidanceFromEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runReview returned error: %v", err)
 	}
-	prompt, err := os.ReadFile(filepath.Join(workspace, ".pi-symphony-review-prompt.md"))
+	prompt, err := os.ReadFile(filepath.Join(workspace, ".am-review-prompt.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestReviewPromptIncludesTicketContractHardFailGates(t *testing.T) {
 }
 
 func TestReviewPromptIncludesRunnerOwnedEvidencePacket(t *testing.T) {
-	evidence := reviewEvidence{IssueIdentifier: "CAG-120", IssueTitle: "Review evidence", PRURL: "https://github.com/weskor/agent-machine/pull/120", Workspace: "/tmp/workspace", BaseBranch: "main", HeadBranch: "symphony/CAG-120-workspace", HeadSHA: "abc123", ChangedFiles: 3, Additions: 42, Deletions: 7, ChecksStatus: "success", ChecksSummary: "go-ci=COMPLETED/SUCCESS", ScopeSummary: "changed files matched the Linear ticket path contract", Validation: []string{"mise exec go -- make ci", "git diff --check"}, ProgressPath: "/repo/.symphony/state/run-progress/CAG-120/progress.json"}
+	evidence := reviewEvidence{IssueIdentifier: "CAG-120", IssueTitle: "Review evidence", PRURL: "https://github.com/weskor/agent-machine/pull/120", Workspace: "/tmp/workspace", BaseBranch: "main", HeadBranch: "am/CAG-120-workspace", HeadSHA: "abc123", ChangedFiles: 3, Additions: 42, Deletions: 7, ChecksStatus: "success", ChecksSummary: "go-ci=COMPLETED/SUCCESS", ScopeSummary: "changed files matched the Linear ticket path contract", Validation: []string{"mise exec go -- make ci", "git diff --check"}, ProgressPath: "/repo/.am/state/run-progress/CAG-120/progress.json"}
 	prompt := reviewPrompt(&issue{Identifier: "CAG-120", Title: "Review evidence"}, evidence.PRURL, evidence.Workspace, "", &evidence)
 
 	for _, expected := range []string{"Runner-owned deterministic review evidence", "Head SHA: abc123", "GitHub checks: success", "go-ci=COMPLETED/SUCCESS", "Scope guard: changed files matched", "mise exec go -- make ci", "Progress snapshot", "source of truth for deterministic PR/check/scope facts", "semantic/spec quality"} {
@@ -277,7 +277,7 @@ func TestReviewEvidenceClassifiesUnknownChecksAsUnavailable(t *testing.T) {
 func TestReviewEvidenceFromPRDetailsIncludesChecksAndProgressPath(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "CAG-120")
-	details := prHandoffDetails{URL: "https://github.com/weskor/agent-machine/pull/120", BaseRefName: "main", HeadRefName: "symphony/CAG-120-workspace", HeadSHA: "abc123", ChangedFiles: 2, Additions: 10, Deletions: 1, StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Name: "go-ci", Status: "COMPLETED", Conclusion: "SUCCESS"}}}
+	details := prHandoffDetails{URL: "https://github.com/weskor/agent-machine/pull/120", BaseRefName: "main", HeadRefName: "am/CAG-120-workspace", HeadSHA: "abc123", ChangedFiles: 2, Additions: 10, Deletions: 1, StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Name: "go-ci", Status: "COMPLETED", Conclusion: "SUCCESS"}}}
 	evidence := reviewEvidenceFromPRDetails(&issue{Identifier: "CAG-120", Title: "Review evidence"}, workspace, details, scopeGuardResult{Checked: true}, []string{"git diff --check"}, root)
 
 	if evidence.ChecksStatus != "success" || !strings.Contains(evidence.ChecksSummary, "go-ci") {
@@ -293,11 +293,11 @@ func TestReviewReadinessNotReadyProgressCharacterizesReviewWaitRouting(t *testin
 	candidate := &issue{Identifier: "CAG-139", Title: "Extract lifecycle"}
 	started := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
 
-	pending := module.NotReadyProgress(candidate, "/tmp/work", "symphony/CAG-139-workspace", "https://github.com/acme/repo/pull/139", started, reviewEvidence{ChecksStatus: "pending", ChecksSummary: "ci=IN_PROGRESS"})
+	pending := module.NotReadyProgress(candidate, "/tmp/work", "am/CAG-139-workspace", "https://github.com/acme/repo/pull/139", started, reviewEvidence{ChecksStatus: "pending", ChecksSummary: "ci=IN_PROGRESS"})
 	if pending.Phase != "review_not_ready" || pending.Status != "waiting_for_checks" || pending.NextAction != "wait_for_github_checks_then_retry" {
 		t.Fatalf("unexpected pending progress routing: %+v", pending)
 	}
-	if pending.Branch != "symphony/CAG-139-workspace" || pending.PRURL != "https://github.com/acme/repo/pull/139" || pending.ChecksStatus != "pending" || pending.Error != "ci=IN_PROGRESS" {
+	if pending.Branch != "am/CAG-139-workspace" || pending.PRURL != "https://github.com/acme/repo/pull/139" || pending.ChecksStatus != "pending" || pending.Error != "ci=IN_PROGRESS" {
 		t.Fatalf("pending progress lost observable fields: %+v", pending)
 	}
 	decision := module.NotReadyDecision("https://github.com/acme/repo/pull/139", reviewEvidence{ChecksStatus: "pending", ChecksSummary: "ci=IN_PROGRESS"})
@@ -305,12 +305,12 @@ func TestReviewReadinessNotReadyProgressCharacterizesReviewWaitRouting(t *testin
 		t.Fatalf("unexpected review not-ready lifecycle decision: %+v", decision)
 	}
 
-	failed := module.NotReadyProgress(candidate, "/tmp/work", "symphony/CAG-139-workspace", "https://github.com/acme/repo/pull/139", started, reviewEvidence{ChecksStatus: "failed", ChecksSummary: "ci=FAILURE"})
+	failed := module.NotReadyProgress(candidate, "/tmp/work", "am/CAG-139-workspace", "https://github.com/acme/repo/pull/139", started, reviewEvidence{ChecksStatus: "failed", ChecksSummary: "ci=FAILURE"})
 	if failed.NextAction != "fix_failing_github_checks_before_review" {
 		t.Fatalf("expected failed checks to route to fix action, got %+v", failed)
 	}
 
-	resumeFailed := module.ResumeNotReadyProgress(candidate, "/tmp/work", "symphony/CAG-139-workspace", "https://github.com/acme/repo/pull/139", started, reviewEvidence{ChecksStatus: "failed", ChecksSummary: "ci=FAILURE"})
+	resumeFailed := module.ResumeNotReadyProgress(candidate, "/tmp/work", "am/CAG-139-workspace", "https://github.com/acme/repo/pull/139", started, reviewEvidence{ChecksStatus: "failed", ChecksSummary: "ci=FAILURE"})
 	if resumeFailed.NextAction != "wait_for_github_checks_then_retry" {
 		t.Fatalf("expected resumed review not-ready path to preserve wait routing, got %+v", resumeFailed)
 	}

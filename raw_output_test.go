@@ -16,12 +16,12 @@ func rawOutputPath(workspace, phase string) string {
 	return debugRawArtifactPath(workspace, phase)
 }
 
-func TestDebugRawArtifactPathUsesRepoSymphonyRootForStandardWorkspaceLayout(t *testing.T) {
+func TestDebugRawArtifactPathUsesRepoAgentMachineRootForStandardWorkspaceLayout(t *testing.T) {
 	repo := t.TempDir()
-	workspace := filepath.Join(repo, ".symphony", "workspaces", "CAG-123")
+	workspace := filepath.Join(repo, ".am", "workspaces", "CAG-123")
 
 	got := debugRawArtifactPath(workspace, "implementation")
-	want := filepath.Join(repo, ".symphony", "debug", "CAG-123", "implementation-raw.log")
+	want := filepath.Join(repo, ".am", "debug", "CAG-123", "implementation-raw.log")
 	if got != want {
 		t.Fatalf("debugRawArtifactPath() = %q, want %q", got, want)
 	}
@@ -32,7 +32,7 @@ func TestDebugRawArtifactPathPreservesParentRootFallbackForNonstandardWorkspaceL
 	workspace := filepath.Join(repo, "runner-workspaces", "CAG-123")
 
 	got := debugRawArtifactPath(workspace, "review")
-	want := filepath.Join(repo, "runner-workspaces", ".symphony", "debug", "CAG-123", "review-raw.log")
+	want := filepath.Join(repo, "runner-workspaces", ".am", "debug", "CAG-123", "review-raw.log")
 	if got != want {
 		t.Fatalf("debugRawArtifactPath() = %q, want %q", got, want)
 	}
@@ -40,17 +40,17 @@ func TestDebugRawArtifactPathPreservesParentRootFallbackForNonstandardWorkspaceL
 
 func TestDebugRawArtifactPathSanitizesPhase(t *testing.T) {
 	repo := t.TempDir()
-	workspace := filepath.Join(repo, ".symphony", "workspaces", "CAG-123")
+	workspace := filepath.Join(repo, ".am", "workspaces", "CAG-123")
 	got := debugRawArtifactPath(workspace, "../review/raw")
-	want := filepath.Join(repo, ".symphony", "debug", "CAG-123", "review_raw-raw.log")
+	want := filepath.Join(repo, ".am", "debug", "CAG-123", "review_raw-raw.log")
 	if got != want {
 		t.Fatalf("debugRawArtifactPath() = %q, want sanitized path %q", got, want)
 	}
 }
 
 func TestCaptureAgentOutputDoesNotPrintRawOutputByDefault(t *testing.T) {
-	t.Setenv("PI_SYMPHONY_DEBUG_RAW_OUTPUT", "")
-	t.Setenv("PI_SYMPHONY_DEBUG_RAW_OUTPUT_LIMIT_BYTES", "")
+	t.Setenv("AM_DEBUG_RAW_OUTPUT", "")
+	t.Setenv("AM_DEBUG_RAW_OUTPUT_LIMIT_BYTES", "")
 
 	workspace := t.TempDir()
 	stdout := captureStdout(t, func() {
@@ -114,8 +114,8 @@ func TestCaptureAgentOutputCharacterizesCommandCwdEnvAndTimeout(t *testing.T) {
 
 func TestCaptureAgentOutputWritesCappedDebugArtifactWhenEnabled(t *testing.T) {
 	workspace := t.TempDir()
-	t.Setenv("PI_SYMPHONY_DEBUG_RAW_OUTPUT", "1")
-	t.Setenv("PI_SYMPHONY_DEBUG_RAW_OUTPUT_LIMIT_BYTES", "5")
+	t.Setenv("AM_DEBUG_RAW_OUTPUT", "1")
+	t.Setenv("AM_DEBUG_RAW_OUTPUT_LIMIT_BYTES", "5")
 	stdout := captureStdout(t, func() {
 		output, err := captureAgentOutput("printf %s \"$RAW_AGENT_OUTPUT\"", workspace, map[string]string{"RAW_AGENT_OUTPUT": "0123456789"}, 0, "review")
 		if err != nil {
@@ -169,7 +169,7 @@ func TestWriteRunRecordLogsConciseFinalSummary(t *testing.T) {
 		writeRunRecord(workspace, record)
 	})
 
-	for _, expected := range []string{"run summary:", "issue=CAG-86", "status=success", "pr=https://github.com/weskor/agent-machine/pull/25", "review=passed", "duration_ms=1234", ".pi-symphony-run.json", ".pi-symphony-evaluation.json"} {
+	for _, expected := range []string{"run summary:", "issue=CAG-86", "status=success", "pr=https://github.com/weskor/agent-machine/pull/25", "review=passed", "duration_ms=1234", ".am-run.json", ".am-evaluation.json"} {
 		if !strings.Contains(stdout, expected) {
 			t.Fatalf("expected %q in concise run summary %q", expected, stdout)
 		}

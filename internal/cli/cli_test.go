@@ -166,7 +166,7 @@ func TestRunStatusDoesNotRequireLinearClient(t *testing.T) {
 	if calledClient {
 		t.Fatal("NewLinearClient called for run progress status")
 	}
-	if gotRoot != "/tmp/pi-symphony-test-workspaces" || gotIssue != "CAG-119" {
+	if gotRoot != "/tmp/am-test-workspaces" || gotIssue != "CAG-119" {
 		t.Fatalf("PrintRunProgress(%q, %q)", gotRoot, gotIssue)
 	}
 }
@@ -191,7 +191,7 @@ func TestSurfaceSnapshotDoesNotRequireLinearClient(t *testing.T) {
 	if calledClient {
 		t.Fatal("NewLinearClient called for surface snapshot")
 	}
-	if gotConfig.WorkspaceRoot != "/tmp/pi-symphony-test-workspaces" || gotConfig.ProjectSlug != "CAG" {
+	if gotConfig.WorkspaceRoot != "/tmp/am-test-workspaces" || gotConfig.ProjectSlug != "CAG" {
 		t.Fatalf("SurfaceSnapshot config = %+v", gotConfig)
 	}
 }
@@ -206,7 +206,7 @@ func TestRunValidatesConfigBeforeLinearClient(t *testing.T) {
 	}
 
 	err := Run([]string{"--status", configPath}, deps)
-	if err == nil || !strings.Contains(err.Error(), "symphony.yaml must configure tracker.project_slug and workspace.root") {
+	if err == nil || !strings.Contains(err.Error(), "am.yaml must configure tracker.project_slug and workspace.root") {
 		t.Fatalf("Run() error = %v, want config validation error", err)
 	}
 	if calledClient {
@@ -299,7 +299,7 @@ func TestLoadProjectConfigParsesDefaultsAndConfigValues(t *testing.T) {
 	if config.ConfigPath != configPath {
 		t.Fatalf("project path not preserved")
 	}
-	if config.ProjectSlug != "CAG" || config.WorkspaceRoot != "/tmp/pi-symphony-test-workspaces" {
+	if config.ProjectSlug != "CAG" || config.WorkspaceRoot != "/tmp/am-test-workspaces" {
 		t.Fatalf("config = %+v", config)
 	}
 	if config.APIKey != "test-linear-key" || config.Endpoint != "https://api.linear.app/graphql" {
@@ -321,18 +321,18 @@ func TestLoadProjectConfigParsesDefaultsAndConfigValues(t *testing.T) {
 
 func TestLoadProjectConfigDefaultsToCodexWithoutLegacyPiCommand(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "symphony.yaml")
+	configPath := filepath.Join(dir, "am.yaml")
 	content := `
 tracker:
   project_slug: CAG
   api_key: test-linear-key
 workspace:
-  root: /tmp/pi-symphony-test-workspaces
+  root: /tmp/am-test-workspaces
 `
 	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "symphony.agent.md"), []byte("# Agent\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "am.agent.md"), []byte("# Agent\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, config, err := LoadProjectConfig(configPath)
@@ -368,12 +368,12 @@ func TestLoadProjectConfigParsesReviewGuidance(t *testing.T) {
 }
 
 func TestLoadProjectConfigParsesGitHubOwnership(t *testing.T) {
-	configPath := writeConfig(t, "github:\n  app_slug: pi-symphony-bot\n  pr_author_override: other-bot[bot]\n")
+	configPath := writeConfig(t, "github:\n  app_slug: agent-machine-bot\n  pr_author_override: other-bot[bot]\n")
 	_, config, err := LoadProjectConfig(configPath)
 	if err != nil {
 		t.Fatalf("LoadProjectConfig() error = %v", err)
 	}
-	if config.GitHubAppSlug != "pi-symphony-bot" || config.GitHubPRAuthorOverride != "other-bot[bot]" {
+	if config.GitHubAppSlug != "agent-machine-bot" || config.GitHubPRAuthorOverride != "other-bot[bot]" {
 		t.Fatalf("unexpected GitHub ownership config: %+v", config)
 	}
 }
@@ -452,12 +452,12 @@ func testDeps(t *testing.T, gotMode *string, gotApply *bool, gotCycles *int) Dep
 func writeConfig(t *testing.T, overrides string) string {
 	t.Helper()
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "symphony.yaml")
+	configPath := filepath.Join(dir, "am.yaml")
 	yaml := `tracker:
   project_slug: CAG
   api_key: test-linear-key
 workspace:
-  root: /tmp/pi-symphony-test-workspaces
+  root: /tmp/am-test-workspaces
 active_states:
     - Ready for Agent
     - In Progress
@@ -470,7 +470,7 @@ pi:
 	if err := os.WriteFile(configPath, []byte(yaml), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "symphony.agent.md"), []byte("# Agent\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "am.agent.md"), []byte("# Agent\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return configPath
@@ -479,7 +479,7 @@ pi:
 func mergeSimpleConfigOverride(base, overrides string) string {
 	switch overrides {
 	case "workspace:\n  root: \"\"\n":
-		return strings.Replace(base, "  root: /tmp/pi-symphony-test-workspaces", "  root: \"\"", 1)
+		return strings.Replace(base, "  root: /tmp/am-test-workspaces", "  root: \"\"", 1)
 	case "tracker:\n  api_key: \"\"\n":
 		return strings.Replace(base, "  api_key: test-linear-key", "  api_key: \"\"", 1)
 	case "tracker:\n  endpoint: https://linear.test/graphql\n":

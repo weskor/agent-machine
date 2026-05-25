@@ -16,7 +16,7 @@ const (
 	defaultPiReviewCommand    = "pi --print --no-session --thinking xhigh"
 )
 
-// Config is the normalized symphony.yaml configuration consumed by the runner.
+// Config is the normalized am.yaml configuration consumed by the runner.
 type Config struct {
 	Repository RepositoryConfig
 	Tracker    TrackerConfig
@@ -105,7 +105,7 @@ type GitHubConfig struct {
 	PRAuthorOverride string
 }
 
-// ParseConfig validates and normalizes symphony.yaml while preserving
+// ParseConfig validates and normalizes am.yaml while preserving
 // the runner's historical defaults and environment expansion behavior.
 func ParseConfig(yaml string) (Config, error) {
 	repositoryYAML := Section(yaml, "repository")
@@ -192,10 +192,10 @@ func ParseConfig(yaml string) (Config, error) {
 	}
 
 	if config.Tracker.ProjectSlug == "" {
-		return Config{}, fmt.Errorf("symphony.yaml tracker.project_slug is required; symphony.yaml must configure tracker.project_slug and workspace.root")
+		return Config{}, fmt.Errorf("am.yaml tracker.project_slug is required; am.yaml must configure tracker.project_slug and workspace.root")
 	}
 	if config.Workspace.Root == "" {
-		return Config{}, fmt.Errorf("symphony.yaml workspace.root is required; symphony.yaml must configure tracker.project_slug and workspace.root")
+		return Config{}, fmt.Errorf("am.yaml workspace.root is required; am.yaml must configure tracker.project_slug and workspace.root")
 	}
 	if err := durationMS(&config.Polling.Interval, &config.Polling.Text, Section(yaml, "polling"), "interval_ms", "polling.interval_ms", 30*time.Second); err != nil {
 		return Config{}, err
@@ -244,7 +244,7 @@ func durationMS(dst *time.Duration, text *string, yaml, key, path string, fallba
 	}
 	parsed, err := strconv.ParseInt(value, 10, 64)
 	if err != nil || parsed < 0 {
-		return fmt.Errorf("symphony.yaml %s must be a non-negative millisecond integer", path)
+		return fmt.Errorf("am.yaml %s must be a non-negative millisecond integer", path)
 	}
 	*dst, *text = time.Duration(parsed)*time.Millisecond, value
 	return nil

@@ -20,7 +20,7 @@ type CommandRunner func(command, workdir string, env map[string]string, timeout 
 
 type ShellCommandBuilder func(command, promptPath string) string
 
-const OutcomeEnvelopeLinePrefix = "PI_SYMPHONY_OUTCOME:"
+const OutcomeEnvelopeLinePrefix = "AM_OUTCOME:"
 
 // ShellCLIAdapter contains the common AgentRuntime behavior for one-shot local
 // CLI providers. Provider wrappers own command shape and provider-specific
@@ -130,7 +130,7 @@ func (a ShellCLIAdapter) ReviewAttempt(_ context.Context, attemptID string, inpu
 	if a.RunCommand == nil {
 		return ReviewResult{}, RuntimeError{Kind: RuntimeErrorKindConfiguration, Message: "missing command runner"}
 	}
-	promptPath := filepath.Join(input.WorkingDir, ".pi-symphony-review-prompt.md")
+	promptPath := filepath.Join(input.WorkingDir, ".am-review-prompt.md")
 	if err := os.WriteFile(promptPath, []byte(input.Prompt), 0o600); err != nil {
 		return ReviewResult{}, err
 	}

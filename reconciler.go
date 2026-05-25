@@ -57,7 +57,7 @@ type reconciliationModule struct {
 var candidatesForReconciliationWorker = func(client linearClient, config runnerConfig) ([]issue, error) {
 	return client.candidates(config.ProjectSlug, statusIssueStates(config))
 }
-var openPRsForReconciliationWorker = openSymphonyPRs
+var openPRsForReconciliationWorker = openAgentMachinePRs
 var artifactSummariesForReconciliationWorker = workspaceArtifactSummaries
 
 func newReconciliationModule(reader reconciliationStateReader) reconciliationModule {

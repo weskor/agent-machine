@@ -14,15 +14,15 @@ import (
 
 func TestBackfillStateFromArtifactsSeedsSQLiteIdempotently(t *testing.T) {
 	root := t.TempDir()
-	workspaceRoot := filepath.Join(root, ".symphony", "workspaces")
+	workspaceRoot := filepath.Join(root, ".am", "workspaces")
 	workspace := filepath.Join(workspaceRoot, "CAG-66")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, "symphony.yaml"), []byte("workspace:\n  base_branch: integration\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, "am.yaml"), []byte("workspace:\n  base_branch: integration\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, "symphony.agent.md"), []byte("# Test\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, "am.agent.md"), []byte("# Test\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
@@ -31,7 +31,7 @@ func TestBackfillStateFromArtifactsSeedsSQLiteIdempotently(t *testing.T) {
 		IssueID:              "issue-id",
 		Workspace:            workspace,
 		WorkspaceRoot:        workspaceRoot,
-		Branch:               "symphony/CAG-66-workspace",
+		Branch:               "am/CAG-66-workspace",
 		StartedAt:            now,
 		EndedAt:              now.Add(time.Minute),
 		ReviewStatus:         "passed",
@@ -41,7 +41,7 @@ func TestBackfillStateFromArtifactsSeedsSQLiteIdempotently(t *testing.T) {
 		FeedbackHash:         "feedback-hash",
 		Status:               "success",
 	}
-	writeJSON(t, filepath.Join(workspace, ".pi-symphony-run.json"), record)
+	writeJSON(t, filepath.Join(workspace, ".am-run.json"), record)
 	writeJSON(t, filepath.Join(workspace, evaluationArtifactName), evaluationForRun(workspace, record))
 
 	for i := 0; i < 2; i++ {
@@ -66,20 +66,20 @@ func TestBackfillStateFromArtifactsSeedsSQLiteIdempotently(t *testing.T) {
 
 func TestBackfillStateFromArtifactsSkipsMalformedAndHiddenWorkspaces(t *testing.T) {
 	root := t.TempDir()
-	workspaceRoot := filepath.Join(root, ".symphony", "workspaces")
+	workspaceRoot := filepath.Join(root, ".am", "workspaces")
 	valid := filepath.Join(workspaceRoot, "CAG-67")
 	malformed := filepath.Join(workspaceRoot, "CAG-68")
-	hidden := filepath.Join(workspaceRoot, ".pi-symphony-locks")
+	hidden := filepath.Join(workspaceRoot, ".am-locks")
 	for _, dir := range []string{valid, malformed, hidden} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	writeJSON(t, filepath.Join(valid, ".pi-symphony-run.json"), runRecord{IssueIdentifier: "CAG-67", Workspace: valid, WorkspaceRoot: workspaceRoot, Status: "review_failed", PRURL: "https://github.com/acme/repo/pull/67"})
-	if err := os.WriteFile(filepath.Join(malformed, ".pi-symphony-run.json"), []byte(`{"issue_identifier":`), 0o600); err != nil {
+	writeJSON(t, filepath.Join(valid, ".am-run.json"), runRecord{IssueIdentifier: "CAG-67", Workspace: valid, WorkspaceRoot: workspaceRoot, Status: "review_failed", PRURL: "https://github.com/acme/repo/pull/67"})
+	if err := os.WriteFile(filepath.Join(malformed, ".am-run.json"), []byte(`{"issue_identifier":`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	writeJSON(t, filepath.Join(hidden, ".pi-symphony-run.json"), runRecord{IssueIdentifier: "CAG-hidden", Status: "success"})
+	writeJSON(t, filepath.Join(hidden, ".am-run.json"), runRecord{IssueIdentifier: "CAG-hidden", Status: "success"})
 
 	summary, err := backfillStateFromArtifacts(workspaceRoot)
 	if err != nil {
@@ -88,7 +88,7 @@ func TestBackfillStateFromArtifactsSkipsMalformedAndHiddenWorkspaces(t *testing.
 	if summary.Scanned != 2 || summary.Seeded != 1 || len(summary.Skipped) != 1 {
 		t.Fatalf("summary = %#v", summary)
 	}
-	if !strings.Contains(summary.Skipped[0].Reason, "malformed .pi-symphony-run.json") {
+	if !strings.Contains(summary.Skipped[0].Reason, "malformed .am-run.json") {
 		t.Fatalf("skip reason = %q", summary.Skipped[0].Reason)
 	}
 
@@ -99,7 +99,7 @@ func TestBackfillStateFromArtifactsSkipsMalformedAndHiddenWorkspaces(t *testing.
 
 func TestBackfillStateFromArtifactsMarksConflictingIssueArtifactsForReconciliation(t *testing.T) {
 	root := t.TempDir()
-	workspaceRoot := filepath.Join(root, ".symphony", "workspaces")
+	workspaceRoot := filepath.Join(root, ".am", "workspaces")
 	newer := filepath.Join(workspaceRoot, "CAG-69-newer")
 	older := filepath.Join(workspaceRoot, "CAG-69-older")
 	for _, dir := range []string{newer, older} {
@@ -107,8 +107,8 @@ func TestBackfillStateFromArtifactsMarksConflictingIssueArtifactsForReconciliati
 			t.Fatal(err)
 		}
 	}
-	writeJSON(t, filepath.Join(newer, ".pi-symphony-run.json"), runRecord{IssueIdentifier: "CAG-69", Workspace: newer, WorkspaceRoot: workspaceRoot, Status: "review_failed", PRURL: "https://github.com/acme/repo/pull/69", EndedAt: time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)})
-	writeJSON(t, filepath.Join(older, ".pi-symphony-run.json"), runRecord{IssueIdentifier: "CAG-69", Workspace: older, WorkspaceRoot: workspaceRoot, Status: "success", PRURL: "https://github.com/acme/repo/pull/69", EndedAt: time.Date(2026, 5, 19, 11, 0, 0, 0, time.UTC)})
+	writeJSON(t, filepath.Join(newer, ".am-run.json"), runRecord{IssueIdentifier: "CAG-69", Workspace: newer, WorkspaceRoot: workspaceRoot, Status: "review_failed", PRURL: "https://github.com/acme/repo/pull/69", EndedAt: time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)})
+	writeJSON(t, filepath.Join(older, ".am-run.json"), runRecord{IssueIdentifier: "CAG-69", Workspace: older, WorkspaceRoot: workspaceRoot, Status: "success", PRURL: "https://github.com/acme/repo/pull/69", EndedAt: time.Date(2026, 5, 19, 11, 0, 0, 0, time.UTC)})
 
 	summary, err := backfillStateFromArtifacts(workspaceRoot)
 	if err != nil {
@@ -149,7 +149,7 @@ func writeJSON(t *testing.T, path string, value any) {
 
 func openBackfillDB(t *testing.T, root string) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", filepath.Join(root, ".symphony", "state", "pi-symphony.db"))
+	db, err := sql.Open("sqlite", filepath.Join(root, ".am", "state", "am.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

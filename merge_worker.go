@@ -62,7 +62,7 @@ func (w mergeWorker) HandlePullRequest(ctx context.Context, pr pullRequestSummar
 	decision := newReconciliationModule(w.store).ReconcileIssueContext(ctx, w.config, *candidate, &pr)
 	if decision.ShouldQuarantine && len(decision.Blockers) > 0 {
 		recordMergeEventContext(ctx, w.store, orchstate.EventMergeBlocked, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "reason": strings.Join(decision.Blockers, "; "), "next_action": decision.NextAction})
-		_ = linearStatus.CommentContext(ctx, fmt.Sprintf("Symphony PR blocked by reconciliation invariant; next=%s; reason: %s", decision.NextAction, strings.Join(decision.Blockers, "; ")))
+		_ = linearStatus.CommentContext(ctx, fmt.Sprintf("Agent Machine PR blocked by reconciliation invariant; next=%s; reason: %s", decision.NextAction, strings.Join(decision.Blockers, "; ")))
 		log("%s quarantined: %s", pr.URL, strings.Join(decision.Blockers, "; "))
 		return nil
 	}

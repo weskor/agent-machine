@@ -92,7 +92,7 @@ func TestFirstPRURLPrefersAssistantTextOverRawJSONL(t *testing.T) {
 	}
 }
 
-func TestFirstPRURLDetectsConfiguredPiSymphonyRepositoryFromJSONL(t *testing.T) {
+func TestFirstPRURLDetectsConfiguredAgentMachineRepositoryFromJSONL(t *testing.T) {
 	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 	output := `{"message":{"role":"assistant","content":[{"type":"text","text":"opened https://github.com/weskor/agent-machine/pull/1"}]}}
 `

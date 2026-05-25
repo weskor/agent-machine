@@ -101,7 +101,7 @@ const moduleRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const runnerRoot = resolveRunnerRoot()
 const appNodeID = "agent-machine-tui"
 const configuredPath = readFlag("--config")
-const configPath = configuredPath ? resolve(process.cwd(), configuredPath) : resolve(runnerRoot ?? process.cwd(), "symphony.yaml")
+const configPath = configuredPath ? resolve(process.cwd(), configuredPath) : resolve(runnerRoot ?? process.cwd(), "am.yaml")
 const selectedBySection = new Map<SectionID, number>()
 let currentSection = 0
 let lastSnapshot: SurfaceSnapshot | undefined
@@ -450,7 +450,7 @@ function sectionColor(section: SectionID) {
 }
 
 async function loadSurfaceSnapshot(): Promise<SurfaceSnapshot> {
-  const command = readEnv("AM_BIN", "PI_SYMPHONY_BIN")
+  const command = process.env.AM_BIN?.trim()
   const cwd = command ? runnerRoot ?? process.cwd() : requireRunnerRoot()
   const args = command
     ? [command, "surface", "snapshot", "--config", configPath]
@@ -531,7 +531,7 @@ function fit(value: string, max: number) {
 }
 
 function resolveRunnerRoot() {
-  const explicit = readEnv("AM_ROOT", "PI_SYMPHONY_ROOT")
+  const explicit = process.env.AM_ROOT?.trim()
   if (explicit) {
     return resolve(process.cwd(), explicit)
   }
@@ -543,10 +543,6 @@ function requireRunnerRoot() {
     return runnerRoot
   }
   throw new Error("could not find agent-machine runner root; run from the repo or set AM_BIN")
-}
-
-function readEnv(primary: string, legacy: string) {
-  return process.env[primary]?.trim() || process.env[legacy]?.trim()
 }
 
 function findRunnerRoot(candidates: string[]) {

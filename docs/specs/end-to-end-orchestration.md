@@ -75,7 +75,7 @@ capture, and deterministic handoff support.
 7. The Agent attempt implements the smallest scoped change that satisfies the issue.
 8. Validation runs in the Workspace using the project-configured commands.
 9. Agent Machine owns Git/PR handoff: commit or validate the exact scoped diff, push the expected branch, create or update exactly one PR, validate the PR URL, and record artifacts. Before those side effects, Agent Machine writes and re-reads a bounded `pr_handoff_pending` payload so PR handoff has an explicit runner-owned input contract. The selected `handoff` worker can recover that payload, execute PR handoff, and queue the next review/final-handoff payload without rerunning implementation. The Agent stops after the scoped diff and validation notes; any Agent-emitted PR URL remains advisory compatibility input.
-   - When retrying the same issue, Agent Machine may update only the exact expected `symphony/<issue>-workspace` remote branch with a lease-protected push so stale failed-attempt branches do not require manual deletion.
+   - When retrying the same issue, Agent Machine may update only the exact expected `am/<issue>-workspace` remote branch with a lease-protected push so stale failed-attempt branches do not require manual deletion.
 10. Agent Machine validates that the PR belongs to the configured repository, expected branch, expected base branch, expected author/owner policy, and current issue attempt.
 11. When review is configured, Agent Machine refreshes PR/check/scope evidence, confirms the run is ready for semantic review, and passes that deterministic evidence packet into the review prompt.
     - If GitHub checks are still pending or unavailable after the bounded pre-review wait, Agent Machine records retryable `review_not_ready` / `waiting_for_checks` evidence for the existing PR and leaves implementation output intact. When a later cycle observes successful checks, it resumes semantic review for that PR instead of starting a fresh implementation attempt. The terminal run/evaluation/progress exports must keep this as a waiting-for-checks retry state rather than reclassifying it as an operational failure. Failed checks remain a blocker until the PR checks are repaired.
@@ -83,7 +83,7 @@ capture, and deterministic handoff support.
 12. Review runs when configured and classifies the semantic/spec result.
 13. Agent Machine posts deterministic PR and Linear Handoff comments with behavior-contract evidence.
 14. The Linear issue moves to Human Review, Needs Info, Done, or another configured state according to the outcome.
-15. The scheduler queues merge tasks for current Symphony-owned Human Review PRs, and the merge lane claims those durable tasks, refreshes GitHub/Linear/SQLite facts, and merges only PRs that pass all configured gates.
+15. The scheduler queues merge tasks for current Agent Machine-owned Human Review PRs, and the merge lane claims those durable tasks, refreshes GitHub/Linear/SQLite facts, and merges only PRs that pass all configured gates.
 16. The scheduler queues cleanup tasks for current workspaces, and the cleanup lane claims those durable tasks, refreshes Done/SQLite/workspace facts, deletes only workspaces that are safe by current cleanup policy, and records cleanup state.
 
 During the attempt, Agent Machine updates a compact local progress snapshot for the
@@ -132,7 +132,7 @@ Terminal failure must include the failing phase, evidence pointer, and side effe
 ### Scheduler parameter contract (runtime semantics)
 
 - `max_concurrent_agents`:
-  - Current CLI runtime behavior: the continuous scheduler lane deterministically enqueues cleanup tasks for current workspaces, merge tasks for current Symphony-owned Human Review PRs, plus up to `agent.max_concurrent_agents` distinct runnable review-resume tasks and implementation tasks per scheduler cycle. The cleanup lane claims queued cleanup tasks, the merge lane claims queued merge tasks, the handoff lane claims pending PR/final handoff payload refs, the review lane claims queued review-resume tasks after pending review payload refs, and the implementation lane claims up to `agent.max_concurrent_agents` queued implementation tasks before executing the claimed attempts concurrently.
+  - Current CLI runtime behavior: the continuous scheduler lane deterministically enqueues cleanup tasks for current workspaces, merge tasks for current Agent Machine-owned Human Review PRs, plus up to `agent.max_concurrent_agents` distinct runnable review-resume tasks and implementation tasks per scheduler cycle. The cleanup lane claims queued cleanup tasks, the merge lane claims queued merge tasks, the handoff lane claims pending PR/final handoff payload refs, the review lane claims queued review-resume tasks after pending review payload refs, and the implementation lane claims up to `agent.max_concurrent_agents` queued implementation tasks before executing the claimed attempts concurrently.
   - Default of `1` preserves current behavior.
   - Invalid/zero handling is delegated to configuration parsing, which currently falls back to `1` for missing/malformed/negative values.
   - Duplicate dispatch protection remains authoritative in candidate selection, durable implementation worker tasks, run locks, and SQLite leases before Agent execution starts; increasing capacity must not intentionally bypass those protections.
@@ -161,7 +161,7 @@ Each PR Handoff should include:
 - changed files summary;
 - known risks and out-of-scope items;
 - review status and classification when review ran.
-- progress status from `.symphony/state/run-progress/<issue>/progress.json` for active or recently terminal issue-level inspection.
+- progress status from `.am/state/run-progress/<issue>/progress.json` for active or recently terminal issue-level inspection.
 
 ## TDD expectation
 

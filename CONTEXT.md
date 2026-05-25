@@ -9,7 +9,7 @@ The standalone runner harness in this repository. It coordinates Linear, local w
 _Avoid_: generic bot.
 
 **Project config**:
-The repository-local `symphony.yaml` plus `symphony.agent.md` prompt that tell Agent Machine which Linear project, repository, workspace root, branch, runtime, hooks, states, budgets, and agent instructions to use.
+The repository-local `am.yaml` plus `am.agent.md` prompt that tell Agent Machine which Linear project, repository, workspace root, branch, runtime, hooks, states, budgets, and agent instructions to use.
 _Avoid_: config file, pipeline, job config.
 
 **Linear issue**:
@@ -21,15 +21,15 @@ An eligible Linear issue in an active state that Agent Machine may claim for a r
 _Avoid_: task, job.
 
 **Workspace**:
-An isolated git clone under `.symphony/workspaces/<issue-identifier>` used for exactly one issue attempt.
+An isolated git clone under `.am/workspaces/<issue-identifier>` used for exactly one issue attempt.
 _Avoid_: checkout, temp dir.
 
 **Run lock**:
-A JSON lock under `.symphony/workspaces/.pi-symphony-locks/` that prevents concurrent runs from claiming the same Linear issue.
+A JSON lock under `.am/workspaces/.am-locks/` that prevents concurrent runs from claiming the same Linear issue.
 _Avoid_: mutex when referring to the on-disk artifact.
 
 **Run record**:
-The `.pi-symphony-run.json` artifact written in the workspace to describe the issue, branch, timing, usage, review result, PR URL, status, and behavior-contract evidence for one attempt.
+The `.am-run.json` artifact written in the workspace to describe the issue, branch, timing, usage, review result, PR URL, status, and behavior-contract evidence for one attempt.
 _Avoid_: log, summary.
 
 **Agent session**:
@@ -37,7 +37,7 @@ A bounded Pi or review process that works on one attempt inside a workspace, wit
 _Avoid_: generic bot run when referring to the bounded attempt process.
 
 **Evaluation artifact**:
-The `.pi-symphony-evaluation.json` artifact derived from the run record to classify dogfood outcomes and improvement signals.
+The `.am-evaluation.json` artifact derived from the run record to classify dogfood outcomes and improvement signals.
 _Avoid_: metrics file.
 
 **Orchestration state**:
@@ -57,7 +57,7 @@ The implementation-domain lane that claims queued implementation worker tasks an
 _Avoid_: worker when referring to the named daemon lane.
 
 **Merge lane**:
-The daemon lane that cleans completed workspaces and merges approved Symphony-owned PRs.
+The daemon lane that cleans completed workspaces and merges approved Agent Machine-owned PRs.
 _Avoid_: janitor, sweeper.
 
 **ACP Adapter**:

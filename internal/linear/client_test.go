@@ -31,8 +31,8 @@ func TestCandidatesPostsGraphQLRequestAndDecodesIssues(t *testing.T) {
 		if !strings.Contains(requestBody.Query, "issues(first: 10") {
 			t.Fatalf("query = %q, want candidates query", requestBody.Query)
 		}
-		if got := requestBody.Variables["projectSlug"]; got != "pi-symphony" {
-			t.Fatalf("projectSlug = %v, want pi-symphony", got)
+		if got := requestBody.Variables["projectSlug"]; got != "am" {
+			t.Fatalf("projectSlug = %v, want am", got)
 		}
 		states, ok := requestBody.Variables["states"].([]any)
 		if !ok || len(states) != 2 || states[0] != "Ready for Agent" || states[1] != "Human Review" {
@@ -44,7 +44,7 @@ func TestCandidatesPostsGraphQLRequestAndDecodesIssues(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient("test-key", server.URL)
-	issues, err := client.Candidates("pi-symphony", []string{"Ready for Agent", "Human Review"})
+	issues, err := client.Candidates("am", []string{"Ready for Agent", "Human Review"})
 	if err != nil {
 		t.Fatalf("Candidates returned error: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestCandidatesContextHonorsCanceledContextBeforeRequest(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := NewClient("test-key", server.URL).CandidatesContext(ctx, "pi-symphony", []string{"Ready for Agent"})
+	_, err := NewClient("test-key", server.URL).CandidatesContext(ctx, "am", []string{"Ready for Agent"})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("CandidatesContext() error = %v; want context.Canceled", err)
 	}

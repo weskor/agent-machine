@@ -29,7 +29,7 @@ func TestHasUnresolvedReviewFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	record := `{"status":"review_failed","pr_url":"https://github.com/weskor/agent-machine/pull/1"}`
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(record), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-run.json"), []byte(record), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if !hasUnresolvedReviewFailure(root, "CAG-1") {
@@ -44,7 +44,7 @@ func TestHasUnresolvedReviewFailureIgnoresSuccessfulRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	record := `{"status":"success","pr_url":"https://github.com/weskor/agent-machine/pull/2"}`
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(record), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-run.json"), []byte(record), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if hasUnresolvedReviewFailure(root, "CAG-2") {
@@ -321,7 +321,7 @@ func TestNextRunnableCandidateSkipsExistingSuccessfulPRArtifact(t *testing.T) {
 func TestNextRunnableCandidateAllowsReadyFeedbackRetryWithTerminalArtifact(t *testing.T) {
 	root := t.TempDir()
 	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/weskor/agent-machine/pull/429"}`)
-	if err := os.WriteFile(filepath.Join(root, "CAG-1", ".pi-symphony-feedback.md"), []byte("# PR feedback\n\nTest should be unit test."), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "CAG-1", ".am-feedback.md"), []byte("# PR feedback\n\nTest should be unit test."), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	client := linearClientWithCandidates(t, []issue{testIssue("CAG-1", "Ready for Agent"), testIssue("CAG-2", "In Progress")})
@@ -392,7 +392,7 @@ func TestNextRunnableCandidateSelectsChangesRequestedReviewFailure(t *testing.T)
 	client := linearClientWithCandidates(t, []issue{testIssue("CAG-35", "Ready for Agent"), testIssue("CAG-36", "Ready for Agent")})
 	original := openPRsByIssueForSelection
 	openPRsByIssueForSelection = func(runnerConfig) (map[string]*pullRequestSummary, error) {
-		pr := &pullRequestSummary{Number: 440, URL: "https://github.com/weskor/agent-machine/pull/440", BaseRefName: "develop", HeadRefName: "symphony/CAG-35-workspace", Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "CHANGES_REQUESTED"}
+		pr := &pullRequestSummary{Number: 440, URL: "https://github.com/weskor/agent-machine/pull/440", BaseRefName: "develop", HeadRefName: "am/CAG-35-workspace", Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "CHANGES_REQUESTED"}
 		return map[string]*pullRequestSummary{"CAG-35": pr}, nil
 	}
 	t.Cleanup(func() { openPRsByIssueForSelection = original })
@@ -497,7 +497,7 @@ func TestEnsureIsolatedWorkspaceSwitchesFromBaseBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if branch != "symphony/CAG-31-workspace" {
+	if branch != "am/CAG-31-workspace" {
 		t.Fatalf("branch = %q", branch)
 	}
 }
@@ -507,7 +507,7 @@ func TestEnsureIsolatedWorkspaceRefusesSharedCheckout(t *testing.T) {
 	if err := sh.Run("git init -q", parent); err != nil {
 		t.Fatal(err)
 	}
-	root := filepath.Join(parent, ".symphony", "workspaces")
+	root := filepath.Join(parent, ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-32")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
@@ -517,16 +517,16 @@ func TestEnsureIsolatedWorkspaceRefusesSharedCheckout(t *testing.T) {
 	}
 }
 
-func TestEnsureIsolatedWorkspaceRefusesOtherSymphonyBranch(t *testing.T) {
+func TestEnsureIsolatedWorkspaceRefusesOtherAgentMachineBranch(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "CAG-33")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := sh.Run("git init -q && git checkout -q -b symphony/CAG-99-workspace", workspace); err != nil {
+	if err := sh.Run("git init -q && git checkout -q -b am/CAG-99-workspace", workspace); err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureIsolatedWorkspace(root, workspace, "CAG-33"); err == nil || !strings.Contains(err.Error(), "unexpected Symphony branch") {
+	if err := ensureIsolatedWorkspace(root, workspace, "CAG-33"); err == nil || !strings.Contains(err.Error(), "unexpected Agent Machine branch") {
 		t.Fatalf("expected branch refusal, got %v", err)
 	}
 }
@@ -537,12 +537,12 @@ func TestRunRecordCapturesWorkspaceIsolationFields(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := sh.Run("git init -q && git checkout -q -b symphony/CAG-34-workspace", workspace); err != nil {
+	if err := sh.Run("git init -q && git checkout -q -b am/CAG-34-workspace", workspace); err != nil {
 		t.Fatal(err)
 	}
 	issue := testIssue("CAG-34", "In Progress")
 	record := runRecordFor(&issue, workspace, "pi", "", nowFixture(), nowFixture(), nil, nil, "", "success", "", nil, "")
-	if record.WorkspaceRoot != root || record.ExpectedBranch != "symphony/CAG-34-workspace" || record.Branch != record.ExpectedBranch {
+	if record.WorkspaceRoot != root || record.ExpectedBranch != "am/CAG-34-workspace" || record.Branch != record.ExpectedBranch {
 		t.Fatalf("unexpected isolation fields: %#v", record)
 	}
 }
@@ -551,7 +551,7 @@ func TestPRHandoffBlockReasonRejectsWrongBaseAndBroadDiff(t *testing.T) {
 	config := testRunnerConfig(t.TempDir())
 	config.BaseBranch = "develop"
 	candidate := testIssue("CAG-31", "In Progress")
-	details := prHandoffDetails{BaseRefName: "main", HeadRefName: "symphony/CAG-31-workspace", ChangedFiles: 228, Additions: 12617}
+	details := prHandoffDetails{BaseRefName: "main", HeadRefName: "am/CAG-31-workspace", ChangedFiles: 228, Additions: 12617}
 
 	reason := prHandoffBlockReason(config, &candidate, details)
 
@@ -570,7 +570,7 @@ func TestPRHandoffBlockReasonRejectsUnexpectedHeadBranch(t *testing.T) {
 
 	reason := prHandoffBlockReason(config, &candidate, details)
 
-	if !strings.Contains(reason, "head branch") || !strings.Contains(reason, "symphony/CAG-32-workspace") {
+	if !strings.Contains(reason, "head branch") || !strings.Contains(reason, "am/CAG-32-workspace") {
 		t.Fatalf("unexpected reason: %q", reason)
 	}
 }
@@ -579,7 +579,7 @@ func TestPRHandoffBlockReasonAllowsScopedDevelopPR(t *testing.T) {
 	config := testRunnerConfig(t.TempDir())
 	config.BaseBranch = "develop"
 	candidate := testIssue("CAG-33", "In Progress")
-	details := prHandoffDetails{BaseRefName: "develop", HeadRefName: "symphony/CAG-33-workspace", ChangedFiles: 6, Additions: 240}
+	details := prHandoffDetails{BaseRefName: "develop", HeadRefName: "am/CAG-33-workspace", ChangedFiles: 6, Additions: 240}
 
 	if reason := prHandoffBlockReason(config, &candidate, details); reason != "" {
 		t.Fatalf("expected no block reason, got %q", reason)
@@ -730,7 +730,7 @@ func TestRunOneMovesNeedsInfoAndCommentsWithoutPRHandoff(t *testing.T) {
 	if len(comments) != 1 || !strings.Contains(comments[0], "Which account type should be supported?") {
 		t.Fatalf("unexpected comments: %#v", comments)
 	}
-	data, err := os.ReadFile(filepath.Join(root, "CAG-9", ".pi-symphony-run.json"))
+	data, err := os.ReadFile(filepath.Join(root, "CAG-9", ".am-run.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -745,12 +745,12 @@ func TestRunOneMovesNeedsInfoAndCommentsWithoutPRHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"pwd=" + filepath.Join(root, "CAG-9"), "args=@" + filepath.Join(root, "CAG-9", ".pi-symphony-prompt.md")} {
+	for _, want := range []string{"pwd=" + filepath.Join(root, "CAG-9"), "args=@" + filepath.Join(root, "CAG-9", ".am-prompt.md")} {
 		if !strings.Contains(string(invocation), want) {
 			t.Fatalf("invocation %q missing %q", invocation, want)
 		}
 	}
-	prompt, err := os.ReadFile(filepath.Join(root, "CAG-9", ".pi-symphony-prompt.md"))
+	prompt, err := os.ReadFile(filepath.Join(root, "CAG-9", ".am-prompt.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -836,7 +836,7 @@ func TestRunOneCreatesRunnerOwnedPRWhenPiFinishesWithChangesAndNoPRURL(t *testin
 	if err := sh.Run("git --git-dir "+sh.Quote(remote)+" rev-parse --verify refs/heads/"+sh.Quote(expectedWorkspaceBranch("CAG-119")), ""); err != nil {
 		t.Fatalf("expected runner to push handoff branch: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(root, "CAG-119", ".pi-symphony-run.json"))
+	data, err := os.ReadFile(filepath.Join(root, "CAG-119", ".am-run.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -917,7 +917,7 @@ func TestRunOneFailsClearlyWhenPiFinishesWithoutChangesOrPRURL(t *testing.T) {
 	if !reflect.DeepEqual(updatedStates, []string{"running-id"}) {
 		t.Fatalf("updated states = %#v", updatedStates)
 	}
-	data, err := os.ReadFile(filepath.Join(root, "CAG-10", ".pi-symphony-run.json"))
+	data, err := os.ReadFile(filepath.Join(root, "CAG-10", ".am-run.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -928,7 +928,7 @@ func TestRunOneFailsClearlyWhenPiFinishesWithoutChangesOrPRURL(t *testing.T) {
 	if record.Status == "success" || record.Status != "failed" || record.PRURL != "" || !strings.Contains(record.Error, "no branch changes") {
 		t.Fatalf("unexpected run record: %#v", record)
 	}
-	evaluationData, err := os.ReadFile(filepath.Join(root, "CAG-10", ".pi-symphony-evaluation.json"))
+	evaluationData, err := os.ReadFile(filepath.Join(root, "CAG-10", ".am-evaluation.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1001,7 +1001,7 @@ func TestRunOneBlocksOutOfScopeDiffBeforeReviewHandoff(t *testing.T) {
 	if len(comments) != 1 || !strings.Contains(comments[0], "Scope guard failed") || !strings.Contains(comments[0], "state_projection.go") {
 		t.Fatalf("expected scope guard comment, got %#v", comments)
 	}
-	data, err := os.ReadFile(filepath.Join(root, "CAG-34", ".pi-symphony-run.json"))
+	data, err := os.ReadFile(filepath.Join(root, "CAG-34", ".am-run.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1115,7 +1115,7 @@ func testRunnerConfig(workspaceRoot string) runnerConfig {
 		ReadyState:     "Ready for Agent",
 		NeedsInfoState: "Needs Info",
 		ActiveStates:   []string{"Ready for Agent", "In Progress"},
-		GitHubAppSlug:  "pi-symphony-bot",
+		GitHubAppSlug:  "agent-machine-bot",
 	}
 }
 
@@ -1142,7 +1142,7 @@ func writeRunRecordFixture(t *testing.T, root, identifier, record string) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(record), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-run.json"), []byte(record), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

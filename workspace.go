@@ -49,8 +49,8 @@ func ensureIsolatedWorkspaceContext(ctx context.Context, workspaceRoot, workspac
 	if current == branch {
 		return nil
 	}
-	if current != "" && strings.HasPrefix(current, "symphony/") {
-		return fmt.Errorf("workspace %s is on unexpected Symphony branch %q; expected %q", workspace, current, branch)
+	if current != "" && strings.HasPrefix(current, "am/") {
+		return fmt.Errorf("workspace %s is on unexpected Agent Machine branch %q; expected %q", workspace, current, branch)
 	}
 	if err := sh.RunWithContext(ctx, "git switch -C "+sh.Quote(branch), workspace); err != nil {
 		return err

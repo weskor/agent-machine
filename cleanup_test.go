@@ -44,7 +44,7 @@ func TestCleanupDecisionKeepsTerminalArtifactsUntilIssueIsDone(t *testing.T) {
 
 func TestCleanupWorkspacesSkipsHiddenLockDirectory(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".pi-symphony-locks"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, ".am-locks"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	workspace := filepath.Join(root, "CAG-1")
@@ -56,7 +56,7 @@ func TestCleanupWorkspacesSkipsHiddenLockDirectory(t *testing.T) {
 }
 
 func TestCleanupWorkspacesMirrorsDeletedState(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-65")
 	writeCleanRunArtifact(t, workspace, "success")
 	seedCleanupAttempt(t, root, workspace, "CAG-65", "success")
@@ -78,7 +78,7 @@ func TestCleanupWorkspacesMirrorsDeletedState(t *testing.T) {
 }
 
 func TestCleanupWorkerDeletesDoneWorkspace(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-159")
 	writeCleanRunArtifact(t, workspace, "success")
 	seedCleanupAttempt(t, root, workspace, "CAG-159", "success")
@@ -105,7 +105,7 @@ func TestCleanupWorkerDeletesDoneWorkspace(t *testing.T) {
 }
 
 func TestScheduleCleanupWorkerTasksEnqueuesWorkspacesWithoutDeleting(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-160")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func TestScheduleCleanupWorkerTasksEnqueuesWorkspacesWithoutDeleting(t *testing.
 }
 
 func TestRunQueuedCleanupWorkerTaskClaimsTaskAndRefreshesDoneIssues(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-161")
 	writeCleanRunArtifact(t, workspace, "success")
 	seedCleanupAttempt(t, root, workspace, "CAG-161", "success")
@@ -184,7 +184,7 @@ func TestRunQueuedCleanupWorkerTaskClaimsTaskAndRefreshesDoneIssues(t *testing.T
 }
 
 func TestCleanupWorkspacesFailsClosedWhenCommandStateStoreUnavailable(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-107")
 	writeCleanRunArtifact(t, workspace, "success")
 	if err := os.WriteFile(filepath.Join(filepath.Dir(root), "state"), []byte("not a directory"), 0o600); err != nil {
@@ -205,7 +205,7 @@ func TestCleanupWorkspacesFailsClosedWhenCommandStateStoreUnavailable(t *testing
 }
 
 func TestCleanupWorkspacesDryRunDegradesWhenStateStoreUnavailable(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-108")
 	writeCleanRunArtifact(t, workspace, "success")
 	if err := os.WriteFile(filepath.Join(filepath.Dir(root), "state"), []byte("not a directory"), 0o600); err != nil {
@@ -221,7 +221,7 @@ func TestCleanupWorkspacesDryRunDegradesWhenStateStoreUnavailable(t *testing.T) 
 }
 
 func TestCleanupWorkspacesMirrorsDryRunAndKeptState(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	dryRunWorkspace := filepath.Join(root, "CAG-66")
 	keptWorkspace := filepath.Join(root, "CAG-67")
 	writeCleanRunArtifact(t, dryRunWorkspace, "success")
@@ -244,7 +244,7 @@ func TestCleanupWorkspacesMirrorsDryRunAndKeptState(t *testing.T) {
 }
 
 func TestCleanupDecisionFromSQLiteKeepsMissingDBRowForReconciliation(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-109")
 	writeCleanRunArtifact(t, workspace, "success")
 	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
@@ -267,7 +267,7 @@ func TestCleanupDecisionFromSQLiteKeepsMissingDBRowForReconciliation(t *testing.
 }
 
 func TestCleanupDecisionFromSQLiteTreatsStaleArtifactConflictAsReconciliation(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-110")
 	writeCleanRunArtifact(t, workspace, "success")
 	seedCleanupAttempt(t, root, workspace, "CAG-110", "failed")
@@ -277,7 +277,7 @@ func TestCleanupDecisionFromSQLiteTreatsStaleArtifactConflictAsReconciliation(t 
 	}
 	defer store.Close()
 
-	artifactDecision := cleanupResult{IssueIdentifier: "CAG-other", Category: "completed", ArtifactRef: filepath.Join(workspace, ".pi-symphony-run.json")}
+	artifactDecision := cleanupResult{IssueIdentifier: "CAG-other", Category: "completed", ArtifactRef: filepath.Join(workspace, ".am-run.json")}
 	decision, err := cleanupDecisionFromSQLite(context.Background(), store, root, workspace, map[string]bool{"CAG-110": true}, artifactDecision)
 	if err != nil {
 		t.Fatal(err)
@@ -288,7 +288,7 @@ func TestCleanupDecisionFromSQLiteTreatsStaleArtifactConflictAsReconciliation(t 
 }
 
 func TestCleanupWorkspacesUsesSQLiteStatusWhenArtifactIsStale(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-111")
 	writeCleanRunArtifact(t, workspace, "success")
 	seedCleanupAttempt(t, root, workspace, "CAG-111", "failed")
@@ -303,7 +303,7 @@ func TestCleanupWorkspacesUsesSQLiteStatusWhenArtifactIsStale(t *testing.T) {
 }
 
 func TestCleanupWorkspacesUsesSQLiteStatusWhenArtifactIsMissing(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-162")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
@@ -326,10 +326,10 @@ func TestCleanupWorkspacesUsesSQLiteStatusWhenArtifactIsMissing(t *testing.T) {
 }
 
 func TestCleanupWorkspacesIgnoresStaleArtifactIdentityWhenSQLiteFactsAreTerminal(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-163")
 	writeCleanRunArtifact(t, workspace, "success")
-	artifactPath := filepath.Join(workspace, ".pi-symphony-run.json")
+	artifactPath := filepath.Join(workspace, ".am-run.json")
 	data, err := os.ReadFile(artifactPath)
 	if err != nil {
 		t.Fatal(err)
@@ -353,7 +353,7 @@ func TestCleanupWorkspacesIgnoresStaleArtifactIdentityWhenSQLiteFactsAreTerminal
 }
 
 func TestCleanupWorkspacesUsesSQLiteRunStatusWhenTerminalOutcomeIsHandoffReady(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-114")
 	writeCleanRunArtifact(t, workspace, "success")
 	seedCleanupAttemptWithOutcome(t, root, workspace, "CAG-114", "success", "handoff_ready")
@@ -368,7 +368,7 @@ func TestCleanupWorkspacesUsesSQLiteRunStatusWhenTerminalOutcomeIsHandoffReady(t
 }
 
 func TestCleanupWorkspacesEmitsSkippedAndStartedEvents(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-104")
 	writeCleanRunArtifact(t, workspace, "success")
 	seedCleanupAttemptWithOutcome(t, root, workspace, "CAG-104", "success", "handoff_ready")
@@ -395,7 +395,7 @@ func TestCleanupWorkspacesEmitsSkippedAndStartedEvents(t *testing.T) {
 }
 
 func TestCleanupWorkspacesEmitsCompletedEventOnApply(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-105")
 	writeCleanRunArtifact(t, workspace, "success")
 	seedCleanupAttemptWithOutcome(t, root, workspace, "CAG-105", "success", "handoff_ready")
@@ -424,7 +424,7 @@ func TestCleanupWorkspacesEmitsCompletedEventOnApply(t *testing.T) {
 }
 
 func TestCleanupWorkspacesUsesSQLiteRunStatusWhenTerminalOutcomeIsOperationalFailure(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-115")
 	writeCleanRunArtifact(t, workspace, "failed")
 	seedCleanupAttemptWithOutcome(t, root, workspace, "CAG-115", "failed", "operational_failure")
@@ -439,7 +439,7 @@ func TestCleanupWorkspacesUsesSQLiteRunStatusWhenTerminalOutcomeIsOperationalFai
 }
 
 func TestCleanupWorkspacesDeletesDoneMergedPRWithNonTerminalSQLiteStatus(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-125")
 	writeCleanRunArtifact(t, workspace, "review_not_ready")
 	seedCleanupAttemptWithPR(t, root, workspace, "CAG-125", "review_not_ready", "https://github.com/weskor/agent-machine/pull/125", expectedWorkspaceBranch("CAG-125"))
@@ -463,7 +463,7 @@ func TestCleanupWorkspacesDeletesDoneMergedPRWithNonTerminalSQLiteStatus(t *test
 }
 
 func TestCleanupDecisionKeepsDoneNonTerminalClosedUnmergedPRForReconciliation(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-126")
 	writeCleanRunArtifact(t, workspace, "review_not_ready")
 	seedCleanupAttemptWithPR(t, root, workspace, "CAG-126", "review_not_ready", "https://github.com/weskor/agent-machine/pull/126", expectedWorkspaceBranch("CAG-126"))
@@ -486,7 +486,7 @@ func TestCleanupDecisionKeepsDoneNonTerminalClosedUnmergedPRForReconciliation(t 
 }
 
 func TestCleanupDecisionKeepsDoneNonTerminalMissingPRMappingForReconciliation(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-127")
 	writeCleanRunArtifact(t, workspace, "review_not_ready")
 	seedCleanupAttemptWithPR(t, root, workspace, "CAG-127", "review_not_ready", "", expectedWorkspaceBranch("CAG-127"))
@@ -506,10 +506,10 @@ func TestCleanupDecisionKeepsDoneNonTerminalMissingPRMappingForReconciliation(t 
 }
 
 func TestCleanupDecisionKeepsDoneNonTerminalWrongBranchPRForReconciliation(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-128")
 	writeCleanRunArtifact(t, workspace, "review_not_ready")
-	seedCleanupAttemptWithPR(t, root, workspace, "CAG-128", "review_not_ready", "https://github.com/weskor/agent-machine/pull/128", "symphony/other-workspace")
+	seedCleanupAttemptWithPR(t, root, workspace, "CAG-128", "review_not_ready", "https://github.com/weskor/agent-machine/pull/128", "am/other-workspace")
 	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
 	if err != nil {
 		t.Fatal(err)
@@ -526,12 +526,12 @@ func TestCleanupDecisionKeepsDoneNonTerminalWrongBranchPRForReconciliation(t *te
 }
 
 func TestCleanupDecisionKeepsDoneNonTerminalWrongPRHeadForReconciliation(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-129")
 	writeCleanRunArtifact(t, workspace, "review_not_ready")
 	seedCleanupAttemptWithPR(t, root, workspace, "CAG-129", "review_not_ready", "https://github.com/weskor/agent-machine/pull/129", expectedWorkspaceBranch("CAG-129"))
 	stubCleanupPRFactsForURL(t, func(string) (cleanupPRFacts, error) {
-		return cleanupPRFacts{State: "MERGED", Merged: true, HeadRefName: "symphony/other-workspace", BaseRefName: "main"}, nil
+		return cleanupPRFacts{State: "MERGED", Merged: true, HeadRefName: "am/other-workspace", BaseRefName: "main"}, nil
 	})
 	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
 	if err != nil {
@@ -549,7 +549,7 @@ func TestCleanupDecisionKeepsDoneNonTerminalWrongPRHeadForReconciliation(t *test
 }
 
 func TestCleanupDecisionKeepsDoneNonTerminalPRLookupFailureForReconciliation(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".symphony", "workspaces")
+	root := filepath.Join(t.TempDir(), ".am", "workspaces")
 	workspace := filepath.Join(root, "CAG-130")
 	writeCleanRunArtifact(t, workspace, "review_not_ready")
 	seedCleanupAttemptWithPR(t, root, workspace, "CAG-130", "review_not_ready", "https://github.com/weskor/agent-machine/pull/130", expectedWorkspaceBranch("CAG-130"))
@@ -606,7 +606,7 @@ func TestCleanupDecisionKeepsMissingAndInsufficientArtifacts(t *testing.T) {
 		t.Fatalf("expected missing artifact keep, got %+v", decision)
 	}
 
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(`{"status":"success","ended_at":"2026-05-01T00:00:00Z"}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-run.json"), []byte(`{"status":"success","ended_at":"2026-05-01T00:00:00Z"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	decision, err = cleanupDecision(workspace, map[string]bool{})
@@ -633,7 +633,7 @@ func TestCleanupDecisionRequiresReviewEvidenceForFailedReview(t *testing.T) {
 
 	record := runArtifactJSON(workspace, "review_failed")
 	record = strings.TrimSuffix(record, "}") + `,"pr_url":"https://github.com/acme/repo/pull/1","review_status":"failed","review_findings":"needs changes"}`
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(record), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-run.json"), []byte(record), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	decision, err = cleanupDecision(workspace, map[string]bool{})
@@ -700,8 +700,8 @@ func TestCleanupDecisionRequiresMatchingWorkspaceRootAndBranch(t *testing.T) {
 	workspace := filepath.Join(root, "CAG-40")
 	writeCleanRunArtifact(t, workspace, "success")
 	record := runArtifactJSON(workspace, "success")
-	record = strings.TrimSuffix(record, "}") + `,"workspace_root":"/tmp/not-this-root","expected_branch":"symphony/CAG-40-workspace","branch":"symphony/other"}`
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(record), 0o600); err != nil {
+	record = strings.TrimSuffix(record, "}") + `,"workspace_root":"/tmp/not-this-root","expected_branch":"am/CAG-40-workspace","branch":"am/other"}`
+	if err := os.WriteFile(filepath.Join(workspace, ".am-run.json"), []byte(record), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	decision, err := cleanupDecision(workspace, map[string]bool{})
@@ -721,13 +721,13 @@ func writeCleanRunArtifact(t *testing.T, workspace, status string) {
 	if err := sh.Run("git init -q", workspace); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(runArtifactJSON(workspace, status)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-run.json"), []byte(runArtifactJSON(workspace, status)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func runArtifactJSON(workspace, status string) string {
-	return `{"issue_identifier":"` + filepath.Base(workspace) + `","issue_id":"issue-id","issue_title":"Title","issue_url":"https://linear.app/acme/issue/` + filepath.Base(workspace) + `/title","workspace":"` + filepath.ToSlash(workspace) + `","branch":"symphony/` + filepath.Base(workspace) + `","status":"` + status + `","ended_at":"2026-05-01T00:00:00Z"}`
+	return `{"issue_identifier":"` + filepath.Base(workspace) + `","issue_id":"issue-id","issue_title":"Title","issue_url":"https://linear.app/acme/issue/` + filepath.Base(workspace) + `/title","workspace":"` + filepath.ToSlash(workspace) + `","branch":"am/` + filepath.Base(workspace) + `","status":"` + status + `","ended_at":"2026-05-01T00:00:00Z"}`
 }
 
 func seedCleanupAttempt(t *testing.T, workspaceRoot, workspace, issueKey, status string) {
@@ -736,12 +736,12 @@ func seedCleanupAttempt(t *testing.T, workspaceRoot, workspace, issueKey, status
 
 func seedCleanupAttemptWithOutcome(t *testing.T, workspaceRoot, workspace, issueKey, status, outcome string) {
 	t.Helper()
-	seedCleanupAttemptSnapshot(t, workspaceRoot, state.RunArtifactSnapshot{IssueKey: issueKey, Attempt: 1, WorkspacePath: workspace, BranchName: "symphony/" + issueKey, BaseBranch: "main", Status: status, TerminalOutcome: outcome, TerminalReason: "test terminal outcome", RunArtifactRef: filepath.Join(workspace, ".pi-symphony-run.json")})
+	seedCleanupAttemptSnapshot(t, workspaceRoot, state.RunArtifactSnapshot{IssueKey: issueKey, Attempt: 1, WorkspacePath: workspace, BranchName: "am/" + issueKey, BaseBranch: "main", Status: status, TerminalOutcome: outcome, TerminalReason: "test terminal outcome", RunArtifactRef: filepath.Join(workspace, ".am-run.json")})
 }
 
 func seedCleanupAttemptWithPR(t *testing.T, workspaceRoot, workspace, issueKey, status, prURL, branch string) {
 	t.Helper()
-	seedCleanupAttemptSnapshot(t, workspaceRoot, state.RunArtifactSnapshot{IssueKey: issueKey, Attempt: 1, WorkspacePath: workspace, BranchName: branch, BaseBranch: "main", Status: status, PRURL: prURL, RunArtifactRef: filepath.Join(workspace, ".pi-symphony-run.json")})
+	seedCleanupAttemptSnapshot(t, workspaceRoot, state.RunArtifactSnapshot{IssueKey: issueKey, Attempt: 1, WorkspacePath: workspace, BranchName: branch, BaseBranch: "main", Status: status, PRURL: prURL, RunArtifactRef: filepath.Join(workspace, ".am-run.json")})
 }
 
 func seedCleanupAttemptSnapshot(t *testing.T, workspaceRoot string, snap state.RunArtifactSnapshot) {

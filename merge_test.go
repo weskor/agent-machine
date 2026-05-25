@@ -29,20 +29,20 @@ func TestIssueIdentifierFromBranch(t *testing.T) {
 	}
 }
 
-func TestSymphonyPRsFiltersUnrelatedBranches(t *testing.T) {
+func TestAgentMachinePRsFiltersUnrelatedBranches(t *testing.T) {
 	prs := []pullRequestSummary{
 		{Number: 361, HeadRefName: "develop"},
 		{Number: 337, HeadRefName: "feat/org-obp-merchant-auto-registration"},
-		{Number: 402, HeadRefName: "cag-12-pi-symphony-loop-tests"},
+		{Number: 402, HeadRefName: "cag-12-agent-machine-loop-tests"},
 		{Number: 400, HeadRefName: "feature/CAG_11_workflow_parser"},
 	}
 
-	got := symphonyPRs(prs)
+	got := amPRs(prs)
 	if len(got) != 2 {
-		t.Fatalf("symphonyPRs returned %d PRs, want 2", len(got))
+		t.Fatalf("amPRs returned %d PRs, want 2", len(got))
 	}
 	if got[0].Number != 402 || got[1].Number != 400 {
-		t.Fatalf("symphonyPRs returned PRs %#v, want only CAG-owned PRs", got)
+		t.Fatalf("amPRs returned PRs %#v, want only CAG-owned PRs", got)
 	}
 }
 
@@ -74,19 +74,19 @@ func TestWorkspaceLockedOrModifiedIgnoresEvidenceArtifacts(t *testing.T) {
 	if err := sh.Run("git init && git config user.email test@example.com && git config user.name Test", workspace); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-prompt.md"), []byte("active"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-prompt.md"), []byte("active"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-review-prompt.md"), []byte("review"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-review-prompt.md"), []byte("review"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte("{}"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-run.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-evaluation.json"), []byte("{}"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-evaluation.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	legacyDebugPath := filepath.Join(workspace, ".pi-symphony-debug", "implementation-raw.log")
+	legacyDebugPath := filepath.Join(workspace, ".am-debug", "implementation-raw.log")
 	if err := os.MkdirAll(filepath.Dir(legacyDebugPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestRunArtifactMergeBlockReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-run.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -136,7 +136,7 @@ func TestRunArtifactMergeBlockReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-run.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got := runArtifactMergeBlockReason(root, "CAG-28", record.PRURL); got != "" {
@@ -150,7 +150,7 @@ func TestRunArtifactMergeBlockReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-run.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got := runArtifactMergeBlockReason(root, "CAG-28", record.PRURL); got != "" {
@@ -238,9 +238,9 @@ func TestMergeGateBlockReason(t *testing.T) {
 		want string
 	}{
 		{name: "mergeable with green checks allowed", pr: pullRequestSummary{Mergeable: "MERGEABLE", StatusCheckRollup: greenChecks}},
-		{name: "conflict blocks", pr: pullRequestSummary{HeadRefName: "symphony/CAG-18", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY", StatusCheckRollup: greenChecks}, want: "has conflicts with the base branch"},
-		{name: "unknown mergeable blocks", pr: pullRequestSummary{HeadRefName: "symphony/CAG-18", Mergeable: "UNKNOWN", StatusCheckRollup: greenChecks}, want: "mergeable=UNKNOWN"},
-		{name: "missing mergeable blocks", pr: pullRequestSummary{HeadRefName: "symphony/CAG-18", StatusCheckRollup: greenChecks}, want: "mergeable=UNKNOWN"},
+		{name: "conflict blocks", pr: pullRequestSummary{HeadRefName: "am/CAG-18", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY", StatusCheckRollup: greenChecks}, want: "has conflicts with the base branch"},
+		{name: "unknown mergeable blocks", pr: pullRequestSummary{HeadRefName: "am/CAG-18", Mergeable: "UNKNOWN", StatusCheckRollup: greenChecks}, want: "mergeable=UNKNOWN"},
+		{name: "missing mergeable blocks", pr: pullRequestSummary{HeadRefName: "am/CAG-18", StatusCheckRollup: greenChecks}, want: "mergeable=UNKNOWN"},
 		{name: "check blocks", pr: pullRequestSummary{Mergeable: "MERGEABLE", StatusCheckRollup: []statusCheck{{Typename: "StatusContext", State: "ERROR", Context: "Vercel"}}}, want: `status context "Vercel" is state=ERROR`},
 	}
 
@@ -260,7 +260,7 @@ func TestMergeGateBlockReason(t *testing.T) {
 func TestMergeApprovedPRsMovesConflictingPRBackToReady(t *testing.T) {
 	root := t.TempDir()
 	merged := map[int]bool{}
-	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 414, URL: "https://github.com/weskor/agent-machine/pull/414", HeadRefName: "symphony/CAG-23-workspace-cleanup", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: merged})
+	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 414, URL: "https://github.com/weskor/agent-machine/pull/414", HeadRefName: "am/CAG-23-workspace-cleanup", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: merged})
 
 	var updatedStates []string
 	var comments []string
@@ -306,7 +306,7 @@ func TestMergeApprovedPRsMovesConflictingPRBackToReady(t *testing.T) {
 	if len(comments) != 1 || !strings.Contains(comments[0], "merge blocked by conflicts") {
 		t.Fatalf("unexpected comments: %#v", comments)
 	}
-	feedback, err := os.ReadFile(filepath.Join(root, "CAG-23", ".pi-symphony-feedback.md"))
+	feedback, err := os.ReadFile(filepath.Join(root, "CAG-23", ".am-feedback.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +327,7 @@ func TestMergeApprovedPRsSquashMergesAndDeletesBranchViaGitHubAPI(t *testing.T) 
 	writeMergeableRunArtifact(t, workspace, "https://github.com/weskor/agent-machine/pull/441")
 	merged := map[int]bool{}
 	deleted := map[string]bool{}
-	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 441, URL: "https://github.com/weskor/agent-machine/pull/441", BaseRefName: "develop", HeadRefName: "symphony/CAG-41-workspace", Author: prAuthor{Login: "app/pi-symphony-bot"}, Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: merged, deletedBranches: deleted})
+	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 441, URL: "https://github.com/weskor/agent-machine/pull/441", BaseRefName: "develop", HeadRefName: "am/CAG-41-workspace", Author: prAuthor{Login: "app/agent-machine-bot"}, Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: merged, deletedBranches: deleted})
 
 	var updatedStates []string
 	var comments []string
@@ -340,7 +340,7 @@ func TestMergeApprovedPRsSquashMergesAndDeletesBranchViaGitHubAPI(t *testing.T) 
 	if err := mergeApprovedPRs(client, config); err != nil {
 		t.Fatal(err)
 	}
-	if !merged[441] || !deleted["symphony/CAG-41-workspace"] {
+	if !merged[441] || !deleted["am/CAG-41-workspace"] {
 		t.Fatalf("expected typed API merge and branch delete, merged=%v deleted=%v", merged, deleted)
 	}
 	if len(updatedStates) != 1 || updatedStates[0] != "done-id" {
@@ -392,7 +392,7 @@ func TestMergeApprovedPRsEmitsCompletedEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeMergeableRunArtifact(t, workspace, "https://github.com/weskor/agent-machine/pull/104")
-	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 104, URL: "https://github.com/weskor/agent-machine/pull/104", BaseRefName: "develop", HeadRefName: "symphony/CAG-104-workspace", Author: prAuthor{Login: "app/pi-symphony-bot"}, Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: map[int]bool{}, deletedBranches: map[string]bool{}})
+	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 104, URL: "https://github.com/weskor/agent-machine/pull/104", BaseRefName: "develop", HeadRefName: "am/CAG-104-workspace", Author: prAuthor{Login: "app/agent-machine-bot"}, Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: map[int]bool{}, deletedBranches: map[string]bool{}})
 
 	var updatedStates []string
 	var comments []string
@@ -431,7 +431,7 @@ func TestMergeApprovedPRsEmitsCompletedEvent(t *testing.T) {
 
 func TestMergeApprovedPRsEmitsBlockedEvent(t *testing.T) {
 	root := t.TempDir()
-	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 105, URL: "https://github.com/weskor/agent-machine/pull/105", BaseRefName: "develop", HeadRefName: "symphony/CAG-105-workspace", Author: prAuthor{Login: "app/pi-symphony-bot"}, Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}})
+	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 105, URL: "https://github.com/weskor/agent-machine/pull/105", BaseRefName: "develop", HeadRefName: "am/CAG-105-workspace", Author: prAuthor{Login: "app/agent-machine-bot"}, Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}})
 	var updatedStates []string
 	var comments []string
 	config := testRunnerConfig(root)
@@ -467,7 +467,7 @@ func TestScheduleMergeWorkerTasksEnqueuesHandoffPRWithoutClaiming(t *testing.T) 
 		URL:               "https://github.com/weskor/agent-machine/pull/190",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch("CAG-190"),
-		Author:            prAuthor{Login: "app/pi-symphony-bot"},
+		Author:            prAuthor{Login: "app/agent-machine-bot"},
 		Mergeable:         "MERGEABLE",
 		MergeStateStatus:  "CLEAN",
 		ReviewDecision:    "APPROVED",
@@ -518,7 +518,7 @@ func TestRunQueuedMergeWorkerTaskClaimsTaskAndRefreshesOpenPR(t *testing.T) {
 		URL:               "https://github.com/weskor/agent-machine/pull/191",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch("CAG-191"),
-		Author:            prAuthor{Login: "app/pi-symphony-bot"},
+		Author:            prAuthor{Login: "app/agent-machine-bot"},
 		Mergeable:         "MERGEABLE",
 		MergeStateStatus:  "CLEAN",
 		ReviewDecision:    "APPROVED",
@@ -598,8 +598,8 @@ func TestMergeWorkerRoutesChangesRequestedBackToReady(t *testing.T) {
 		Number:         106,
 		URL:            "https://github.com/weskor/agent-machine/pull/106",
 		BaseRefName:    "develop",
-		HeadRefName:    "symphony/CAG-106-workspace",
-		Author:         prAuthor{Login: "app/pi-symphony-bot"},
+		HeadRefName:    "am/CAG-106-workspace",
+		Author:         prAuthor{Login: "app/agent-machine-bot"},
 		ReviewDecision: "CHANGES_REQUESTED",
 	}
 
@@ -612,7 +612,7 @@ func TestMergeWorkerRoutesChangesRequestedBackToReady(t *testing.T) {
 	if len(comments) != 1 || !strings.Contains(comments[0], "PR changes requested") {
 		t.Fatalf("unexpected comments: %#v", comments)
 	}
-	feedback, err := os.ReadFile(filepath.Join(root, "CAG-106", ".pi-symphony-feedback.md"))
+	feedback, err := os.ReadFile(filepath.Join(root, "CAG-106", ".am-feedback.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -629,7 +629,7 @@ func TestMergeApprovedPRsStopsIfBranchDeletionFails(t *testing.T) {
 	}
 	writeMergeableRunArtifact(t, workspace, "https://github.com/weskor/agent-machine/pull/441")
 	merged := map[int]bool{}
-	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 441, URL: "https://github.com/weskor/agent-machine/pull/441", BaseRefName: "develop", HeadRefName: "symphony/CAG-41-workspace", Author: prAuthor{Login: "app/pi-symphony-bot"}, Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: merged, deleteErr: errors.New("delete failed")})
+	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 441, URL: "https://github.com/weskor/agent-machine/pull/441", BaseRefName: "develop", HeadRefName: "am/CAG-41-workspace", Author: prAuthor{Login: "app/agent-machine-bot"}, Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: merged, deleteErr: errors.New("delete failed")})
 
 	var updatedStates []string
 	var comments []string
@@ -717,7 +717,7 @@ func writeMergeableRunArtifact(t *testing.T, workspace, prURL string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-run.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	repo, prNumber := parseGitHubPR(prURL)
@@ -747,9 +747,9 @@ func writeMergeableRunArtifact(t *testing.T, workspace, prURL string) {
 }
 
 func TestRenderPRConflictFeedbackIncludesRepairInstructions(t *testing.T) {
-	pr := pullRequestSummary{Number: 414, URL: "https://github.com/example/repo/pull/414", HeadRefName: "symphony/CAG-23", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"}
+	pr := pullRequestSummary{Number: 414, URL: "https://github.com/example/repo/pull/414", HeadRefName: "am/CAG-23", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"}
 	feedback := renderPRConflictFeedback(pr, mergeConflictReason(pr))
-	for _, want := range []string{"mergeable=CONFLICTING", "Update this PR branch", "Rerun the validation", "symphony/CAG-23"} {
+	for _, want := range []string{"mergeable=CONFLICTING", "Update this PR branch", "Rerun the validation", "am/CAG-23"} {
 		if !strings.Contains(feedback, want) {
 			t.Fatalf("feedback missing %q: %s", want, feedback)
 		}
@@ -791,7 +791,7 @@ func TestFeedbackAlreadyAddressedDoesNotFallbackToArtifacts(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-feedback.md"), []byte(feedback), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-feedback.md"), []byte(feedback), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	record := runRecord{Status: "success", ReviewStatus: "passed", PRURL: "https://github.com/weskor/agent-machine/pull/429"}
@@ -799,7 +799,7 @@ func TestFeedbackAlreadyAddressedDoesNotFallbackToArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), encoded, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, ".am-run.json"), encoded, 0o600); err != nil {
 		t.Fatal(err)
 	}
 

@@ -6,12 +6,12 @@ GORELEASER ?= go run github.com/goreleaser/goreleaser/v2@v2.16.0
 .PHONY: fmt fmt-check vet lint test ci release-check release-snapshot
 
 fmt:
-	gofmt -w $$(find . -name '*.go' -not -path './.git/*' -not -path './.symphony/*')
-	$(GOIMPORTS) -w $$(find . -name '*.go' -not -path './.git/*' -not -path './.symphony/*')
+	gofmt -w $$(find . -name '*.go' -not -path './.git/*' -not -path './.am/*')
+	$(GOIMPORTS) -w $$(find . -name '*.go' -not -path './.git/*' -not -path './.am/*')
 
 fmt-check:
-	@test -z "$$(gofmt -l $$(find . -name '*.go' -not -path './.git/*' -not -path './.symphony/*'))"
-	@test -z "$$($(GOIMPORTS) -l $$(find . -name '*.go' -not -path './.git/*' -not -path './.symphony/*'))"
+	@test -z "$$(gofmt -l $$(find . -name '*.go' -not -path './.git/*' -not -path './.am/*'))"
+	@test -z "$$($(GOIMPORTS) -l $$(find . -name '*.go' -not -path './.git/*' -not -path './.am/*'))"
 
 vet:
 	go vet $(GO_PACKAGES)

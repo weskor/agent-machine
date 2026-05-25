@@ -16,7 +16,7 @@ func TestRunSelectedWorkerContextHonorsCanceledContextBeforeOpeningState(t *test
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := runSelectedWorkerContext(ctx, linearClient{}, project{}, runnerConfig{ConfigPath: "symphony.yaml", ProjectSlug: "CAG", WorkspaceRoot: root}, statusWorkerRole)
+	err := runSelectedWorkerContext(ctx, linearClient{}, project{}, runnerConfig{ConfigPath: "am.yaml", ProjectSlug: "CAG", WorkspaceRoot: root}, statusWorkerRole)
 
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("runSelectedWorkerContext() error = %v; want canceled", err)
@@ -42,7 +42,7 @@ func TestStatusWorkerProcessClaimsTaskRecordsHeartbeatAndReleasesLease(t *testin
 	}
 	stateNow = func() time.Time { return now }
 
-	if err := runStatusWorkerProcess(linearClient{}, runnerConfig{ConfigPath: "symphony.yaml", ProjectSlug: "CAG", WorkspaceRoot: root}); err != nil {
+	if err := runStatusWorkerProcess(linearClient{}, runnerConfig{ConfigPath: "am.yaml", ProjectSlug: "CAG", WorkspaceRoot: root}); err != nil {
 		t.Fatalf("runStatusWorkerProcess() error = %v", err)
 	}
 	if !printCalled {
@@ -96,7 +96,7 @@ func TestPlanWorkerProcessClaimsTaskRunsReadOnlyPlanningAndRecordsHeartbeat(t *t
 	}
 	stateNow = func() time.Time { return now }
 
-	if err := runPlanWorkerProcess(linearClient{}, runnerConfig{ConfigPath: "symphony.yaml", ProjectSlug: "CAG", WorkspaceRoot: root, ActiveStates: []string{"Ready for Agent", "In Progress"}}); err != nil {
+	if err := runPlanWorkerProcess(linearClient{}, runnerConfig{ConfigPath: "am.yaml", ProjectSlug: "CAG", WorkspaceRoot: root, ActiveStates: []string{"Ready for Agent", "In Progress"}}); err != nil {
 		t.Fatalf("runPlanWorkerProcess() error = %v", err)
 	}
 	if !printCalled {
@@ -164,7 +164,7 @@ func TestCleanupWorkerProcessClaimsTaskRefreshesDoneIssuesAndRecordsHeartbeat(t 
 		return nil
 	}
 
-	if err := runCleanupWorkerProcess(linearClient{}, runnerConfig{ConfigPath: "symphony.yaml", ProjectSlug: "CAG", WorkspaceRoot: root, DoneState: "Done"}); err != nil {
+	if err := runCleanupWorkerProcess(linearClient{}, runnerConfig{ConfigPath: "am.yaml", ProjectSlug: "CAG", WorkspaceRoot: root, DoneState: "Done"}); err != nil {
 		t.Fatalf("runCleanupWorkerProcess() error = %v", err)
 	}
 	if !cleanupCalled {
@@ -227,7 +227,7 @@ func TestMergeWorkerProcessClaimsTaskRunsMergeWithoutCleanupAndRecordsHeartbeat(
 		return nil
 	}
 
-	if err := runMergeWorkerProcess(linearClient{}, runnerConfig{ConfigPath: "symphony.yaml", ProjectSlug: "CAG", WorkspaceRoot: root, DoneState: "Done"}); err != nil {
+	if err := runMergeWorkerProcess(linearClient{}, runnerConfig{ConfigPath: "am.yaml", ProjectSlug: "CAG", WorkspaceRoot: root, DoneState: "Done"}); err != nil {
 		t.Fatalf("runMergeWorkerProcess() error = %v", err)
 	}
 	if len(calls) != 1 || calls[0] != "merge" {
@@ -284,7 +284,7 @@ func TestReconciliationWorkerProcessClaimsTaskRunsScanAndRecordsHeartbeat(t *tes
 		return true, nil
 	}
 
-	if err := runReconciliationWorkerProcess(linearClient{}, runnerConfig{ConfigPath: "symphony.yaml", ProjectSlug: "CAG", WorkspaceRoot: root}); err != nil {
+	if err := runReconciliationWorkerProcess(linearClient{}, runnerConfig{ConfigPath: "am.yaml", ProjectSlug: "CAG", WorkspaceRoot: root}); err != nil {
 		t.Fatalf("runReconciliationWorkerProcess() error = %v", err)
 	}
 	if !scanCalled {
@@ -345,7 +345,7 @@ func TestReviewWorkerProcessClaimsTaskRunsReviewResumeAndRecordsHeartbeat(t *tes
 		return true, nil
 	}
 
-	if err := runReviewWorkerProcess(linearClient{}, project{}, runnerConfig{ConfigPath: "symphony.yaml", ProjectSlug: "CAG", WorkspaceRoot: root, ReviewCommand: "pi review"}); err != nil {
+	if err := runReviewWorkerProcess(linearClient{}, project{}, runnerConfig{ConfigPath: "am.yaml", ProjectSlug: "CAG", WorkspaceRoot: root, ReviewCommand: "pi review"}); err != nil {
 		t.Fatalf("runReviewWorkerProcess() error = %v", err)
 	}
 	if !resumeCalled {
@@ -399,7 +399,7 @@ func TestImplementationWorkerProcessClaimsTaskRunsFreshAttemptAndRecordsHeartbea
 		return true, nil
 	}
 
-	if err := runImplementationWorkerProcess(linearClient{}, project{}, runnerConfig{ConfigPath: "symphony.yaml", ProjectSlug: "CAG", WorkspaceRoot: root}); err != nil {
+	if err := runImplementationWorkerProcess(linearClient{}, project{}, runnerConfig{ConfigPath: "am.yaml", ProjectSlug: "CAG", WorkspaceRoot: root}); err != nil {
 		t.Fatalf("runImplementationWorkerProcess() error = %v", err)
 	}
 	if !implementationCalled {
@@ -453,7 +453,7 @@ func TestHandoffWorkerProcessClaimsTaskRunsPendingHandoffAndRecordsHeartbeat(t *
 		return true, nil
 	}
 
-	if err := runHandoffWorkerProcess(linearClient{}, runnerConfig{ConfigPath: "symphony.yaml", ProjectSlug: "CAG", WorkspaceRoot: root, HandoffState: "Human Review"}); err != nil {
+	if err := runHandoffWorkerProcess(linearClient{}, runnerConfig{ConfigPath: "am.yaml", ProjectSlug: "CAG", WorkspaceRoot: root, HandoffState: "Human Review"}); err != nil {
 		t.Fatalf("runHandoffWorkerProcess() error = %v", err)
 	}
 	if !handoffCalled {
@@ -507,7 +507,7 @@ func TestLinearStatusWorkerProcessClaimsTaskRunsTransitionIntentAndRecordsHeartb
 		return true, nil
 	}
 
-	if err := runLinearStatusWorkerProcess(linearClient{}, runnerConfig{ConfigPath: "symphony.yaml", ProjectSlug: "CAG", WorkspaceRoot: root}); err != nil {
+	if err := runLinearStatusWorkerProcess(linearClient{}, runnerConfig{ConfigPath: "am.yaml", ProjectSlug: "CAG", WorkspaceRoot: root}); err != nil {
 		t.Fatalf("runLinearStatusWorkerProcess() error = %v", err)
 	}
 	if !transitionCalled {
@@ -562,7 +562,7 @@ func TestWorkWorkerProcessClaimsTaskRunsImplementationBatchAndRecordsHeartbeat(t
 	}
 	proj := project{YAML: "tracker:\n  project_slug: CAG\nworkspace:\n  root: " + root + "\nagent:\n  max_concurrent_agents: 3"}
 
-	if err := runWorkWorkerProcess(linearClient{}, proj, runnerConfig{ConfigPath: "symphony.yaml", ProjectSlug: "CAG", WorkspaceRoot: root}); err != nil {
+	if err := runWorkWorkerProcess(linearClient{}, proj, runnerConfig{ConfigPath: "am.yaml", ProjectSlug: "CAG", WorkspaceRoot: root}); err != nil {
 		t.Fatalf("runWorkWorkerProcess() error = %v", err)
 	}
 	if !batchCalled {

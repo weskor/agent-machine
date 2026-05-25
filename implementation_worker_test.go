@@ -26,7 +26,7 @@ func TestImplementationPromptKeepsRunnerHandoffBoundary(t *testing.T) {
 		"GitHub PR feedback to address before handoff:\nReviewer asked for focused tests.",
 		"output NEEDS_INFO followed by numbered questions instead of guessing",
 		"Do not create, update, push, or comment on a GitHub PR",
-		"branch symphony/CAG-154-workspace into base branch main",
+		"branch am/CAG-154-workspace into base branch main",
 		"The runner will move the Linear issue to Human Review after runner PR handoff, or to Needs Info when NEEDS_INFO is detected.",
 		"Behavior-contract preflight for refactors, replacements, and rewrites:",
 	} {

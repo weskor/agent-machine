@@ -340,13 +340,13 @@ func TestMarkStaleClaimedWorkerTasksRequiresExpiredLeaseAndStaleHeartbeat(t *tes
 	if err := s.UpsertLease(ctx, Lease{Name: task.LeaseName, Scope: task.TaskKey, Owner: "host:123", AcquiredAt: old, RenewedAt: old, ExpiresAt: old.Add(time.Minute)}); err != nil {
 		t.Fatalf("UpsertLease(expired) error = %v", err)
 	}
-	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "merge", WorkflowPath: "/repo/symphony.yaml", CycleNumber: 1, LastSuccessAt: now, UpdatedAt: now}); err != nil {
+	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "merge", WorkflowPath: "/repo/am.yaml", CycleNumber: 1, LastSuccessAt: now, UpdatedAt: now}); err != nil {
 		t.Fatalf("UpsertDaemonHeartbeat() error = %v", err)
 	}
 	if recovered, err := s.MarkStaleClaimedWorkerTasksReconciliationNeeded(ctx, now, 15*time.Minute); err != nil || len(recovered) != 0 {
 		t.Fatalf("fresh heartbeat recovery = %+v err=%v; want no recovery", recovered, err)
 	}
-	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "merge", WorkflowPath: "/repo/symphony.yaml", CycleNumber: 1, LastSuccessAt: old, UpdatedAt: old}); err != nil {
+	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "merge", WorkflowPath: "/repo/am.yaml", CycleNumber: 1, LastSuccessAt: old, UpdatedAt: old}); err != nil {
 		t.Fatalf("UpsertDaemonHeartbeat(stale) error = %v", err)
 	}
 	recovered, err := s.MarkStaleClaimedWorkerTasksReconciliationNeeded(ctx, now, 15*time.Minute)
@@ -454,7 +454,7 @@ func TestWorkerPayloadRefsTrackPendingPayloads(t *testing.T) {
 		IssueID:       "issue-184",
 		Attempt:       1,
 		WorkspacePath: "/tmp/CAG-184",
-		BranchName:    "symphony/CAG-184-workspace",
+		BranchName:    "am/CAG-184-workspace",
 		PRURL:         "https://github.com/acme/repo/pull/184",
 		PayloadPath:   "/tmp/CAG-184/review-pending.json",
 		Status:        "pending",
@@ -506,7 +506,7 @@ func TestPRHandoffIntentsTrackPendingAndResultIdempotently(t *testing.T) {
 		IssueID:       "issue-185",
 		Attempt:       1,
 		WorkspacePath: "/tmp/CAG-185",
-		BranchName:    "symphony/CAG-185-workspace",
+		BranchName:    "am/CAG-185-workspace",
 		AgentPRURL:    "https://github.com/acme/repo/pull/old",
 		PayloadPath:   "/tmp/CAG-185/pr-handoff-pending.json",
 		Status:        PRHandoffIntentStatusPending,
@@ -592,7 +592,7 @@ func TestOpenMigratesV1DatabaseToEventLogWithoutRewritingExistingState(t *testin
 		t.Fatalf("migrateV1() error = %v", err)
 	}
 	seededAt := time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO issue_attempts(issue_key, attempt, branch_name, base_branch, status, created_at, updated_at) VALUES ('CAG-OLD', 1, 'symphony/CAG-OLD', 'main', 'running', ?, ?)`, seededAt, seededAt); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO issue_attempts(issue_key, attempt, branch_name, base_branch, status, created_at, updated_at) VALUES ('CAG-OLD', 1, 'am/CAG-OLD', 'main', 'running', ?, ?)`, seededAt, seededAt); err != nil {
 		t.Fatalf("seed v1 attempt: %v", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -619,6 +619,38 @@ func TestOpenMigratesV1DatabaseToEventLogWithoutRewritingExistingState(t *testin
 	}
 	if _, err := s.AppendEvent(ctx, EventInput{IssueKey: "CAG-OLD", Attempt: 1, Source: "test", Type: EventAttemptStarted}); err != nil {
 		t.Fatalf("AppendEvent() on migrated db error = %v", err)
+	}
+}
+
+func TestMigrationV8AddsAgentMachineOwnershipColumn(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer db.Close()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx() error = %v", err)
+	}
+	if err := ensureMigrationTable(ctx, tx); err != nil {
+		t.Fatalf("ensureMigrationTable() error = %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE pr_mappings (id INTEGER PRIMARY KEY, repository TEXT NOT NULL, branch_name TEXT NOT NULL, am_previous_owned INTEGER NOT NULL DEFAULT 1)`); err != nil {
+		t.Fatalf("create pre-v8 pr_mappings: %v", err)
+	}
+	if err := migrateV8(ctx, tx); err != nil {
+		t.Fatalf("migrateV8() error = %v", err)
+	}
+	exists, err := tableColumnExists(ctx, tx, "pr_mappings", "am_owned")
+	if err != nil {
+		t.Fatalf("tableColumnExists() error = %v", err)
+	}
+	if !exists {
+		t.Fatal("migrateV8() did not add pr_mappings.am_owned")
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit migrated db: %v", err)
 	}
 }
 
@@ -796,7 +828,7 @@ func TestUpsertDaemonHeartbeatInsertsAndUpdatesLaneProcessRow(t *testing.T) {
 
 	firstSuccess := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
 	activeStartedAt := firstSuccess.Add(-time.Minute)
-	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "work", WorkflowPath: "/repo/symphony.yaml", CycleNumber: 1, LastSuccessAt: firstSuccess, ActiveTaskKey: "continuous:work", ActiveTaskRole: "implementation", ActiveLeaseName: "lane:work", ActiveTaskStartedAt: activeStartedAt, UpdatedAt: firstSuccess}); err != nil {
+	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "work", WorkflowPath: "/repo/am.yaml", CycleNumber: 1, LastSuccessAt: firstSuccess, ActiveTaskKey: "continuous:work", ActiveTaskRole: "implementation", ActiveLeaseName: "lane:work", ActiveTaskStartedAt: activeStartedAt, UpdatedAt: firstSuccess}); err != nil {
 		t.Fatalf("UpsertDaemonHeartbeat() insert error = %v", err)
 	}
 	heartbeats, err := s.SnapshotHeartbeats(ctx)
@@ -807,7 +839,7 @@ func TestUpsertDaemonHeartbeatInsertsAndUpdatesLaneProcessRow(t *testing.T) {
 		t.Fatalf("active heartbeat fields = %+v", heartbeats)
 	}
 	failedAt := firstSuccess.Add(time.Minute)
-	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "work", WorkflowPath: "/repo/symphony.yaml", CycleNumber: 2, LastError: "boom", RecoveryRequired: true, UpdatedAt: failedAt}); err != nil {
+	if err := s.UpsertDaemonHeartbeat(ctx, DaemonHeartbeat{ProcessID: "host:123", LaneName: "work", WorkflowPath: "/repo/am.yaml", CycleNumber: 2, LastError: "boom", RecoveryRequired: true, UpdatedAt: failedAt}); err != nil {
 		t.Fatalf("UpsertDaemonHeartbeat() update error = %v", err)
 	}
 	heartbeats, err = s.SnapshotHeartbeats(ctx)
@@ -876,7 +908,7 @@ func TestLeaseLifecycleUpsertRenewRelease(t *testing.T) {
 	defer s.Close()
 
 	acquired := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
-	if err := s.UpsertLease(ctx, Lease{Name: "run:CAG-64", Scope: "/repo/.symphony/workspaces", Owner: "agent", AcquiredAt: acquired, RenewedAt: acquired, ExpiresAt: acquired.Add(time.Hour)}); err != nil {
+	if err := s.UpsertLease(ctx, Lease{Name: "run:CAG-64", Scope: "/repo/.am/workspaces", Owner: "agent", AcquiredAt: acquired, RenewedAt: acquired, ExpiresAt: acquired.Add(time.Hour)}); err != nil {
 		t.Fatalf("UpsertLease() error = %v", err)
 	}
 	renewed := acquired.Add(10 * time.Minute)
@@ -908,14 +940,14 @@ func TestUpsertCleanupStateRequiresExistingAttemptAndUpdates(t *testing.T) {
 		t.Fatal("UpsertCleanupState() succeeded without mirrored attempt; want error")
 	}
 	now := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
-	if err := s.UpsertRunArtifact(ctx, RunArtifactSnapshot{IssueKey: "CAG-65", Attempt: 1, BranchName: "symphony/CAG-65-workspace", BaseBranch: "main", Status: "success", StartedAt: now, UpdatedAt: now}); err != nil {
+	if err := s.UpsertRunArtifact(ctx, RunArtifactSnapshot{IssueKey: "CAG-65", Attempt: 1, BranchName: "am/CAG-65-workspace", BaseBranch: "main", Status: "success", StartedAt: now, UpdatedAt: now}); err != nil {
 		t.Fatalf("UpsertRunArtifact() error = %v", err)
 	}
-	if err := s.UpsertCleanupState(ctx, CleanupState{IssueKey: "CAG-65", Attempt: 1, WorkspaceExists: true, Eligible: true, Decision: "completed", DeletionResult: "dry_run", ArtifactRef: "/repo/.pi-symphony-run.json", UpdatedAt: now}); err != nil {
+	if err := s.UpsertCleanupState(ctx, CleanupState{IssueKey: "CAG-65", Attempt: 1, WorkspaceExists: true, Eligible: true, Decision: "completed", DeletionResult: "dry_run", ArtifactRef: "/repo/.am-run.json", UpdatedAt: now}); err != nil {
 		t.Fatalf("UpsertCleanupState() insert error = %v", err)
 	}
 	updated := now.Add(time.Minute)
-	if err := s.UpsertCleanupState(ctx, CleanupState{IssueKey: "CAG-65", Attempt: 1, WorkspaceExists: false, Eligible: true, Decision: "completed", DeletionResult: "deleted", ArtifactRef: "/repo/.pi-symphony-run.json", UpdatedAt: updated}); err != nil {
+	if err := s.UpsertCleanupState(ctx, CleanupState{IssueKey: "CAG-65", Attempt: 1, WorkspaceExists: false, Eligible: true, Decision: "completed", DeletionResult: "deleted", ArtifactRef: "/repo/.am-run.json", UpdatedAt: updated}); err != nil {
 		t.Fatalf("UpsertCleanupState() update error = %v", err)
 	}
 
@@ -924,7 +956,7 @@ func TestUpsertCleanupStateRequiresExistingAttemptAndUpdates(t *testing.T) {
 	if err := s.db.QueryRowContext(ctx, `SELECT workspace_exists, eligible, decision, deletion_result, artifact_ref, updated_at FROM cleanup_states`).Scan(&workspaceExists, &eligible, &decision, &deletionResult, &artifactRef, &updatedAt); err != nil {
 		t.Fatal(err)
 	}
-	if workspaceExists != 0 || eligible != 1 || decision != "completed" || deletionResult != "deleted" || artifactRef != "/repo/.pi-symphony-run.json" || updatedAt != updated.Format(time.RFC3339Nano) {
+	if workspaceExists != 0 || eligible != 1 || decision != "completed" || deletionResult != "deleted" || artifactRef != "/repo/.am-run.json" || updatedAt != updated.Format(time.RFC3339Nano) {
 		t.Fatalf("cleanup state = exists=%d eligible=%d decision=%q result=%q artifact=%q updated=%q", workspaceExists, eligible, decision, deletionResult, artifactRef, updatedAt)
 	}
 }
@@ -946,10 +978,10 @@ func TestHealthReportsWALAndBusyTimeout(t *testing.T) {
 	}
 }
 
-func TestDefaultDBPathUsesSymphonyStateSibling(t *testing.T) {
+func TestDefaultDBPathUsesAgentMachineStateSibling(t *testing.T) {
 	root := t.TempDir()
-	workspaceRoot := filepath.Join(root, ".symphony", "workspaces")
-	want := filepath.Join(root, ".symphony", "state", "pi-symphony.db")
+	workspaceRoot := filepath.Join(root, ".am", "workspaces")
+	want := filepath.Join(root, ".am", "state", "am.db")
 	if got := DefaultDBPath(workspaceRoot); got != want {
 		t.Fatalf("DefaultDBPath() = %q, want %q", got, want)
 	}
@@ -994,8 +1026,8 @@ func TestUpsertAttemptResultPersistsDecisionWithoutArtifactRefs(t *testing.T) {
 		IssueKey:             "CAG-190",
 		IssueID:              "issue-190",
 		Attempt:              1,
-		WorkspacePath:        "/repo/.symphony/workspaces/CAG-190",
-		BranchName:           "symphony/CAG-190-workspace",
+		WorkspacePath:        "/repo/.am/workspaces/CAG-190",
+		BranchName:           "am/CAG-190-workspace",
 		BaseBranch:           "main",
 		Status:               "review_not_ready",
 		StartedAt:            now.Add(-time.Minute),

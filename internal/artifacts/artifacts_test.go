@@ -82,7 +82,7 @@ func TestManagerReadBackfillRejectsUnsupportedSchemaVersion(t *testing.T) {
 	if err := os.WriteFile(RunRecordPath(workspace), []byte(`{"schema_version":99,"issue_identifier":"CAG-75","status":"success"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := testManager().ReadBackfill(workspace, filepath.Dir(workspace)); err == nil || err.Error() != "unsupported .pi-symphony-run.json schema_version 99" {
+	if _, _, _, err := testManager().ReadBackfill(workspace, filepath.Dir(workspace)); err == nil || err.Error() != "unsupported .am-run.json schema_version 99" {
 		t.Fatalf("expected unsupported schema version error, got %v", err)
 	}
 }
@@ -104,7 +104,7 @@ func TestRunArtifactSnapshotMapsArtifactFields(t *testing.T) {
 	record := domain.RunRecord{IssueIdentifier: "CAG-75", IssueID: "issue-id", Workspace: workspace, Status: "success", StartedAt: started, EndedAt: ended, PRURL: "https://github.com/acme/repo/pull/75", ReviewStatus: "passed", FeedbackHash: "feedback", BudgetExceeded: "ok"}
 	evaluation := EvaluationArtifact{Outcome: "handoff_ready", MergeEligible: true, NextAction: "await_approval", FeedbackRetryCount: 2, RootCause: "root"}
 
-	snapshot := RunArtifactSnapshot(workspace, record, evaluation, SnapshotOptions{BranchName: "symphony/CAG-75-workspace", BaseBranch: "main", Repository: "acme/repo", PRNumber: 75, ReviewOutputHash: "review", TerminalStatus: true})
+	snapshot := RunArtifactSnapshot(workspace, record, evaluation, SnapshotOptions{BranchName: "am/CAG-75-workspace", BaseBranch: "main", Repository: "acme/repo", PRNumber: 75, ReviewOutputHash: "review", TerminalStatus: true})
 
 	if snapshot.IssueKey != "CAG-75" || snapshot.Repository != "acme/repo" || snapshot.PRNumber != 75 || !snapshot.MergeEligible {
 		t.Fatalf("unexpected snapshot identity: %#v", snapshot)
@@ -122,7 +122,7 @@ func TestRunArtifactSnapshotMapsArtifactFields(t *testing.T) {
 
 func TestManagerReadBackfillMissingAndMalformedArtifacts(t *testing.T) {
 	workspace := t.TempDir()
-	if _, _, _, err := testManager().ReadBackfill(workspace, filepath.Dir(workspace)); err == nil || err.Error() != "missing .pi-symphony-run.json" {
+	if _, _, _, err := testManager().ReadBackfill(workspace, filepath.Dir(workspace)); err == nil || err.Error() != "missing .am-run.json" {
 		t.Fatalf("expected missing run record error, got %v", err)
 	}
 	if err := os.WriteFile(RunRecordPath(workspace), []byte(`{"issue_identifier":"CAG-75","status":"success"}`), 0o600); err != nil {

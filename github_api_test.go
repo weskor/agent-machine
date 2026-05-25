@@ -21,6 +21,7 @@ type fakeGitHubAPI struct {
 	createdComments     map[int]string
 	mergedPRs           map[int]bool
 	deletedBranches     map[string]bool
+	updatedPRs          map[int]bool
 	mergeErr            error
 	deleteErr           error
 }
@@ -93,11 +94,21 @@ func (f fakeGitHubAPI) PullRequestHandoffDetails(_ context.Context, prURL string
 }
 
 func (f fakeGitHubAPI) CreatePullRequest(_ context.Context, title, body, head, base string) (prHandoffDetails, error) {
-	return prHandoffDetails{Number: 900, URL: "https://github.com/weskor/agent-machine/pull/900", BaseRefName: base, HeadRefName: head}, nil
+	return prHandoffDetails{Number: 900, URL: "https://github.com/weskor/agent-machine/pull/900", BaseRefName: base, HeadRefName: head, Author: prAuthor{Login: "app/agent-machine-bot"}}, nil
 }
 
 func (f fakeGitHubAPI) UpdatePullRequest(_ context.Context, number int, title, body, base string) (prHandoffDetails, error) {
-	return prHandoffDetails{Number: number, URL: fmt.Sprintf("https://github.com/weskor/agent-machine/pull/%d", number), BaseRefName: base}, nil
+	if f.updatedPRs != nil {
+		f.updatedPRs[number] = true
+	}
+	url := fmt.Sprintf("https://github.com/weskor/agent-machine/pull/%d", number)
+	if f.handoffDetailsByURL != nil {
+		if details, ok := f.handoffDetailsByURL[url]; ok {
+			details.BaseRefName = base
+			return details, nil
+		}
+	}
+	return prHandoffDetails{Number: number, URL: url, BaseRefName: base, Author: prAuthor{Login: "app/agent-machine-bot"}}, nil
 }
 
 func TestGitHubClientWithTimeoutDefaultsNonPositiveTimeout(t *testing.T) {

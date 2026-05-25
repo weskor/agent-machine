@@ -42,7 +42,7 @@ func TestRunHandoffPendingAttemptConsumesPRHandoffPayloadAndQueuesReview(t *test
 		GitHubAuth:       "github_app_installation",
 		StateStore:       store,
 	}
-	if err := writePRHandoffPendingState(runnerConfig{WorkspaceRoot: root, PiCommand: "pi run"}, input); err != nil {
+	if err := writePRHandoffPendingState(runnerConfig{WorkspaceRoot: root, PiCommand: "pi run", GitHubAppSlug: "agent-machine-bot"}, input); err != nil {
 		t.Fatal(err)
 	}
 	githubAppEnvFromEnvironmentForHandoffWorker = func() (map[string]string, string, error) {
@@ -51,7 +51,7 @@ func TestRunHandoffPendingAttemptConsumesPRHandoffPayloadAndQueuesReview(t *test
 	t.Cleanup(func() { githubAppEnvFromEnvironmentForHandoffWorker = githubAppEnvFromEnvironment })
 	withFakeGitHubAPI(t, fakeGitHubAPI{})
 
-	didWork, err := runHandoffPendingAttempt(linearClient{}, runnerConfig{WorkspaceRoot: root, PiCommand: "pi run", ReviewCommand: "pi review", BaseBranch: "main"}, store)
+	didWork, err := runHandoffPendingAttempt(linearClient{}, runnerConfig{WorkspaceRoot: root, PiCommand: "pi run", ReviewCommand: "pi review", BaseBranch: "main", GitHubAppSlug: "agent-machine-bot"}, store)
 	if err != nil {
 		t.Fatalf("runHandoffPendingAttempt() error = %v", err)
 	}

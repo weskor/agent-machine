@@ -181,6 +181,38 @@ func TestLockManagerDoesNotReclaimLiveOwnerSQLiteLease(t *testing.T) {
 	}
 }
 
+func TestLockManagerSQLiteHeartbeatDoesNotFallbackToWorkspaceBasename(t *testing.T) {
+	ctx := context.Background()
+	store, err := state.Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	workspace := filepath.Join(t.TempDir(), "custom-worktree")
+	_, release, err := (LockManager{StateStore: store}).Acquire(workspace, &domain.Issue{Identifier: "CAG-113", ID: "issue-id"}, "am/CAG-113-workspace", now)
+	if err != nil {
+		t.Fatalf("Acquire() error = %v", err)
+	}
+	defer release()
+	if err := os.Remove(Path(workspace)); err != nil {
+		t.Fatal(err)
+	}
+
+	(LockManager{StateStore: store}).HeartbeatContext(ctx, workspace, now.Add(time.Minute))
+
+	if _, ok, err := store.Lease(ctx, "run:custom-worktree"); err != nil || ok {
+		t.Fatalf("fallback workspace lease ok=%t err=%v, want no lease", ok, err)
+	}
+	lease, ok, err := store.Lease(ctx, "run:CAG-113")
+	if err != nil || !ok {
+		t.Fatalf("original lease ok=%t err=%v", ok, err)
+	}
+	if !lease.RenewedAt.Equal(now) {
+		t.Fatalf("original lease renewed_at = %s, want unchanged %s", lease.RenewedAt, now)
+	}
+}
+
 func writeLockFixture(t *testing.T, workspace string, lock domain.RunLock) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(Path(workspace)), 0o755); err != nil {

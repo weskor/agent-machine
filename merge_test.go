@@ -260,7 +260,7 @@ func TestMergeGateBlockReason(t *testing.T) {
 func TestMergeApprovedPRsMovesConflictingPRBackToReady(t *testing.T) {
 	root := t.TempDir()
 	merged := map[int]bool{}
-	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 414, URL: "https://github.com/weskor/agent-machine/pull/414", HeadRefName: "am/CAG-23-workspace-cleanup", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: merged})
+	withFakeGitHubAPI(t, fakeGitHubAPI{prs: []pullRequestSummary{{Number: 414, URL: "https://github.com/weskor/agent-machine/pull/414", BaseRefName: "develop", HeadRefName: "am/CAG-23-workspace", Author: prAuthor{Login: "app/agent-machine-bot"}, Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY", ReviewDecision: "APPROVED", StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"}}}}, mergedPRs: merged})
 
 	var updatedStates []string
 	var comments []string
@@ -618,6 +618,41 @@ func TestMergeWorkerRoutesChangesRequestedBackToReady(t *testing.T) {
 	}
 	if !strings.Contains(string(feedback), "# PR #106 review feedback") {
 		t.Fatalf("feedback missing review header: %s", string(feedback))
+	}
+}
+
+func TestMergeWorkerBlocksUnownedConflictingPRBeforeExternalSideEffects(t *testing.T) {
+	root := t.TempDir()
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	var updatedStates []string
+	var comments []string
+	config := testRunnerConfig(root)
+	config.HandoffState = "Human Review"
+	config.ReadyState = "Ready for Agent"
+	client := mergeTestLinearClient(t, "CAG-106", &updatedStates, &comments)
+	pr := pullRequestSummary{
+		Number:           106,
+		URL:              "https://github.com/weskor/agent-machine/pull/106",
+		BaseRefName:      "develop",
+		HeadRefName:      "am/CAG-106-workspace",
+		Author:           prAuthor{Login: "human"},
+		Mergeable:        "CONFLICTING",
+		MergeStateStatus: "DIRTY",
+		ReviewDecision:   "APPROVED",
+	}
+
+	if err := (mergeWorker{client: client, config: config, store: store, github: fakeGitHubAPI{}}).HandlePullRequest(context.Background(), pr); err != nil {
+		t.Fatal(err)
+	}
+	if len(updatedStates) != 0 || len(comments) != 0 {
+		t.Fatalf("unowned PR should not mutate Linear, states=%#v comments=%#v", updatedStates, comments)
+	}
+	if _, err := os.Stat(filepath.Join(root, "CAG-106", ".am-feedback.md")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unowned PR should not write feedback, stat err=%v", err)
 	}
 }
 

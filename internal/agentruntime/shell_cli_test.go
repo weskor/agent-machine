@@ -2,6 +2,9 @@ package agentruntime
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,7 +15,7 @@ func TestShellCLIAdapterRunAttemptUsesConfiguredCommandBuilder(t *testing.T) {
 	runtime := ShellCLIAdapter{
 		Provider:       "test_cli",
 		MissingCommand: "missing test command",
-		RunCommand: func(command, workdir string, env map[string]string, timeout time.Duration, phase string) (string, error) {
+		RunCommand: func(ctx context.Context, command, workdir string, env map[string]string, timeout time.Duration, phase string) (string, error) {
 			gotCommand = command
 			if phase != "implementation" || workdir != "/tmp/work" || env["TOKEN"] != "x" || timeout != time.Second {
 				t.Fatalf("runtime inputs were not forwarded")
@@ -42,7 +45,7 @@ AM_OUTCOME: {"runtime_outcome":"needs_info","needs_info_questions":["Which tenan
 	runtime := ShellCLIAdapter{
 		Provider:       "test_cli",
 		MissingCommand: "missing test command",
-		RunCommand: func(string, string, map[string]string, time.Duration, string) (string, error) {
+		RunCommand: func(context.Context, string, string, map[string]string, time.Duration, string) (string, error) {
 			return output, nil
 		},
 		FirstPRURL: func(string) string { return "https://github.com/acme/repo/pull/legacy" },
@@ -70,7 +73,7 @@ func TestShellCLIAdapterRunAttemptRejectsMalformedStructuredOutcomeEnvelope(t *t
 	runtime := ShellCLIAdapter{
 		Provider:       "test_cli",
 		MissingCommand: "missing test command",
-		RunCommand: func(string, string, map[string]string, time.Duration, string) (string, error) {
+		RunCommand: func(context.Context, string, string, map[string]string, time.Duration, string) (string, error) {
 			return `AM_OUTCOME: {"runtime_outcome":`, nil
 		},
 	}
@@ -84,13 +87,39 @@ func TestShellCLIAdapterRunAttemptRejectsMalformedStructuredOutcomeEnvelope(t *t
 	}
 }
 
+func TestShellCLIAdapterRunAttemptHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	invoked := false
+	runtime := ShellCLIAdapter{
+		Provider: "test_cli",
+		RunCommand: func(context.Context, string, string, map[string]string, time.Duration, string) (string, error) {
+			invoked = true
+			return "", nil
+		},
+	}
+
+	result, err := runtime.RunAttempt(ctx, "CAG-1", RunAttemptInput{Command: "test-agent"}, NoopSink{})
+
+	if invoked {
+		t.Fatal("RunCommand was invoked for an already-canceled context")
+	}
+	var runtimeErr RuntimeError
+	if !errors.As(err, &runtimeErr) || runtimeErr.Kind != RuntimeErrorKindCanceled {
+		t.Fatalf("RunAttempt error = %v, want canceled RuntimeError", err)
+	}
+	if result.ErrorKind != RuntimeErrorKindCanceled || result.Envelope.ErrorKind != RuntimeErrorKindCanceled {
+		t.Fatalf("result = %+v; want canceled error kind", result)
+	}
+}
+
 func TestShellCLIAdapterReviewAttemptCanTransformFindings(t *testing.T) {
 	workspace := t.TempDir()
 	runtime := ShellCLIAdapter{
 		Provider:       "test_cli",
 		MissingCommand: "missing test command",
-		RunCommand: func(command, workdir string, env map[string]string, timeout time.Duration, phase string) (string, error) {
-			if phase != "review" || !strings.Contains(command, ".am-review-prompt.md") {
+		RunCommand: func(ctx context.Context, command, workdir string, env map[string]string, timeout time.Duration, phase string) (string, error) {
+			if phase != "review" || !strings.Contains(command, ".am-review-prompt-") {
 				t.Fatalf("unexpected review command phase=%q command=%q", phase, command)
 			}
 			return "json wrapper\nREVIEW_PASS", nil
@@ -112,5 +141,45 @@ func TestShellCLIAdapterReviewAttemptCanTransformFindings(t *testing.T) {
 	}
 	if result.Status != "passed" || result.Findings != "REVIEW_PASS" {
 		t.Fatalf("unexpected review result: %+v", result)
+	}
+}
+
+func TestShellCLIAdapterReviewAttemptUsesTemporaryPromptWithoutOverwriting(t *testing.T) {
+	workspace := t.TempDir()
+	fixedPath := filepath.Join(workspace, ".am-review-prompt.md")
+	if err := os.WriteFile(fixedPath, []byte("keep me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var promptPath string
+	runtime := ShellCLIAdapter{
+		Provider: "test_cli",
+		RunCommand: func(ctx context.Context, command, workdir string, env map[string]string, timeout time.Duration, phase string) (string, error) {
+			if promptPath == "" {
+				t.Fatal("BuildCommand did not receive a prompt path")
+			}
+			data, err := os.ReadFile(promptPath)
+			if err != nil {
+				t.Fatalf("temporary prompt was not readable during review: %v", err)
+			}
+			if string(data) != "review this" {
+				t.Fatalf("temporary prompt = %q", data)
+			}
+			return "REVIEW_PASS", nil
+		},
+		BuildCommand: func(command, path string) string {
+			promptPath = path
+			return command + " @" + path
+		},
+		ReviewStatus: func(output string) string { return "passed" },
+	}
+
+	if _, err := runtime.ReviewAttempt(context.Background(), "CAG-1", ReviewAttemptInput{Command: "test-agent", WorkingDir: workspace, Prompt: "review this"}, NoopSink{}); err != nil {
+		t.Fatalf("ReviewAttempt returned error: %v", err)
+	}
+	if data, err := os.ReadFile(fixedPath); err != nil || string(data) != "keep me" {
+		t.Fatalf("fixed prompt file changed: data=%q err=%v", data, err)
+	}
+	if _, err := os.Stat(promptPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("temporary prompt still exists: %v", err)
 	}
 }

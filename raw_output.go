@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,8 +14,8 @@ import (
 
 const defaultRawAgentOutputLimitBytes = 1024 * 1024
 
-func captureAgentOutput(command, workspace string, env map[string]string, timeout time.Duration, phase string) (string, error) {
-	output, err := sh.CaptureEnvWithOutputTimeout(command, workspace, env, false, timeout)
+func captureAgentOutput(ctx context.Context, command, workspace string, env map[string]string, timeout time.Duration, phase string) (string, error) {
+	output, err := sh.CaptureEnvWithOutputContextTimeout(ctx, command, workspace, env, false, timeout)
 	maybeWriteRawAgentOutput(workspace, phase, output)
 	return output, err
 }

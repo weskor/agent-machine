@@ -31,7 +31,7 @@ func TestCodexCLIAdapterPreflightReportsProviderAndMissingCommand(t *testing.T) 
 func TestCodexCLIAdapterRunAttemptUsesStdinCommandShapeAndParsesOutput(t *testing.T) {
 	var gotCommand, gotPhase string
 	runtime := CodexCLIAdapter{
-		RunCommand: func(command, workdir string, env map[string]string, timeout time.Duration, phase string) (string, error) {
+		RunCommand: func(ctx context.Context, command, workdir string, env map[string]string, timeout time.Duration, phase string) (string, error) {
 			gotCommand = command
 			gotPhase = phase
 			if workdir != "/tmp/work" || env["TOKEN"] != "x" || timeout != time.Second {
@@ -59,7 +59,7 @@ func TestCodexCLIAdapterRunAttemptUsesStdinCommandShapeAndParsesOutput(t *testin
 }
 
 func TestCodexCLIAdapterRunAttemptMapsTimeout(t *testing.T) {
-	runtime := CodexCLIAdapter{RunCommand: func(string, string, map[string]string, time.Duration, string) (string, error) {
+	runtime := CodexCLIAdapter{RunCommand: func(context.Context, string, string, map[string]string, time.Duration, string) (string, error) {
 		return "partial", sh.ErrCommandTimeout
 	}}
 
@@ -78,8 +78,8 @@ func TestCodexCLIAdapterRunAttemptMapsTimeout(t *testing.T) {
 func TestCodexCLIAdapterReviewAttemptWritesPromptAndClassifiesFindings(t *testing.T) {
 	workspace := t.TempDir()
 	runtime := CodexCLIAdapter{
-		RunCommand: func(command, workdir string, env map[string]string, timeout time.Duration, phase string) (string, error) {
-			if phase != "review" || !strings.Contains(command, ".am-review-prompt.md") || !strings.Contains(command, " - < ") {
+		RunCommand: func(ctx context.Context, command, workdir string, env map[string]string, timeout time.Duration, phase string) (string, error) {
+			if phase != "review" || !strings.Contains(command, ".am-review-prompt-") || !strings.Contains(command, " - < ") {
 				t.Fatalf("unexpected review command phase=%q command=%q", phase, command)
 			}
 			return "REVIEW_FAIL\nREVIEW_CLASSIFICATION: missing_evidence_only\nAdd evidence.", nil

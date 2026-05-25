@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -526,7 +527,7 @@ func issueIdentifiers(issues []livesmoke.IssueRef) string {
 }
 
 func yamlScalar(value string) string {
-	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+	return strconv.Quote(value)
 }
 
 func shellQuote(value string) string {

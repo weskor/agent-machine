@@ -6,12 +6,12 @@ GORELEASER ?= go run github.com/goreleaser/goreleaser/v2@v2.16.0
 .PHONY: fmt fmt-check vet lint test ci release-check release-snapshot
 
 fmt:
-	gofmt -w $$(find . -name '*.go' -not -path './.git/*' -not -path './.am/*')
-	$(GOIMPORTS) -w $$(find . -name '*.go' -not -path './.git/*' -not -path './.am/*')
+	find . -name '*.go' -not -path './.git/*' -not -path './.am/*' -not -path './.clawpatch/*' -print0 | xargs -0 gofmt -w --
+	find . -name '*.go' -not -path './.git/*' -not -path './.am/*' -not -path './.clawpatch/*' -print0 | xargs -0 $(GOIMPORTS) -w --
 
 fmt-check:
-	@test -z "$$(gofmt -l $$(find . -name '*.go' -not -path './.git/*' -not -path './.am/*'))"
-	@test -z "$$($(GOIMPORTS) -l $$(find . -name '*.go' -not -path './.git/*' -not -path './.am/*'))"
+	@test -z "$$(find . -name '*.go' -not -path './.git/*' -not -path './.am/*' -not -path './.clawpatch/*' -print0 | xargs -0 gofmt -l --)"
+	@test -z "$$(find . -name '*.go' -not -path './.git/*' -not -path './.am/*' -not -path './.clawpatch/*' -print0 | xargs -0 $(GOIMPORTS) -l --)"
 
 vet:
 	go vet $(GO_PACKAGES)

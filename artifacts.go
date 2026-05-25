@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	artifactio "github.com/weskor/pi-symphony/internal/artifacts"
+	artifactio "github.com/weskor/agent-machine/internal/artifacts"
 )
 
 var prStateForURL = githubPRStateForURL

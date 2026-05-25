@@ -1,11 +1,11 @@
-# Pi Symphony
+# Agent Machine
 
-Pi Symphony is a local-first runner for moving well-scoped Linear issues through
+Agent Machine is a local-first runner for moving well-scoped Linear issues through
 an isolated workspace, an Agent implementation pass, optional review, and a
 GitHub PR handoff.
 
 The project is preparing for a v0.1 open-source release and currently dogfoods
-itself. The design goal is conservative automation: Pi Symphony should make
+itself. The design goal is conservative automation: Agent Machine should make
 small, reviewable PRs, record useful evidence, and fail closed when ownership,
 state, credentials, or scope are unclear.
 
@@ -31,7 +31,7 @@ integrations, CLI, release packaging, and dogfood configuration. Consumer repos
 should keep only their `symphony.yaml`, `symphony.agent.md`, and ignored
 `.symphony/` runtime state.
 
-Pi Symphony is released under the MIT License.
+Agent Machine is released under the MIT License.
 
 See `docs/release/v0.1-readiness.md` for the current release checklist.
 
@@ -44,15 +44,15 @@ mise install
 mise exec go -- go run . --version
 ```
 
-After the first tagged release, GitHub Releases will publish macOS and Linux
-archives for `amd64` and `arm64`. Download the archive for your platform, verify
-it against `checksums.txt`, and put the `pi-symphony` binary on `PATH`.
+Tagged releases publish macOS and Linux archives for `amd64` and `arm64`.
+Download the archive for your platform, verify it against `checksums.txt`, and
+put the `am` binary on `PATH`.
 
 When the Homebrew tap is configured:
 
 ```bash
-brew install --cask weskor/tap/pi-symphony
-pi-symphony --version
+brew install --cask weskor/tap/agent-machine
+am --version
 ```
 
 The Homebrew cask is a convenience install path for macOS. Linux users should use
@@ -214,8 +214,9 @@ Controls:
 - `r`: refresh the local snapshot.
 - `q`: quit.
 
-The TUI shells out to the local runner by default. Set `PI_SYMPHONY_BIN` to use
-an already-built binary instead of `go run .`.
+The TUI shells out to the local runner by default. Set `AM_BIN` to use an
+already-built binary instead of `go run .`. `PI_SYMPHONY_BIN` remains accepted
+as a legacy fallback.
 
 ## Runtime Providers
 
@@ -244,7 +245,9 @@ runner claims an issue or mutates a workspace.
 
 ## Local State And Artifacts
 
-Pi Symphony stores runtime data under the configured workspace root:
+Agent Machine stores runtime data under the configured workspace root. Some
+state and artifact filenames retain the original `pi-symphony` name for
+backward compatibility:
 
 - `.symphony/workspaces/<issue>`: isolated git workspace for one issue.
 - `.symphony/state/pi-symphony.db`: SQLite orchestration state.
@@ -264,7 +267,7 @@ as the only authority for destructive or externally visible decisions.
 Start with the project docs before changing behavior or architecture:
 
 - `CONTEXT.md` and `LANGUAGE.md` for vocabulary.
-- `docs/vision/pi-symphony-v1.md` for the north star.
+- `docs/vision/agent-machine-v1.md` for the north star.
 - `docs/agents/development-loop.md` for the spec-first development loop.
 - `docs/agents/implementation.md` and `docs/agents/review.md` for agent-session
   expectations.
@@ -298,7 +301,7 @@ mise exec go -- go run . config print --config symphony.yaml
 
 ## Live Smoke Harness
 
-`cmd/pi-symphony-live-smoke` is an opt-in operator harness. It creates or reuses
+`cmd/agent-machine-live-smoke` is an opt-in operator harness. It creates or reuses
 disposable Linear issues, generates an isolated config and prompt file, and runs
 them with a deterministic fake Agent. It is not part of `make ci`.
 
@@ -311,7 +314,7 @@ Required gates:
 Create one disposable issue and run the fake-agent path:
 
 ```bash
-LIVE_LINEAR=1 mise exec go -- go run ./cmd/pi-symphony-live-smoke \
+LIVE_LINEAR=1 mise exec go -- go run ./cmd/agent-machine-live-smoke \
   --config symphony.yaml \
   --count 1
 ```
@@ -319,7 +322,7 @@ LIVE_LINEAR=1 mise exec go -- go run ./cmd/pi-symphony-live-smoke \
 Run a concurrency-oriented smoke without merge:
 
 ```bash
-LIVE_LINEAR=1 mise exec go -- go run ./cmd/pi-symphony-live-smoke \
+LIVE_LINEAR=1 mise exec go -- go run ./cmd/agent-machine-live-smoke \
   --config symphony.yaml \
   --count 2 \
   --concurrency 2
@@ -329,7 +332,7 @@ The harness writes a JSON report under `.symphony/live-smoke/`. Merge checks are
 disabled unless both controls are present:
 
 ```bash
-LIVE_LINEAR=1 LIVE_SMOKE_APPLY=1 mise exec go -- go run ./cmd/pi-symphony-live-smoke \
+LIVE_LINEAR=1 LIVE_SMOKE_APPLY=1 mise exec go -- go run ./cmd/agent-machine-live-smoke \
   --config symphony.yaml \
   --from-report .symphony/live-smoke/live-smoke-YYYYMMDDTHHMMSSZ.json \
   --apply-merge
@@ -340,7 +343,7 @@ original workspace root and artifact evidence.
 
 ## Dogfood Loop
 
-Use small, reviewable Linear tickets when evaluating Pi Symphony against itself
+Use small, reviewable Linear tickets when evaluating Agent Machine against itself
 or another target repository.
 
 1. Write tickets with `Goal`, `Scope`, `Requirements`, `Acceptance Criteria`,
@@ -361,7 +364,7 @@ branch.
 ## Release
 
 Tagged releases are built by `.github/workflows/release.yml` with GoReleaser.
-The workflow runs `make ci`, builds `pi-symphony` for macOS and Linux on `amd64`
+The workflow runs `make ci`, builds `am` for macOS and Linux on `amd64`
 and `arm64`, attaches archives and `checksums.txt` to the GitHub release, and
 publishes a Homebrew cask when `HOMEBREW_TAP_GITHUB_TOKEN` can write to
 `weskor/homebrew-tap`.
@@ -375,17 +378,17 @@ mise exec go -- make release-check
 mise exec go -- make release-snapshot
 ```
 
-Tag the first release only after the v0.1 checklist is complete:
+Tag a rename patch release after the checklist is complete:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 ## Repository Map
 
-- `cmd/pi-symphony-live-smoke/`: live smoke harness.
-- `cmd/pi-symphony-live-smoke-agent/`: deterministic fake smoke Agent.
+- `cmd/agent-machine-live-smoke/`: live smoke harness.
+- `cmd/agent-machine-live-smoke-agent/`: deterministic fake smoke Agent.
 - `internal/agentruntime/`: runtime provider adapters.
 - `internal/cli/`: command parsing, config loading, env loading.
 - `internal/config/`: `symphony.yaml` parsing and defaults.

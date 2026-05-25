@@ -1,6 +1,6 @@
 # Record agent harness behavior in docs
 
-Pi Symphony broad refactors were being reviewed against an implicit “behavior contract” that agents could not reliably discover. We will keep a single `CONTEXT.md`, architecture `LANGUAGE.md`, ADRs in `docs/adr/`, and observable behavior specs in `docs/specs/`; broad refactors must cite or update these files instead of inventing behavior-contract evidence only in PR prose.
+Agent Machine broad refactors were being reviewed against an implicit “behavior contract” that agents could not reliably discover. We will keep a single `CONTEXT.md`, architecture `LANGUAGE.md`, ADRs in `docs/adr/`, and observable behavior specs in `docs/specs/`; broad refactors must cite or update these files instead of inventing behavior-contract evidence only in PR prose.
 
 ## Consequences
 

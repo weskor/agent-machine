@@ -1,6 +1,6 @@
 # Durable Worker Orchestration Spec
 
-This spec describes the target architecture for splitting Pi Symphony execution
+This spec describes the target architecture for splitting Agent Machine execution
 into independently runnable workers while preserving one authoritative
 orchestration state machine.
 
@@ -16,7 +16,7 @@ explicitly update behavior.
   restartable worker responsibilities.
 - Allow future workers to run in separate OS processes without inventing
   separate state machines.
-- Keep SQLite as the local source of truth for Pi Symphony decisions while
+- Keep SQLite as the local source of truth for Agent Machine decisions while
   Linear and GitHub remain authoritative for their external domains.
 - Make each worker idempotent, lease-protected, and recoverable after crashes or
   daemon restarts.
@@ -33,7 +33,7 @@ explicitly update behavior.
 
 ## Architecture
 
-Pi Symphony should have one central orchestration model and multiple worker
+Agent Machine should have one central orchestration model and multiple worker
 roles. Workers are execution boundaries, not authorities.
 
 Each worker:

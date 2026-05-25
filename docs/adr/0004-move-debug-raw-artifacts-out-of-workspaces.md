@@ -6,9 +6,9 @@ Accepted
 
 ## Context
 
-Pi Symphony currently writes capped raw implementation/review output to
+Agent Machine currently writes capped raw implementation/review output to
 `.pi-symphony-debug/*-raw.log` inside each issue workspace when
-`PI_SYMPHONY_DEBUG_RAW_OUTPUT=1`.
+`AM_DEBUG_RAW_OUTPUT=1`.
 
 Because cleanup and merge safety checks still use `git status`-style workspace
 cleanliness, those files can keep a completed workspace "dirty" and block deletion.

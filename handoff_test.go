@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	sh "github.com/weskor/pi-symphony/internal/shell"
-	"github.com/weskor/pi-symphony/internal/state"
+	sh "github.com/weskor/agent-machine/internal/shell"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 func TestEnsureRunnerPRHandoffCreatesPRWhenAgentEmitsNoURL(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 	workspace := runnerHandoffGitWorkspace(t, "main")
 	candidate := testIssue("CAG-118", "In Progress")
 	if err := sh.Run("git switch -q -C "+sh.Quote(expectedWorkspaceBranch(candidate.Identifier))+" && echo change > handoff.go", workspace); err != nil {
@@ -27,13 +27,13 @@ func TestEnsureRunnerPRHandoffCreatesPRWhenAgentEmitsNoURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensureRunnerPRHandoff returned error: %v", err)
 	}
-	if prURL != "https://github.com/weskor/pi-symphony/pull/900" {
+	if prURL != "https://github.com/weskor/agent-machine/pull/900" {
 		t.Fatalf("unexpected PR URL %q", prURL)
 	}
 }
 
 func TestEnsureRunnerPRHandoffExecutesPersistedPayloadBoundary(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 	workspace := runnerHandoffGitWorkspace(t, "main")
 	candidate := testIssue("CAG-179", "In Progress")
 	branch := expectedWorkspaceBranch(candidate.Identifier)
@@ -42,7 +42,7 @@ func TestEnsureRunnerPRHandoffExecutesPersistedPayloadBoundary(t *testing.T) {
 	}
 	config := testRunnerConfig(filepath.Dir(workspace))
 	config.BaseBranch = "main"
-	rewrittenURL := "https://github.com/weskor/pi-symphony/pull/179"
+	rewrittenURL := "https://github.com/weskor/agent-machine/pull/179"
 	withFakeGitHubAPI(t, fakeGitHubAPI{
 		handoffDetailsByURL: map[string]prHandoffDetails{
 			rewrittenURL: {Number: 179, URL: rewrittenURL, BaseRefName: "main", HeadRefName: branch},
@@ -82,7 +82,7 @@ func TestPRHandoffPendingPayloadRoundTripsInput(t *testing.T) {
 	candidate.Description = "Implement handoff payload."
 	candidate.Team.ID = "team-180"
 	workspace := filepath.Join(root, candidate.Identifier)
-	input := prHandoffPendingPayloadFromInput(prHandoffInput{Candidate: &candidate, Workspace: workspace, AgentPRURL: "https://github.com/weskor/pi-symphony/pull/180"})
+	input := prHandoffPendingPayloadFromInput(prHandoffInput{Candidate: &candidate, Workspace: workspace, AgentPRURL: "https://github.com/weskor/agent-machine/pull/180"})
 	if err := writePRHandoffPendingPayload(root, input); err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestPRHandoffPendingPayloadRoundTripsInput(t *testing.T) {
 }
 
 func TestEnsureRunnerPRHandoffCreatesPRWhenAgentEmitsStaleMissingURL(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 	workspace := runnerHandoffGitWorkspace(t, "main")
 	candidate := testIssue("CAG-91", "In Progress")
 	if err := sh.Run("git switch -q -C "+sh.Quote(expectedWorkspaceBranch(candidate.Identifier))+" && echo change > handoff.go", workspace); err != nil {
@@ -106,23 +106,23 @@ func TestEnsureRunnerPRHandoffCreatesPRWhenAgentEmitsStaleMissingURL(t *testing.
 	config := testRunnerConfig(filepath.Dir(workspace))
 	config.BaseBranch = "main"
 	withFakeGitHubAPI(t, fakeGitHubAPI{
-		handoffErrorsByURL: map[string]error{"https://github.com/weskor/pi-symphony/pull/73": errors.New("GitHub API PR handoff lookup failed: 404 Not Found")},
+		handoffErrorsByURL: map[string]error{"https://github.com/weskor/agent-machine/pull/73": errors.New("GitHub API PR handoff lookup failed: 404 Not Found")},
 		prs: []pullRequestSummary{
-			{Number: 73, URL: "https://github.com/weskor/pi-symphony/pull/73", BaseRefName: "main", HeadRefName: "symphony/other-workspace"},
+			{Number: 73, URL: "https://github.com/weskor/agent-machine/pull/73", BaseRefName: "main", HeadRefName: "symphony/other-workspace"},
 		},
 	})
 
-	prURL, err := ensureRunnerPRHandoff(config, &candidate, workspace, "https://github.com/weskor/pi-symphony/pull/73", nil)
+	prURL, err := ensureRunnerPRHandoff(config, &candidate, workspace, "https://github.com/weskor/agent-machine/pull/73", nil)
 	if err != nil {
 		t.Fatalf("ensureRunnerPRHandoff returned error: %v", err)
 	}
-	if prURL != "https://github.com/weskor/pi-symphony/pull/900" {
+	if prURL != "https://github.com/weskor/agent-machine/pull/900" {
 		t.Fatalf("expected runner-created PR URL, got %q", prURL)
 	}
 }
 
 func TestEnsureRunnerPRHandoffRecordsDurableIntentResult(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 	workspace := runnerHandoffGitWorkspace(t, "main")
 	candidate := testIssue("CAG-185", "In Progress")
 	branch := expectedWorkspaceBranch(candidate.Identifier)
@@ -152,7 +152,7 @@ func TestEnsureRunnerPRHandoffRecordsDurableIntentResult(t *testing.T) {
 }
 
 func TestEnsureRunnerPRHandoffIgnoresWrongBranchAdvisoryPR(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 	workspace := runnerHandoffGitWorkspace(t, "main")
 	candidate := testIssue("CAG-129", "In Progress")
 	if err := sh.Run("git switch -q -C "+sh.Quote(expectedWorkspaceBranch(candidate.Identifier))+" && echo change > handoff.go", workspace); err != nil {
@@ -160,7 +160,7 @@ func TestEnsureRunnerPRHandoffIgnoresWrongBranchAdvisoryPR(t *testing.T) {
 	}
 	config := testRunnerConfig(filepath.Dir(workspace))
 	config.BaseBranch = "main"
-	staleURL := "https://github.com/weskor/pi-symphony/pull/25"
+	staleURL := "https://github.com/weskor/agent-machine/pull/25"
 	withFakeGitHubAPI(t, fakeGitHubAPI{
 		handoffDetailsByURL: map[string]prHandoffDetails{staleURL: {Number: 25, URL: staleURL, BaseRefName: "main", HeadRefName: "symphony/CAG-86-workspace"}},
 	})
@@ -169,13 +169,13 @@ func TestEnsureRunnerPRHandoffIgnoresWrongBranchAdvisoryPR(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensureRunnerPRHandoff returned error: %v", err)
 	}
-	if prURL != "https://github.com/weskor/pi-symphony/pull/900" {
+	if prURL != "https://github.com/weskor/agent-machine/pull/900" {
 		t.Fatalf("expected runner-created PR URL, got %q", prURL)
 	}
 }
 
 func TestEnsureRunnerPRHandoffUpdatesExistingRetryBranch(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 	workspace := runnerHandoffGitWorkspace(t, "main")
 	candidate := testIssue("CAG-130", "In Progress")
 	branch := expectedWorkspaceBranch(candidate.Identifier)
@@ -193,7 +193,7 @@ func TestEnsureRunnerPRHandoffUpdatesExistingRetryBranch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensureRunnerPRHandoff returned error: %v", err)
 	}
-	if prURL != "https://github.com/weskor/pi-symphony/pull/900" {
+	if prURL != "https://github.com/weskor/agent-machine/pull/900" {
 		t.Fatalf("expected runner-created PR URL, got %q", prURL)
 	}
 	remoteHead, err := sh.CaptureQuiet("git rev-parse origin/"+sh.Quote(branch), workspace)
@@ -210,7 +210,7 @@ func TestEnsureRunnerPRHandoffUpdatesExistingRetryBranch(t *testing.T) {
 }
 
 func TestEnsureRunnerPRHandoffFailsOnNoBranchChanges(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 	workspace := runnerHandoffGitWorkspace(t, "main")
 	candidate := testIssue("CAG-118", "In Progress")
 	if err := sh.Run("git switch -q -C "+sh.Quote(expectedWorkspaceBranch(candidate.Identifier)), workspace); err != nil {
@@ -245,7 +245,7 @@ func runnerHandoffGitWorkspace(t *testing.T, base string) string {
 }
 
 func TestValidatePRForHandoffFallsBackToOpenPRByExpectedBranch(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 
 	config := testRunnerConfig(t.TempDir())
 	config.BaseBranch = "develop"
@@ -254,18 +254,18 @@ func TestValidatePRForHandoffFallsBackToOpenPRByExpectedBranch(t *testing.T) {
 	branch := expectedWorkspaceBranch(candidate.Identifier)
 	openPR := pullRequestSummary{
 		Number:      73,
-		URL:         "https://github.com/weskor/pi-symphony/pull/73",
+		URL:         "https://github.com/weskor/agent-machine/pull/73",
 		BaseRefName: "develop",
 		HeadRefName: branch,
 	}
 
 	withFakeGitHubAPI(t, fakeGitHubAPI{
-		handoffErrorsByURL:  map[string]error{"https://github.com/weskor/pi-symphony/pull/999": errors.New("GitHub API PR handoff lookup failed: 404 Not Found")},
-		handoffDetailsByURL: map[string]prHandoffDetails{"https://github.com/weskor/pi-symphony/pull/73": {Number: 73, URL: "https://github.com/weskor/pi-symphony/pull/73", BaseRefName: "develop", HeadRefName: branch}},
+		handoffErrorsByURL:  map[string]error{"https://github.com/weskor/agent-machine/pull/999": errors.New("GitHub API PR handoff lookup failed: 404 Not Found")},
+		handoffDetailsByURL: map[string]prHandoffDetails{"https://github.com/weskor/agent-machine/pull/73": {Number: 73, URL: "https://github.com/weskor/agent-machine/pull/73", BaseRefName: "develop", HeadRefName: branch}},
 		prs:                 []pullRequestSummary{openPR},
 	})
 
-	resolved, reason, err := validatePRForHandoff(config, &candidate, "https://github.com/weskor/pi-symphony/pull/999")
+	resolved, reason, err := validatePRForHandoff(config, &candidate, "https://github.com/weskor/agent-machine/pull/999")
 	if err != nil {
 		t.Fatalf("expected fallback resolution, got %v", err)
 	}
@@ -278,7 +278,7 @@ func TestValidatePRForHandoffFallsBackToOpenPRByExpectedBranch(t *testing.T) {
 }
 
 func TestValidatePRForHandoffFallbackFailsWhenNoBranchMatch(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 
 	config := testRunnerConfig(t.TempDir())
 	config.BaseBranch = "develop"
@@ -287,11 +287,11 @@ func TestValidatePRForHandoffFallbackFailsWhenNoBranchMatch(t *testing.T) {
 	withFakeGitHubAPI(t, fakeGitHubAPI{
 		handoffErr: errors.New("GitHub API PR handoff lookup failed: 404 Not Found"),
 		prs: []pullRequestSummary{
-			{Number: 73, URL: "https://github.com/weskor/pi-symphony/pull/73", BaseRefName: "develop", HeadRefName: "symphony/CAG-96-workspace"},
+			{Number: 73, URL: "https://github.com/weskor/agent-machine/pull/73", BaseRefName: "develop", HeadRefName: "symphony/CAG-96-workspace"},
 		},
 	})
 
-	_, _, err := validatePRForHandoff(config, &candidate, "https://github.com/weskor/pi-symphony/pull/999")
+	_, _, err := validatePRForHandoff(config, &candidate, "https://github.com/weskor/agent-machine/pull/999")
 	if err == nil {
 		t.Fatal("expected error when no matching open PR exists")
 	}
@@ -301,7 +301,7 @@ func TestValidatePRForHandoffFallbackFailsWhenNoBranchMatch(t *testing.T) {
 }
 
 func TestValidatePRForHandoffFallbackFailsWhenBranchIsAmbiguous(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 
 	config := testRunnerConfig(t.TempDir())
 	config.BaseBranch = "develop"
@@ -309,18 +309,18 @@ func TestValidatePRForHandoffFallbackFailsWhenBranchIsAmbiguous(t *testing.T) {
 	branch := expectedWorkspaceBranch(candidate.Identifier)
 
 	withFakeGitHubAPI(t, fakeGitHubAPI{
-		handoffErrorsByURL: map[string]error{"https://github.com/weskor/pi-symphony/pull/999": errors.New("GitHub API PR handoff lookup failed: 404 Not Found")},
+		handoffErrorsByURL: map[string]error{"https://github.com/weskor/agent-machine/pull/999": errors.New("GitHub API PR handoff lookup failed: 404 Not Found")},
 		handoffDetailsByURL: map[string]prHandoffDetails{
-			"https://github.com/weskor/pi-symphony/pull/73": {Number: 73, URL: "https://github.com/weskor/pi-symphony/pull/73", BaseRefName: "develop", HeadRefName: branch},
-			"https://github.com/weskor/pi-symphony/pull/84": {Number: 84, URL: "https://github.com/weskor/pi-symphony/pull/84", BaseRefName: "develop", HeadRefName: branch},
+			"https://github.com/weskor/agent-machine/pull/73": {Number: 73, URL: "https://github.com/weskor/agent-machine/pull/73", BaseRefName: "develop", HeadRefName: branch},
+			"https://github.com/weskor/agent-machine/pull/84": {Number: 84, URL: "https://github.com/weskor/agent-machine/pull/84", BaseRefName: "develop", HeadRefName: branch},
 		},
 		prs: []pullRequestSummary{
-			{Number: 73, URL: "https://github.com/weskor/pi-symphony/pull/73", BaseRefName: "develop", HeadRefName: branch},
-			{Number: 84, URL: "https://github.com/weskor/pi-symphony/pull/84", BaseRefName: "develop", HeadRefName: branch},
+			{Number: 73, URL: "https://github.com/weskor/agent-machine/pull/73", BaseRefName: "develop", HeadRefName: branch},
+			{Number: 84, URL: "https://github.com/weskor/agent-machine/pull/84", BaseRefName: "develop", HeadRefName: branch},
 		},
 	})
 
-	_, _, err := validatePRForHandoff(config, &candidate, "https://github.com/weskor/pi-symphony/pull/999")
+	_, _, err := validatePRForHandoff(config, &candidate, "https://github.com/weskor/agent-machine/pull/999")
 	if err == nil {
 		t.Fatal("expected ambiguity error")
 	}
@@ -330,14 +330,14 @@ func TestValidatePRForHandoffFallbackFailsWhenBranchIsAmbiguous(t *testing.T) {
 }
 
 func TestValidatePRForHandoffDoesNotFallbackOnNon404LookupError(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 
 	config := testRunnerConfig(t.TempDir())
 	candidate := testIssue("CAG-95", "In Progress")
 
 	withFakeGitHubAPI(t, fakeGitHubAPI{handoffErr: errors.New("transient API failure")})
 
-	_, _, err := validatePRForHandoff(config, &candidate, "https://github.com/weskor/pi-symphony/pull/73")
+	_, _, err := validatePRForHandoff(config, &candidate, "https://github.com/weskor/agent-machine/pull/73")
 	if err == nil {
 		t.Fatal("expected error for non-recoverable lookup failure")
 	}

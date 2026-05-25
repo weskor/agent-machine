@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weskor/pi-symphony/internal/state"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 func TestStateProjectionRunArtifactMatchesMirroringContract(t *testing.T) {
@@ -19,7 +19,7 @@ func TestStateProjectionRunArtifactMatchesMirroringContract(t *testing.T) {
 		Workspace:            workspace,
 		Branch:               "symphony/CAG-67-workspace",
 		Status:               "success",
-		PRURL:                "https://github.com/weskor/pi-symphony/pull/67",
+		PRURL:                "https://github.com/weskor/agent-machine/pull/67",
 		ReviewStatus:         "passed",
 		ReviewClassification: "clean",
 		ReviewFindings:       "ship it",
@@ -31,7 +31,7 @@ func TestStateProjectionRunArtifactMatchesMirroringContract(t *testing.T) {
 
 	snapshot := stateProjection{}.RunArtifact(workspace, record, evaluation)
 
-	if snapshot.IssueKey != "CAG-67" || snapshot.Attempt != 1 || snapshot.Repository != "weskor/pi-symphony" || snapshot.PRNumber != 67 {
+	if snapshot.IssueKey != "CAG-67" || snapshot.Attempt != 1 || snapshot.Repository != "weskor/agent-machine" || snapshot.PRNumber != 67 {
 		t.Fatalf("unexpected run artifact identity projection: %+v", snapshot)
 	}
 	if !snapshot.ReviewPassed || !snapshot.MergeEligible || snapshot.TerminalOutcome != "handoff_ready" || snapshot.TerminalReason != "none" {
@@ -55,7 +55,7 @@ func TestRunArtifactProjectionPersistsFinishedEventWithAttemptState(t *testing.T
 	}
 	defer store.Close()
 	workspace := t.TempDir()
-	record := runRecord{IssueIdentifier: "CAG-87", IssueID: "issue-id", Workspace: workspace, Status: runAttemptStatusSuccess, PRURL: "https://github.com/weskor/pi-symphony/pull/87", ReviewStatus: "passed", EndedAt: time.Date(2026, 5, 20, 11, 0, 0, 0, time.UTC)}
+	record := runRecord{IssueIdentifier: "CAG-87", IssueID: "issue-id", Workspace: workspace, Status: runAttemptStatusSuccess, PRURL: "https://github.com/weskor/agent-machine/pull/87", ReviewStatus: "passed", EndedAt: time.Date(2026, 5, 20, 11, 0, 0, 0, time.UTC)}
 	evaluation := evaluationArtifact{Outcome: "handoff_ready", MergeEligible: true}
 	if err := store.UpsertRunArtifact(ctx, stateProjection{}.RunArtifact(workspace, record, evaluation)); err != nil {
 		t.Fatalf("UpsertRunArtifact() error = %v", err)

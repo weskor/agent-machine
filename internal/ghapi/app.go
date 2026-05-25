@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	sh "github.com/weskor/pi-symphony/internal/shell"
+	sh "github.com/weskor/agent-machine/internal/shell"
 )
 
 // AppEnvFromEnvironment mints a short-lived installation token for Pi/gh.

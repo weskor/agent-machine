@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	cfg "github.com/weskor/pi-symphony/internal/config"
-	"github.com/weskor/pi-symphony/internal/livesmoke"
+	cfg "github.com/weskor/agent-machine/internal/config"
+	"github.com/weskor/agent-machine/internal/livesmoke"
 )
 
 func TestParseOptionsUsesProvidedIssuesAsCount(t *testing.T) {
@@ -26,7 +26,7 @@ func TestWriteSmokeConfigUsesSafeGeneratedConfig(t *testing.T) {
 		Workspace: cfg.WorkspaceConfig{BaseBranch: "main"},
 		Hooks:     cfg.HooksConfig{TimeoutText: "120000"},
 		Agent:     cfg.AgentConfig{MaxRetryBackoffText: "300000"},
-		Pi:        cfg.PiConfig{AfterCreate: "git clone --branch main git@github.com:weskor/pi-symphony.git ."},
+		Pi:        cfg.PiConfig{AfterCreate: "git clone --branch main git@github.com:weskor/agent-machine.git ."},
 		GitHub:    cfg.GitHubConfig{AppSlug: "pi-symphony-bot"},
 		Workflow:  cfg.WorkflowConfig{HandoffState: "Human Review", RunningState: "In Progress", NeedsInfoState: "Needs Info", DoneState: "Done"},
 	}
@@ -41,12 +41,12 @@ func TestWriteSmokeConfigUsesSafeGeneratedConfig(t *testing.T) {
 	}
 	text := string(data)
 	for _, expected := range []string{
-		"repository:\n  remote: \"git@github.com:weskor/pi-symphony.git\"",
+		"repository:\n  remote: \"git@github.com:weskor/agent-machine.git\"",
 		"root: \"" + root + "\"",
 		"prompt_path: \"symphony.live-smoke.agent.md\"",
 		"max_concurrent_agents: 2",
-		"go run ./cmd/pi-symphony-live-smoke-agent --role implementation",
-		"go run ./cmd/pi-symphony-live-smoke-agent --role review",
+		"go run ./cmd/agent-machine-live-smoke-agent --role implementation",
+		"go run ./cmd/agent-machine-live-smoke-agent --role review",
 		"active_states:\n    - Ready for Agent",
 	} {
 		if !strings.Contains(text, expected) {
@@ -60,7 +60,7 @@ func TestWriteSmokeConfigUsesSafeGeneratedConfig(t *testing.T) {
 	if _, err := cfg.ParseConfig(proj.YAML); err != nil {
 		t.Fatalf("generated config was not parseable: %v", err)
 	}
-	if !strings.Contains(proj.Prompt, "Pi Symphony Live Smoke Prompt") {
+	if !strings.Contains(proj.Prompt, "Agent Machine Live Smoke Prompt") {
 		t.Fatalf("generated prompt was not loaded: %q", proj.Prompt)
 	}
 }

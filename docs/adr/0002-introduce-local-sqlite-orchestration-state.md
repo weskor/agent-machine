@@ -6,13 +6,13 @@ Accepted for future implementation planning. CAG-59 records the decision and beh
 
 ## Context
 
-Pi Symphony currently coordinates Linear, GitHub, workspaces, JSON artifacts, comments, and daemon lanes with state spread across external systems and local files. That file-oriented model is easy to inspect, but orchestration decisions become harder to recover after daemon restarts, deleted workspaces, stale artifacts, interrupted handoffs, or partial merge/review failures.
+Agent Machine currently coordinates Linear, GitHub, workspaces, JSON artifacts, comments, and daemon lanes with state spread across external systems and local files. That file-oriented model is easy to inspect, but orchestration decisions become harder to recover after daemon restarts, deleted workspaces, stale artifacts, interrupted handoffs, or partial merge/review failures.
 
 CAG-49 needs a durable local state contract before implementation can be split safely. The current observable runner behavior is documented in `docs/specs/harness-behavior.md`; the new SQLite contract is documented in `docs/specs/sqlite-orchestration-state.md`.
 
 ## Decision
 
-Introduce a local SQLite orchestration state store for future Pi Symphony runner implementations.
+Introduce a local SQLite orchestration state store for future Agent Machine runner implementations.
 
 SQLite will be the local source of truth for runner decisions such as attempts, issue/PR mapping, review classification, feedback processing, merge eligibility, cleanup, leases, heartbeat recovery, retry decisions, and terminal outcomes. Linear and GitHub remain external systems of record for their own resources. Workspace JSON/Markdown files remain audit and evidence exports and may seed migration/backfill, but they should not be the primary coordination mechanism after SQLite adoption.
 

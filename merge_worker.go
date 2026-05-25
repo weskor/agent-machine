@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	orchstate "github.com/weskor/pi-symphony/internal/state"
+	orchstate "github.com/weskor/agent-machine/internal/state"
 )
 
 type mergeWorker struct {

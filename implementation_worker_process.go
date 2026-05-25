@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weskor/pi-symphony/internal/agentruntime"
-	"github.com/weskor/pi-symphony/internal/state"
+	"github.com/weskor/agent-machine/internal/agentruntime"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 func runImplementationAttemptBatchContext(ctx context.Context, client linearClient, proj project, config runnerConfig, stateStore *state.Store, capacity int) (bool, error) {

@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	sh "github.com/weskor/pi-symphony/internal/shell"
+	sh "github.com/weskor/agent-machine/internal/shell"
 )
 
 type scopeGuardResult struct {

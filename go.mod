@@ -1,4 +1,4 @@
-module github.com/weskor/pi-symphony
+module github.com/weskor/agent-machine
 
 go 1.23.4
 

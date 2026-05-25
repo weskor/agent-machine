@@ -1,12 +1,12 @@
 # Agent development loop
 
-Use this loop for Pi Symphony changes, especially runner behavior, architecture, state, review policy, merge policy, and multi-agent work.
+Use this loop for Agent Machine changes, especially runner behavior, architecture, state, review policy, merge policy, and multi-agent work.
 
 ## 1. Start from the contract
 
 Read these before planning:
 
-- `docs/vision/pi-symphony-v1.md`
+- `docs/vision/agent-machine-v1.md`
 - `CONTEXT.md`
 - `LANGUAGE.md`
 - relevant files in `docs/specs/`

@@ -1,5 +1,5 @@
 repository:
-  remote: git@github.com:weskor/pi-symphony.git
+  remote: git@github.com:weskor/agent-machine.git
 tracker:
   kind: linear
   endpoint: https://api.linear.app/graphql
@@ -31,7 +31,7 @@ runtime:
   provider: codex_cli
 review:
   guidance: |
-    Keep changed files scoped to Pi Symphony runner code, tests, configuration examples, and runner documentation.
+    Keep changed files scoped to Agent Machine runner code, tests, configuration examples, and runner documentation.
     For runner behavior changes, verify behavior-contract evidence against docs/specs/ and docs/adr/.
 budgets:
   wall_clock: 2h

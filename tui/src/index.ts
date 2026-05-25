@@ -99,7 +99,7 @@ const sections: Array<{ id: SectionID; label: string }> = [
 
 const moduleRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const runnerRoot = resolveRunnerRoot()
-const appNodeID = "pi-symphony-tui"
+const appNodeID = "agent-machine-tui"
 const configuredPath = readFlag("--config")
 const configPath = configuredPath ? resolve(process.cwd(), configuredPath) : resolve(runnerRoot ?? process.cwd(), "symphony.yaml")
 const selectedBySection = new Map<SectionID, number>()
@@ -242,7 +242,7 @@ function header(snapshot?: SurfaceSnapshot, message = "") {
   const right = message && message !== "refreshing..." ? compact(message, 28) : formatTime(snapshot?.observed_at) || "loading"
   return Box(
     { borderStyle: "single", borderColor: color, padding: 1, flexDirection: "row", gap: 3 },
-    Text({ content: "Pi Symphony", fg: "#f4f7fb" }),
+    Text({ content: "Agent Machine", fg: "#f4f7fb" }),
     Text({ content: compact(`project ${snapshot?.project_slug ?? "..."}`, 22), fg: "#8ab4f8" }),
     Text({ content: `sqlite ${health}`, fg: color }),
     Text({ content: right, fg: message ? "#e6b450" : "#8d99a6" }),
@@ -450,7 +450,7 @@ function sectionColor(section: SectionID) {
 }
 
 async function loadSurfaceSnapshot(): Promise<SurfaceSnapshot> {
-  const command = process.env.PI_SYMPHONY_BIN?.trim()
+  const command = readEnv("AM_BIN", "PI_SYMPHONY_BIN")
   const cwd = command ? runnerRoot ?? process.cwd() : requireRunnerRoot()
   const args = command
     ? [command, "surface", "snapshot", "--config", configPath]
@@ -459,7 +459,7 @@ async function loadSurfaceSnapshot(): Promise<SurfaceSnapshot> {
     cwd,
     env: {
       ...process.env,
-      GOCACHE: process.env.GOCACHE ?? "/tmp/pi-symphony-go-cache",
+      GOCACHE: process.env.GOCACHE ?? "/tmp/agent-machine-go-cache",
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -531,7 +531,7 @@ function fit(value: string, max: number) {
 }
 
 function resolveRunnerRoot() {
-  const explicit = process.env.PI_SYMPHONY_ROOT?.trim()
+  const explicit = readEnv("AM_ROOT", "PI_SYMPHONY_ROOT")
   if (explicit) {
     return resolve(process.cwd(), explicit)
   }
@@ -542,7 +542,11 @@ function requireRunnerRoot() {
   if (runnerRoot) {
     return runnerRoot
   }
-  throw new Error("could not find pi-symphony runner root; run from the repo or set PI_SYMPHONY_BIN")
+  throw new Error("could not find agent-machine runner root; run from the repo or set AM_BIN")
+}
+
+function readEnv(primary: string, legacy: string) {
+  return process.env[primary]?.trim() || process.env[legacy]?.trim()
 }
 
 function findRunnerRoot(candidates: string[]) {
@@ -568,7 +572,7 @@ function isRunnerRoot(dir: string) {
     return false
   }
   try {
-    return readFileSync(mod, "utf8").includes("module github.com/weskor/pi-symphony")
+    return readFileSync(mod, "utf8").includes("module github.com/weskor/agent-machine")
   } catch {
     return false
   }

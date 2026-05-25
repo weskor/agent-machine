@@ -18,7 +18,7 @@ how this affects cleanup safety.
 
 ### 1) Default trace location
 
-When `PI_SYMPHONY_DEBUG_RAW_OUTPUT=1`:
+When `AM_DEBUG_RAW_OUTPUT=1`:
 
 - For the standard workspace layout `<repo>/.symphony/workspaces/<issue>`,
   the implementation phase writes to
@@ -30,7 +30,7 @@ When `PI_SYMPHONY_DEBUG_RAW_OUTPUT=1`:
   parent plus `.symphony/debug/<issue>/<phase>-raw.log`.
 - `<issue>` is derived from the issue workspace basename (`CAG-XX`).
 - The directory is created with secure permissions and the write is capped using
-  `PI_SYMPHONY_DEBUG_RAW_OUTPUT_LIMIT_BYTES` (defaulting to
+  `AM_DEBUG_RAW_OUTPUT_LIMIT_BYTES` (defaulting to
   `1024*1024`) exactly as today.
 
 ### 2) Error handling and observability
@@ -62,7 +62,7 @@ When `PI_SYMPHONY_DEBUG_RAW_OUTPUT=1`:
 
 ## Acceptance criteria
 
-- With `PI_SYMPHONY_DEBUG_RAW_OUTPUT=1`, a standard
+- With `AM_DEBUG_RAW_OUTPUT=1`, a standard
   `<repo>/.symphony/workspaces/<issue>` run creates implementation and review
   debug artifacts under `<repo>/.symphony/debug/<issue>/`.
 - Nonstandard workspace roots continue to write under the workspace parent

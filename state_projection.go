@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	artifactio "github.com/weskor/pi-symphony/internal/artifacts"
-	"github.com/weskor/pi-symphony/internal/state"
+	artifactio "github.com/weskor/agent-machine/internal/artifacts"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 // stateProjection owns domain object to SQLite row projection. Attempt writers

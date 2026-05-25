@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weskor/pi-symphony/internal/state"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 func TestRetryBackoffDecisionFirstFailureWaitsThenRuns(t *testing.T) {
@@ -142,7 +142,7 @@ func TestReconcileCandidateForSelectionAllowsRepairableReviewFailedPR(t *testing
 	config := testRunnerConfig(root)
 	config.BaseBranch = "develop"
 	candidate := testIssue("CAG-141", "Ready for Agent")
-	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/pi-symphony/pull/93")
+	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/agent-machine/pull/93")
 
 	decision := reconcileCandidateForSelection(config, candidate, &pr, nil)
 
@@ -160,14 +160,14 @@ func TestReconcileCandidateForSelectionIgnoresStaleRepairArtifact(t *testing.T) 
 	config := testRunnerConfig(root)
 	config.BaseBranch = "develop"
 	candidate := testIssue("CAG-141", "Ready for Agent")
-	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/pi-symphony/pull/93")
+	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/agent-machine/pull/93")
 	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{
 		IssueKey:        candidate.Identifier,
 		Attempt:         2,
 		BranchName:      expectedWorkspaceBranch(candidate.Identifier),
 		BaseBranch:      "develop",
 		Status:          "success",
-		Repository:      "weskor/pi-symphony",
+		Repository:      "weskor/agent-machine",
 		PRNumber:        93,
 		PRURL:           pr.URL,
 		TerminalOutcome: "handoff_ready",
@@ -191,7 +191,7 @@ func TestRepairableReviewFailedPRDoesNotFallbackToArtifactWhenSQLiteFactsExist(t
 	config := testRunnerConfig(root)
 	config.BaseBranch = "develop"
 	candidate := testIssue("CAG-143", "Ready for Agent")
-	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/pi-symphony/pull/143")
+	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/agent-machine/pull/143")
 	decision := reconciliationDecision{
 		NextAction: "reconcile_linear_state",
 		DBFacts: &state.ReconciliationFacts{
@@ -211,7 +211,7 @@ func TestReconcileCandidateForSelectionIgnoresArtifactOnlyState(t *testing.T) {
 	store := openCandidateTestStateStore(t)
 	config := testRunnerConfig(root)
 	candidate := testIssue("CAG-142", "Ready for Agent")
-	writeRunRecordFixture(t, root, candidate.Identifier, `{"status":"success","pr_url":"https://github.com/weskor/pi-symphony/pull/142"}`)
+	writeRunRecordFixture(t, root, candidate.Identifier, `{"status":"success","pr_url":"https://github.com/weskor/agent-machine/pull/142"}`)
 
 	decision := reconcileCandidateForSelection(config, candidate, nil, store)
 
@@ -224,7 +224,7 @@ func TestClaimNextRunAttemptDispatchesRepairableReviewFailedPR(t *testing.T) {
 	root := t.TempDir()
 	store := openCandidateTestStateStore(t)
 	candidate := testIssue("CAG-141", "Ready for Agent")
-	prURL := "https://github.com/weskor/pi-symphony/pull/93"
+	prURL := "https://github.com/weskor/agent-machine/pull/93"
 	pr := pullRequestSummary{Number: 93, URL: prURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch(candidate.Identifier), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "COMMENTED"}
 	upsertRepairableReviewFailedAttempt(t, store, candidate, filepath.Join(root, candidate.Identifier), prURL)
 	original := openPRsByIssueForSelection
@@ -275,7 +275,7 @@ func upsertRepairableReviewFailedAttempt(t *testing.T, store *state.Store, candi
 		BranchName:           expectedWorkspaceBranch(candidate.Identifier),
 		BaseBranch:           "develop",
 		Status:               runAttemptStatusReviewFailed,
-		Repository:           "weskor/pi-symphony",
+		Repository:           "weskor/agent-machine",
 		PRNumber:             93,
 		PRURL:                prURL,
 		ReviewStatus:         "failed",

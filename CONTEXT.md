@@ -1,15 +1,15 @@
-# Pi Symphony
+# Agent Machine
 
-Pi Symphony is a runner harness for taking one well-scoped Linear issue through an isolated workspace, an Agent implementation attempt, optional review, and GitHub PR handoff.
+Agent Machine is a runner harness for taking one well-scoped Linear issue through an isolated workspace, an Agent implementation attempt, optional review, and GitHub PR handoff.
 
 ## Language
 
-**Pi Symphony**:
+**Agent Machine**:
 The standalone runner harness in this repository. It coordinates Linear, local workspaces, Pi CLI execution, review, GitHub PRs, merge gates, and cleanup.
 _Avoid_: generic bot.
 
 **Project config**:
-The repository-local `symphony.yaml` plus `symphony.agent.md` prompt that tell Pi Symphony which Linear project, repository, workspace root, branch, runtime, hooks, states, budgets, and agent instructions to use.
+The repository-local `symphony.yaml` plus `symphony.agent.md` prompt that tell Agent Machine which Linear project, repository, workspace root, branch, runtime, hooks, states, budgets, and agent instructions to use.
 _Avoid_: config file, pipeline, job config.
 
 **Linear issue**:
@@ -17,7 +17,7 @@ The source work item. A runnable issue must be fully specified with Goal, Scope,
 _Avoid_: ticket when precision matters, GitHub issue.
 
 **Candidate**:
-An eligible Linear issue in an active state that Pi Symphony may claim for a run. Candidate ordering is part of the runner behavior contract.
+An eligible Linear issue in an active state that Agent Machine may claim for a run. Candidate ordering is part of the runner behavior contract.
 _Avoid_: task, job.
 
 **Workspace**:
@@ -41,11 +41,11 @@ The `.pi-symphony-evaluation.json` artifact derived from the run record to class
 _Avoid_: metrics file.
 
 **Orchestration state**:
-The durable local state Pi Symphony uses to remember attempts, PR mappings, review classifications, retry decisions, merge blockers, cleanup decisions, leases, heartbeats, and terminal outcomes.
+The durable local state Agent Machine uses to remember attempts, PR mappings, review classifications, retry decisions, merge blockers, cleanup decisions, leases, heartbeats, and terminal outcomes.
 _Avoid_: cache when the state is authoritative for runner decisions.
 
 **Reconciliation-needed**:
-A safe blocked state used when Linear, GitHub, SQLite, workspace, or artifact facts conflict and Pi Symphony cannot choose a destructive or externally visible action without operator or repair logic.
+A safe blocked state used when Linear, GitHub, SQLite, workspace, or artifact facts conflict and Agent Machine cannot choose a destructive or externally visible action without operator or repair logic.
 _Avoid_: unknown failure, flaky state.
 
 **Handoff**:
@@ -61,7 +61,7 @@ The daemon lane that cleans completed workspaces and merges approved Symphony-ow
 _Avoid_: janitor, sweeper.
 
 **ACP Adapter**:
-A future Protocol Adapter that lets ACP-compatible editors communicate with Pi Symphony while keeping orchestration policy in the core runner Modules.
+A future Protocol Adapter that lets ACP-compatible editors communicate with Agent Machine while keeping orchestration policy in the core runner Modules.
 _Avoid_: Zed-specific core logic.
 
 **Product surface**:
@@ -73,7 +73,7 @@ The observable promises a runner change must preserve or deliberately update: in
 _Avoid_: vague “it still works” statements.
 
 **Runner invariant**:
-A deterministic fact, gate, or transition Pi Symphony can compute from project configuration, Linear, GitHub, SQLite, workspace metadata, or typed artifacts. Runner invariants belong in runner Modules and specs, not in Agent judgment.
+A deterministic fact, gate, or transition Agent Machine can compute from project configuration, Linear, GitHub, SQLite, workspace metadata, or typed artifacts. Runner invariants belong in runner Modules and specs, not in Agent judgment.
 _Avoid_: asking an LLM to decide parseable scope, ownership, lifecycle, merge, cleanup, lease, or artifact facts.
 
 **Agent judgment**:

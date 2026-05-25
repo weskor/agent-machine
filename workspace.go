@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	artifactio "github.com/weskor/pi-symphony/internal/artifacts"
-	cfg "github.com/weskor/pi-symphony/internal/config"
-	sh "github.com/weskor/pi-symphony/internal/shell"
-	"github.com/weskor/pi-symphony/internal/state"
+	artifactio "github.com/weskor/agent-machine/internal/artifacts"
+	cfg "github.com/weskor/agent-machine/internal/config"
+	sh "github.com/weskor/agent-machine/internal/shell"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 func ensureIsolatedWorkspace(workspaceRoot, workspace, identifier string) error {

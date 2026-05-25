@@ -1,6 +1,6 @@
 # Review agent guidance
 
-Use this guidance for Agent sessions that review Pi Symphony PRs, plans, or architecture changes.
+Use this guidance for Agent sessions that review Agent Machine PRs, plans, or architecture changes.
 
 ## Review sources of truth
 
@@ -36,7 +36,7 @@ Fail review for:
 
 ## Missing evidence
 
-Missing evidence is not the same as broken behavior. If a PR is otherwise plausible and has a PR URL, classify missing-evidence-only failures so Pi Symphony can route to Human Review instead of retrying blindly.
+Missing evidence is not the same as broken behavior. If a PR is otherwise plausible and has a PR URL, classify missing-evidence-only failures so Agent Machine can route to Human Review instead of retrying blindly.
 
 ## Architecture review
 

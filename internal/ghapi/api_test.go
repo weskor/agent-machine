@@ -41,15 +41,15 @@ func TestConfigureGitHubRepositoryFromConfigUsesConfigRepoRemote(t *testing.T) {
 	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
 		t.Fatalf("git init: %v", err)
 	}
-	if err := exec.Command("git", "-C", repo, "remote", "add", "origin", "git@github.com:weskor/pi-symphony.git").Run(); err != nil {
+	if err := exec.Command("git", "-C", repo, "remote", "add", "origin", "git@github.com:weskor/agent-machine.git").Run(); err != nil {
 		t.Fatalf("git remote add: %v", err)
 	}
 
-	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 	ConfigureRepositoryFromConfig(filepath.Join(configDir, "symphony.yaml"))
 
-	if got := os.Getenv("GITHUB_REPOSITORY"); got != "weskor/pi-symphony" {
-		t.Fatalf("GITHUB_REPOSITORY = %q, want weskor/pi-symphony", got)
+	if got := os.Getenv("GITHUB_REPOSITORY"); got != "weskor/agent-machine" {
+		t.Fatalf("GITHUB_REPOSITORY = %q, want weskor/agent-machine", got)
 	}
 }
 

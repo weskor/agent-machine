@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
-	sh "github.com/weskor/pi-symphony/internal/shell"
-	"github.com/weskor/pi-symphony/internal/state"
+	sh "github.com/weskor/agent-machine/internal/shell"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 func TestRunHandoffPendingAttemptConsumesPRHandoffPayloadAndQueuesReview(t *testing.T) {
 	t.Cleanup(resetHandoffWorkerHooks)
 	t.Cleanup(resetReviewWorkerHooks)
-	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 	root := t.TempDir()
 	workspace := runnerHandoffGitWorkspace(t, "main")
 	candidate := &issue{ID: "issue-180", Identifier: "CAG-180", Title: "Pending PR handoff", URL: "https://linear.app/acme/issue/CAG-180"}
@@ -62,7 +62,7 @@ func TestRunHandoffPendingAttemptConsumesPRHandoffPayloadAndQueuesReview(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if progress.Phase != runProgressPhaseReviewPending || progress.PRURL != "https://github.com/weskor/pi-symphony/pull/900" || progress.ReviewPayloadPath == "" {
+	if progress.Phase != runProgressPhaseReviewPending || progress.PRURL != "https://github.com/weskor/agent-machine/pull/900" || progress.ReviewPayloadPath == "" {
 		t.Fatalf("progress = %+v; want review_pending after PR handoff", progress)
 	}
 	reviewPayload, err := readReviewPendingPayload(root, candidate.Identifier)

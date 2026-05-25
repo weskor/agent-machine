@@ -8,8 +8,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/weskor/pi-symphony/internal/state"
-	ws "github.com/weskor/pi-symphony/internal/workspace"
+	"github.com/weskor/agent-machine/internal/state"
+	ws "github.com/weskor/agent-machine/internal/workspace"
 )
 
 type explainReport struct {

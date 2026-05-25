@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	sh "github.com/weskor/pi-symphony/internal/shell"
+	sh "github.com/weskor/agent-machine/internal/shell"
 )
 
 func TestConfigureGitHubAppCommitIdentity(t *testing.T) {

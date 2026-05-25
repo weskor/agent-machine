@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	artifactio "github.com/weskor/pi-symphony/internal/artifacts"
-	"github.com/weskor/pi-symphony/internal/state"
+	artifactio "github.com/weskor/agent-machine/internal/artifacts"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 const repairReviewFindingsNextAction = "repair_review_findings_before_handoff"

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weskor/pi-symphony/internal/state"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 func TestClaimNextImplementationAttemptSkipsReviewReadyResume(t *testing.T) {
@@ -20,7 +20,7 @@ func TestClaimNextImplementationAttemptSkipsReviewReadyResume(t *testing.T) {
 	freshCandidate := testIssue("CAG-167", "Ready for Agent")
 	pr := pullRequestSummary{
 		Number:            166,
-		URL:               "https://github.com/weskor/pi-symphony/pull/166",
+		URL:               "https://github.com/weskor/agent-machine/pull/166",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch(reviewCandidate.Identifier),
 		Author:            prAuthor{Login: githubAppPRAuthorLogin},

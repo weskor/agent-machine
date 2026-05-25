@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report reproducible Pi Symphony behavior
+about: Report reproducible Agent Machine behavior
 title: ""
 labels: ""
 assignees: ""
@@ -11,7 +11,7 @@ assignees: ""
 
 ## Environment
 
-- Pi Symphony version or commit:
+- Agent Machine version or commit:
 - OS and architecture:
 - Runtime provider: `codex_cli` / `pi_cli` / other
 

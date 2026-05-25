@@ -3,7 +3,7 @@ package main
 import (
 	"strings"
 
-	artifactio "github.com/weskor/pi-symphony/internal/artifacts"
+	artifactio "github.com/weskor/agent-machine/internal/artifacts"
 )
 
 const evaluationArtifactName = artifactio.EvaluationName

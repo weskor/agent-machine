@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/weskor/pi-symphony/internal/config"
+	"github.com/weskor/agent-machine/internal/config"
 )
 
 type Budget = config.Budget

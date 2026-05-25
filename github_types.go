@@ -1,6 +1,6 @@
 package main
 
-import "github.com/weskor/pi-symphony/internal/ghapi"
+import "github.com/weskor/agent-machine/internal/ghapi"
 
 type pullRequestSummary = ghapi.PullRequestSummary
 type prAuthor = ghapi.PRAuthor

@@ -1,8 +1,8 @@
 package orchestrator
 
 import (
-	"github.com/weskor/pi-symphony/internal/cli"
-	cfg "github.com/weskor/pi-symphony/internal/config"
+	"github.com/weskor/agent-machine/internal/cli"
+	cfg "github.com/weskor/agent-machine/internal/config"
 )
 
 // SetupDependencies are CLI-owned wiring hooks used before a mode enters the

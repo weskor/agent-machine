@@ -39,7 +39,7 @@ func TestCandidatesPostsGraphQLRequestAndDecodesIssues(t *testing.T) {
 			t.Fatalf("states = %#v, want Ready for Agent and Human Review", requestBody.Variables["states"])
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":{"issues":{"nodes":[{"id":"issue-id","identifier":"CAG-77","title":"Move Linear adapter","url":"https://linear.app/acme/issue/CAG-77","description":"Adapter extraction","priority":2,"createdAt":"2026-05-23T10:00:00Z","team":{"id":"team-id","key":"CAG","name":"Pi Symphony Runner"},"state":{"name":"Ready for Agent"},"labels":{"nodes":[{"name":"runner"}]}}]}}}`))
+		_, _ = w.Write([]byte(`{"data":{"issues":{"nodes":[{"id":"issue-id","identifier":"CAG-77","title":"Move Linear adapter","url":"https://linear.app/acme/issue/CAG-77","description":"Adapter extraction","priority":2,"createdAt":"2026-05-23T10:00:00Z","team":{"id":"team-id","key":"CAG","name":"Agent Machine Runner"},"state":{"name":"Ready for Agent"},"labels":{"nodes":[{"name":"runner"}]}}]}}}`))
 	}))
 	defer server.Close()
 

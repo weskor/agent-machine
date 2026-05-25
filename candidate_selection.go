@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	cfg "github.com/weskor/pi-symphony/internal/config"
-	"github.com/weskor/pi-symphony/internal/state"
+	cfg "github.com/weskor/agent-machine/internal/config"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 type candidateSelectionOptions struct {

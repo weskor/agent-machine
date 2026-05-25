@@ -6,7 +6,7 @@ Accepted for V1 planning.
 
 ## Context
 
-Pi Symphony is being dogfooded on its own repository. The current work has exposed valuable harness gaps: implicit behavior contracts, review evidence drift, state spread across workspace artifacts, daemon recovery concerns, and subagent output/tool-surface mismatch.
+Agent Machine is being dogfooded on its own repository. The current work has exposed valuable harness gaps: implicit behavior contracts, review evidence drift, state spread across workspace artifacts, daemon recovery concerns, and subagent output/tool-surface mismatch.
 
 At the same time, future product directions are attractive: editor integration through Agent Client Protocol (ACP), MCP control surfaces, web UI, hosted or sandboxed cloud environments, and richer multi-agent dashboards.
 

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/weskor/pi-symphony/internal/state"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 func TestExplainCandidateSelectionReportsOrderedSkipsAndSelection(t *testing.T) {
@@ -42,7 +42,7 @@ func TestExplainCandidateSelectionReportsSQLiteMissingPRReconciliation(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: "CAG-115", Attempt: 1, BranchName: expectedWorkspaceBranch("CAG-115"), Status: "success", Repository: "weskor/pi-symphony", PRNumber: 115, PRURL: "https://github.com/weskor/pi-symphony/pull/115", TerminalOutcome: "handoff_ready"}); err != nil {
+	if err := store.UpsertRunArtifact(context.Background(), state.RunArtifactSnapshot{IssueKey: "CAG-115", Attempt: 1, BranchName: expectedWorkspaceBranch("CAG-115"), Status: "success", Repository: "weskor/agent-machine", PRNumber: 115, PRURL: "https://github.com/weskor/agent-machine/pull/115", TerminalOutcome: "handoff_ready"}); err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
@@ -59,7 +59,7 @@ func TestExplainCandidateSelectionReportsRepairableReviewFailedPRRunnable(t *tes
 	config := testRunnerConfig(root)
 	config.BaseBranch = "develop"
 	candidate := testIssue("CAG-141", "Ready for Agent")
-	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/pi-symphony/pull/93")
+	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/agent-machine/pull/93")
 
 	report := explainCandidateSelection(config, []issue{candidate}, map[string]*pullRequestSummary{candidate.Identifier: &pr}, nil)
 
@@ -92,7 +92,7 @@ func TestExplainMergeKeepsRepairableReviewFailedPRMergeIneligible(t *testing.T) 
 	config := testRunnerConfig(root)
 	config.BaseBranch = "develop"
 	candidate := testIssue("CAG-141", "Ready for Agent")
-	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/pi-symphony/pull/93")
+	pr := seedRepairableReviewFailedPR(t, root, candidate.Identifier, "https://github.com/weskor/agent-machine/pull/93")
 
 	decisions := explainMergeDecisions(config, map[string]*pullRequestSummary{candidate.Identifier: &pr}, []issue{candidate}, nil)
 

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sh "github.com/weskor/pi-symphony/internal/shell"
+	sh "github.com/weskor/agent-machine/internal/shell"
 )
 
 const defaultRawAgentOutputLimitBytes = 1024 * 1024
@@ -20,7 +20,7 @@ func captureAgentOutput(command, workspace string, env map[string]string, timeou
 }
 
 func maybeWriteRawAgentOutput(workspace, phase, output string) {
-	if strings.TrimSpace(os.Getenv("PI_SYMPHONY_DEBUG_RAW_OUTPUT")) != "1" || output == "" {
+	if debugRawOutputFlag() != "1" || output == "" {
 		return
 	}
 	path := debugRawArtifactPath(workspace, phase)
@@ -41,7 +41,7 @@ func maybeWriteRawAgentOutput(workspace, phase, output string) {
 		return
 	}
 	if truncated {
-		prefix := fmt.Sprintf("[pi-symphony] raw %s output truncated to last %d bytes; enable a larger PI_SYMPHONY_DEBUG_RAW_OUTPUT_LIMIT_BYTES only for local debugging\n", phase, limit)
+		prefix := fmt.Sprintf("[am] raw %s output truncated to last %d bytes; enable a larger AM_DEBUG_RAW_OUTPUT_LIMIT_BYTES only for local debugging\n", phase, limit)
 		data = append([]byte(prefix), data...)
 	}
 	if err := os.WriteFile(path, data, 0o600); err != nil {
@@ -97,7 +97,7 @@ func rawArtifactEvidenceRoot(workspace string) string {
 }
 
 func rawAgentOutputLimitBytes() int {
-	value := strings.TrimSpace(os.Getenv("PI_SYMPHONY_DEBUG_RAW_OUTPUT_LIMIT_BYTES"))
+	value := debugRawOutputLimit()
 	if value == "" {
 		return defaultRawAgentOutputLimitBytes
 	}
@@ -106,6 +106,20 @@ func rawAgentOutputLimitBytes() int {
 		return defaultRawAgentOutputLimitBytes
 	}
 	return parsed
+}
+
+func debugRawOutputFlag() string {
+	if value := strings.TrimSpace(os.Getenv("AM_DEBUG_RAW_OUTPUT")); value != "" {
+		return value
+	}
+	return strings.TrimSpace(os.Getenv("PI_SYMPHONY_DEBUG_RAW_OUTPUT"))
+}
+
+func debugRawOutputLimit() string {
+	if value := strings.TrimSpace(os.Getenv("AM_DEBUG_RAW_OUTPUT_LIMIT_BYTES")); value != "" {
+		return value
+	}
+	return strings.TrimSpace(os.Getenv("PI_SYMPHONY_DEBUG_RAW_OUTPUT_LIMIT_BYTES"))
 }
 
 func logHandoffRunSummary(issueIdentifier, prURL string, review *reviewResult, validation []string) {

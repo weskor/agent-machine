@@ -13,10 +13,10 @@ import (
 
 func TestCorrectedPRURLFromReviewFindings(t *testing.T) {
 	got := correctedPRURL(
-		"https://github.com/weskor/pi-symphony/pull/2",
+		"https://github.com/weskor/agent-machine/pull/2",
 		"REVIEW_PASS\n\nFindings:\n- Actual CAG-11 branch PR is #400, not prompt-listed #2.",
 	)
-	want := "https://github.com/weskor/pi-symphony/pull/400"
+	want := "https://github.com/weskor/agent-machine/pull/400"
 	if got != want {
 		t.Fatalf("correctedPRURL() = %q, want %q", got, want)
 	}

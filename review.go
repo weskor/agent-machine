@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weskor/pi-symphony/internal/agentruntime"
+	"github.com/weskor/agent-machine/internal/agentruntime"
 )
 
 type reviewEvidence struct {

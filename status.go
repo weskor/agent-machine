@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weskor/pi-symphony/internal/state"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 func printStatus(client linearClient, config runnerConfig) error {
@@ -106,7 +106,7 @@ func summarizeSnapshotStateStore(workspaceRoot string, snapshot orchestrationSna
 	}
 	health := snapshot.SQLiteHealth
 	if !health.Exists {
-		return append(lines, "SQLite state health: missing action=run pi-symphony --continuous to initialize durable state")
+		return append(lines, "SQLite state health: missing action=run am start to initialize durable state")
 	}
 	status := "degraded"
 	if health.OK {
@@ -139,7 +139,7 @@ func summarizeStateStore(workspaceRoot string) []string {
 		return append(lines, fmt.Sprintf("SQLite state health: degraded error=%q action=check state DB path and permissions", err.Error()))
 	}
 	if !health.Exists {
-		return append(lines, "SQLite state health: missing action=run pi-symphony --continuous to initialize durable state")
+		return append(lines, "SQLite state health: missing action=run am start to initialize durable state")
 	}
 	status := "degraded"
 	if health.OK {

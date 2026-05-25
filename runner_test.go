@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	sh "github.com/weskor/pi-symphony/internal/shell"
-	"github.com/weskor/pi-symphony/internal/state"
+	sh "github.com/weskor/agent-machine/internal/shell"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 func init() {
@@ -28,7 +28,7 @@ func TestHasUnresolvedReviewFailure(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	record := `{"status":"review_failed","pr_url":"https://github.com/weskor/pi-symphony/pull/1"}`
+	record := `{"status":"review_failed","pr_url":"https://github.com/weskor/agent-machine/pull/1"}`
 	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(record), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestHasUnresolvedReviewFailureIgnoresSuccessfulRuns(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	record := `{"status":"success","pr_url":"https://github.com/weskor/pi-symphony/pull/2"}`
+	record := `{"status":"success","pr_url":"https://github.com/weskor/agent-machine/pull/2"}`
 	if err := os.WriteFile(filepath.Join(workspace, ".pi-symphony-run.json"), []byte(record), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestNextRunnableCandidateDoesNotRecordSkipForFallbackSelection(t *testing.T
 
 func TestNextRunnableCandidateSkipsUnresolvedReviewFailures(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-1", `{"status":"review_failed","pr_url":"https://github.com/weskor/pi-symphony/pull/1"}`)
+	writeRunRecordFixture(t, root, "CAG-1", `{"status":"review_failed","pr_url":"https://github.com/weskor/agent-machine/pull/1"}`)
 	client := linearClientWithCandidates(t, []issue{
 		testIssue("CAG-1", "Ready for Agent"),
 		testIssue("CAG-2", "In Progress"),
@@ -227,8 +227,8 @@ func TestNextRunnableCandidateSkipsBlockedLabel(t *testing.T) {
 
 func TestNextRunnableCandidateReturnsNilWhenAllCandidatesHaveUnresolvedReviewFailures(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-1", `{"status":"review_failed","pr_url":"https://github.com/weskor/pi-symphony/pull/1"}`)
-	writeRunRecordFixture(t, root, "CAG-2", `{"status":"review_failed","pr_url":"https://github.com/weskor/pi-symphony/pull/2"}`)
+	writeRunRecordFixture(t, root, "CAG-1", `{"status":"review_failed","pr_url":"https://github.com/weskor/agent-machine/pull/1"}`)
+	writeRunRecordFixture(t, root, "CAG-2", `{"status":"review_failed","pr_url":"https://github.com/weskor/agent-machine/pull/2"}`)
 	client := linearClientWithCandidates(t, []issue{
 		testIssue("CAG-1", "Ready for Agent"),
 		testIssue("CAG-2", "In Progress"),
@@ -306,7 +306,7 @@ func TestClaimNextRunAttemptClaimsDistinctCandidatesBeforeExecution(t *testing.T
 
 func TestNextRunnableCandidateSkipsExistingSuccessfulPRArtifact(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/weskor/pi-symphony/pull/21"}`)
+	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/weskor/agent-machine/pull/21"}`)
 	client := linearClientWithCandidates(t, []issue{testIssue("CAG-1", "Ready for Agent"), testIssue("CAG-2", "In Progress")})
 
 	selected, _, err := nextRunnableCandidate(client, testRunnerConfig(root), nil)
@@ -320,7 +320,7 @@ func TestNextRunnableCandidateSkipsExistingSuccessfulPRArtifact(t *testing.T) {
 
 func TestNextRunnableCandidateAllowsReadyFeedbackRetryWithTerminalArtifact(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/weskor/pi-symphony/pull/429"}`)
+	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/weskor/agent-machine/pull/429"}`)
 	if err := os.WriteFile(filepath.Join(root, "CAG-1", ".pi-symphony-feedback.md"), []byte("# PR feedback\n\nTest should be unit test."), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +337,7 @@ func TestNextRunnableCandidateAllowsReadyFeedbackRetryWithTerminalArtifact(t *te
 
 func TestNextRunnableCandidateDoesNotRetryTerminalArtifactWithoutFeedback(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/weskor/pi-symphony/pull/429"}`)
+	writeRunRecordFixture(t, root, "CAG-1", `{"status":"success","pr_url":"https://github.com/weskor/agent-machine/pull/429"}`)
 	client := linearClientWithCandidates(t, []issue{testIssue("CAG-1", "Ready for Agent"), testIssue("CAG-2", "In Progress")})
 
 	selected, _, err := nextRunnableCandidate(client, testRunnerConfig(root), nil)
@@ -388,11 +388,11 @@ func TestNextRunnableCandidateRetriesFailedArtifactAfterPersistedBackoff(t *test
 
 func TestNextRunnableCandidateSelectsChangesRequestedReviewFailure(t *testing.T) {
 	root := t.TempDir()
-	writeRunRecordFixture(t, root, "CAG-35", `{"status":"review_failed","review_status":"failed","pr_url":"https://github.com/weskor/pi-symphony/pull/440"}`)
+	writeRunRecordFixture(t, root, "CAG-35", `{"status":"review_failed","review_status":"failed","pr_url":"https://github.com/weskor/agent-machine/pull/440"}`)
 	client := linearClientWithCandidates(t, []issue{testIssue("CAG-35", "Ready for Agent"), testIssue("CAG-36", "Ready for Agent")})
 	original := openPRsByIssueForSelection
 	openPRsByIssueForSelection = func(runnerConfig) (map[string]*pullRequestSummary, error) {
-		pr := &pullRequestSummary{Number: 440, URL: "https://github.com/weskor/pi-symphony/pull/440", BaseRefName: "develop", HeadRefName: "symphony/CAG-35-workspace", Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "CHANGES_REQUESTED"}
+		pr := &pullRequestSummary{Number: 440, URL: "https://github.com/weskor/agent-machine/pull/440", BaseRefName: "develop", HeadRefName: "symphony/CAG-35-workspace", Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "CHANGES_REQUESTED"}
 		return map[string]*pullRequestSummary{"CAG-35": pr}, nil
 	}
 	t.Cleanup(func() { openPRsByIssueForSelection = original })
@@ -461,7 +461,7 @@ func TestParseNeedsInfoExtractsNumberedQuestions(t *testing.T) {
 func TestParseNeedsInfoIgnoresIncidentalMentions(t *testing.T) {
 	output := strings.Join([]string{
 		"Implemented CAG-72 and opened PR:",
-		"https://github.com/weskor/pi-symphony/pull/20",
+		"https://github.com/weskor/agent-machine/pull/20",
 		"- no-PR/no-NEEDS_INFO path now fails explicitly",
 		"- existing NEEDS_INFO behavior remains covered",
 	}, "\n")
@@ -675,6 +675,7 @@ func TestRunOneMovesNeedsInfoAndCommentsWithoutPRHandoff(t *testing.T) {
 	t.Setenv("GITHUB_APP_ID", "")
 	t.Setenv("GITHUB_APP_INSTALLATION_ID", "")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 	root := t.TempDir()
 	var updatedStates []string
 	var comments []string
@@ -755,7 +756,7 @@ func TestRunOneMovesNeedsInfoAndCommentsWithoutPRHandoff(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Do not create, update, push, or comment on a GitHub PR",
-		"the Pi Symphony runner will commit, push, create or update exactly one PR",
+		"the Agent Machine runner will commit, push, create or update exactly one PR",
 		"Stop after the scoped diff and validation notes.",
 	} {
 		if !strings.Contains(string(prompt), want) {
@@ -768,7 +769,7 @@ func TestRunOneCreatesRunnerOwnedPRWhenPiFinishesWithChangesAndNoPRURL(t *testin
 	t.Setenv("GITHUB_APP_ID", "")
 	t.Setenv("GITHUB_APP_INSTALLATION_ID", "")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "")
-	t.Setenv("GITHUB_REPOSITORY", "weskor/pi-symphony")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 	root := t.TempDir()
 	remote := filepath.Join(root, "remote.git")
 	if err := sh.Run("git init -q --bare "+sh.Quote(remote), ""); err != nil {
@@ -826,7 +827,7 @@ func TestRunOneCreatesRunnerOwnedPRWhenPiFinishesWithChangesAndNoPRURL(t *testin
 	if !reflect.DeepEqual(updatedStates, []string{"running-id", "handoff-id"}) {
 		t.Fatalf("updated states = %#v", updatedStates)
 	}
-	if len(comments) != 1 || !strings.Contains(comments[0], "https://github.com/weskor/pi-symphony/pull/900") {
+	if len(comments) != 1 || !strings.Contains(comments[0], "https://github.com/weskor/agent-machine/pull/900") {
 		t.Fatalf("expected Linear handoff comment with runner-owned PR URL, got %#v", comments)
 	}
 	if _, ok := createdPRComments[900]; !ok {
@@ -843,7 +844,7 @@ func TestRunOneCreatesRunnerOwnedPRWhenPiFinishesWithChangesAndNoPRURL(t *testin
 	if err := json.Unmarshal(data, &record); err != nil {
 		t.Fatal(err)
 	}
-	if record.Status != "success" || record.PRURL != "https://github.com/weskor/pi-symphony/pull/900" {
+	if record.Status != "success" || record.PRURL != "https://github.com/weskor/agent-machine/pull/900" {
 		t.Fatalf("unexpected run record: %#v", record)
 	}
 	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
@@ -944,6 +945,7 @@ func TestRunOneBlocksOutOfScopeDiffBeforeReviewHandoff(t *testing.T) {
 	t.Setenv("GITHUB_APP_ID", "")
 	t.Setenv("GITHUB_APP_INSTALLATION_ID", "")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "")
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 	root := t.TempDir()
 	var updatedStates []string
 	var comments []string
@@ -982,7 +984,7 @@ func TestRunOneBlocksOutOfScopeDiffBeforeReviewHandoff(t *testing.T) {
 	config.HandoffState = "Human Review"
 	config.BaseBranch = "main"
 	config.AfterCreate = "git init -q && git config user.email test@example.com && git config user.name Test && git checkout -q -b main && touch README.md && git add README.md && git commit -qm base && git update-ref refs/remotes/origin/main HEAD"
-	config.PiCommand = "sh -c 'echo drift > state_projection.go && git add state_projection.go && git commit -qm drift && echo https://github.com/weskor/pi-symphony/pull/999'"
+	config.PiCommand = "sh -c 'echo drift > state_projection.go && git add state_projection.go && git commit -qm drift && echo https://github.com/weskor/agent-machine/pull/999'"
 	config.ReviewCommand = "sh -c 'echo REVIEW_PASS && exit 1'"
 	proj := project{Prompt: "# Test project"}
 
@@ -1010,7 +1012,7 @@ func TestRunOneBlocksOutOfScopeDiffBeforeReviewHandoff(t *testing.T) {
 	if record.Status != "review_failed" || record.ReviewStatus != "failed" || record.ReviewClassification != reviewClassificationBehaviorSpecBlocker {
 		t.Fatalf("unexpected run record: %#v", record)
 	}
-	if record.PRURL != "https://github.com/weskor/pi-symphony/pull/999" || !strings.Contains(record.ReviewFindings, "state_projection.go") {
+	if record.PRURL != "https://github.com/weskor/agent-machine/pull/999" || !strings.Contains(record.ReviewFindings, "state_projection.go") {
 		t.Fatalf("scope guard evidence missing from run record: %#v", record)
 	}
 }

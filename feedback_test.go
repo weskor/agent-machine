@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weskor/pi-symphony/internal/state"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 func TestRenderPRFeedbackIncludesChangeRequestsAndComments(t *testing.T) {
@@ -61,7 +61,7 @@ func TestRepairReviewFailedPromptFeedbackUsesSQLiteReviewState(t *testing.T) {
 		WorkspacePath:        filepath.Join(root, "CAG-141"),
 		BranchName:           expectedWorkspaceBranch("CAG-141"),
 		Status:               runAttemptStatusReviewFailed,
-		PRURL:                "https://github.com/weskor/pi-symphony/pull/93",
+		PRURL:                "https://github.com/weskor/agent-machine/pull/93",
 		ReviewStatus:         "failed",
 		ReviewClassification: reviewClassificationBehaviorSpecBlocker,
 		ReviewOutputRef:      "/tmp/review-output.txt",

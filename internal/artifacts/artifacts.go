@@ -376,11 +376,10 @@ func ReadPRFeedback(workspace string) (string, error) {
 
 func ParseUsage(output string) *domain.Usage {
 	var last *domain.Usage
-	scanner := bufio.NewScanner(strings.NewReader(output))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	ForEachJSONLLine(output, func(line string) {
+		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "{") {
-			continue
+			return
 		}
 		var event struct {
 			Message *struct {
@@ -393,7 +392,7 @@ func ParseUsage(output string) *domain.Usage {
 				last = candidate
 			}
 		}
-	}
+	})
 	return last
 }
 

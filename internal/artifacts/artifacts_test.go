@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -166,5 +167,16 @@ func TestFeedbackHashAndUsageParsingCompatibility(t *testing.T) {
 	usage := ParseUsage("noise\n" + `{"message":{"usage":{"totalTokens":0}}}` + "\n" + `{"message":{"usage":{"totalTokens":7,"cost":{"total":0.01}}}}`)
 	if usage == nil || usage.TotalTokens != 7 || usage.TotalCost() != 0.01 {
 		t.Fatalf("unexpected usage: %#v", usage)
+	}
+}
+
+func TestParseUsageContinuesAfterLongJSONLLine(t *testing.T) {
+	longLine := `{"message":{"content":"` + strings.Repeat("x", 70*1024) + `"}}`
+	output := "noise\n" + longLine + "\n" + `{"message":{"usage":{"totalTokens":9,"cost":{"total":0.02}}}}`
+
+	usage := ParseUsage(output)
+
+	if usage == nil || usage.TotalTokens != 9 || usage.TotalCost() != 0.02 {
+		t.Fatalf("unexpected usage after long line: %#v", usage)
 	}
 }

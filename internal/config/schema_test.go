@@ -157,6 +157,10 @@ func TestParseConfigInvalidDurationsReturnFieldPaths(t *testing.T) {
 	}{
 		{name: "budget", yaml: "budgets:\n  runtime_timeout: tomorrow\n", want: "budgets.runtime_timeout"},
 		{name: "legacy budget", yaml: "budgets:\n  pi_timeout: tomorrow\n", want: "budgets.pi_timeout"},
+		{name: "invalid max tokens", yaml: "budgets:\n  max_tokens: many\n", want: "budgets.max_tokens"},
+		{name: "negative max tokens", yaml: "budgets:\n  max_tokens: -1\n", want: "budgets.max_tokens"},
+		{name: "invalid max cost", yaml: "budgets:\n  max_cost: nope\n", want: "budgets.max_cost"},
+		{name: "negative max cost", yaml: "budgets:\n  max_cost: -0.1\n", want: "budgets.max_cost"},
 		{name: "polling", yaml: "polling:\n  interval_ms: soon\n", want: "polling.interval_ms"},
 		{name: "hooks", yaml: "hooks:\n  timeout_ms: -1\n", want: "hooks.timeout_ms"},
 		{name: "agent", yaml: "agent:\n  max_retry_backoff_ms: later\n", want: "agent.max_retry_backoff_ms"},

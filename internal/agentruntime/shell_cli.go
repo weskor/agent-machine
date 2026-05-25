@@ -7,16 +7,15 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
 	sh "github.com/weskor/agent-machine/internal/shell"
 )
 
-// CommandRunner executes a shell command in a working directory with an
-// environment, timeout, and human-readable phase label.
-type CommandRunner func(command, workdir string, env map[string]string, timeout time.Duration, phase string) (string, error)
+// CommandRunner executes a shell command in a working directory with a caller
+// context, environment, timeout, and human-readable phase label.
+type CommandRunner func(ctx context.Context, command, workdir string, env map[string]string, timeout time.Duration, phase string) (string, error)
 
 type ShellCommandBuilder func(command, promptPath string) string
 
@@ -73,7 +72,10 @@ func (a ShellCLIAdapter) StartAttempt(_ context.Context, input StartAttemptInput
 	return AttemptContext{ID: attemptID, IssueID: input.IssueID, IssueIdentifier: input.IssueIdentifier, Workspace: input.Workspace, ExpectedBranch: input.ExpectedBranch, Branch: input.Branch, Attempt: input.Attempt, RunTimeouts: input.Timeouts}, nil
 }
 
-func (a ShellCLIAdapter) RunAttempt(_ context.Context, attemptID string, input RunAttemptInput, events EventSink) (AttemptResult, error) {
+func (a ShellCLIAdapter) RunAttempt(ctx context.Context, attemptID string, input RunAttemptInput, events EventSink) (AttemptResult, error) {
+	if err := ctx.Err(); err != nil {
+		return a.canceledAttemptResult(attemptID, err), RuntimeError{Kind: RuntimeErrorKindCanceled, Message: err.Error(), Cause: err}
+	}
 	if strings.TrimSpace(input.Command) == "" {
 		message := a.MissingCommand
 		if message == "" {
@@ -87,7 +89,7 @@ func (a ShellCLIAdapter) RunAttempt(_ context.Context, attemptID string, input R
 	sink := normalizeSink(events)
 	started := a.now()
 	sink.Emit(RuntimeEvent{Type: RuntimeEventAttemptRunStarted, AttemptID: attemptID, Occurred: started, Phase: "implementation"})
-	output, err := a.RunCommand(a.buildCommand(input.Command, input.PromptPath), input.WorkingDir, input.Environment, input.Timeout, "implementation")
+	output, err := a.RunCommand(ctx, a.buildCommand(input.Command, input.PromptPath), input.WorkingDir, input.Environment, input.Timeout, "implementation")
 	ended := a.now()
 	sink.Emit(RuntimeEvent{Type: RuntimeEventAttemptRunFinished, AttemptID: attemptID, Occurred: ended, Phase: "implementation"})
 	envelope, envelopeErr := a.attemptOutcomeEnvelope(output, AttemptOutcomeSuccess, "", "")
@@ -111,6 +113,8 @@ func (a ShellCLIAdapter) RunAttempt(_ context.Context, attemptID string, input R
 		if errors.Is(err, sh.ErrCommandTimeout) {
 			result.AttemptOutcome = AttemptOutcomeTimeout
 			result.ErrorKind = RuntimeErrorKindTimeout
+		} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			result.ErrorKind = RuntimeErrorKindCanceled
 		}
 		if result.AttemptOutcome == "" || result.AttemptOutcome == AttemptOutcomeSuccess {
 			result.AttemptOutcome = AttemptOutcomeFailed
@@ -123,21 +127,38 @@ func (a ShellCLIAdapter) RunAttempt(_ context.Context, attemptID string, input R
 	return result, nil
 }
 
-func (a ShellCLIAdapter) ReviewAttempt(_ context.Context, attemptID string, input ReviewAttemptInput, events EventSink) (ReviewResult, error) {
+func (a ShellCLIAdapter) ReviewAttempt(ctx context.Context, attemptID string, input ReviewAttemptInput, events EventSink) (ReviewResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ReviewResult{}, RuntimeError{Kind: RuntimeErrorKindCanceled, Message: err.Error(), Cause: err}
+	}
 	if strings.TrimSpace(input.Command) == "" {
 		return ReviewResult{}, nil
 	}
 	if a.RunCommand == nil {
 		return ReviewResult{}, RuntimeError{Kind: RuntimeErrorKindConfiguration, Message: "missing command runner"}
 	}
-	promptPath := filepath.Join(input.WorkingDir, ".am-review-prompt.md")
-	if err := os.WriteFile(promptPath, []byte(input.Prompt), 0o600); err != nil {
+	promptFile, err := os.CreateTemp(input.WorkingDir, ".am-review-prompt-*.md")
+	if err != nil {
+		return ReviewResult{}, err
+	}
+	promptPath := promptFile.Name()
+	removePrompt := true
+	defer func() {
+		if removePrompt {
+			_ = os.Remove(promptPath)
+		}
+	}()
+	if _, err := promptFile.Write([]byte(input.Prompt)); err != nil {
+		_ = promptFile.Close()
+		return ReviewResult{}, err
+	}
+	if err := promptFile.Close(); err != nil {
 		return ReviewResult{}, err
 	}
 	sink := normalizeSink(events)
 	started := a.now()
 	sink.Emit(RuntimeEvent{Type: RuntimeEventReviewStarted, AttemptID: attemptID, Occurred: started, Phase: "review"})
-	output, err := a.RunCommand(a.buildCommand(input.Command, promptPath), input.WorkingDir, input.Environment, input.Timeout, "review")
+	output, err := a.RunCommand(ctx, a.buildCommand(input.Command, promptPath), input.WorkingDir, input.Environment, input.Timeout, "review")
 	ended := a.now()
 	sink.Emit(RuntimeEvent{Type: RuntimeEventReviewFinished, AttemptID: attemptID, Occurred: ended, Phase: "review"})
 	findings := output
@@ -160,6 +181,12 @@ func (a ShellCLIAdapter) ReviewAttempt(_ context.Context, attemptID string, inpu
 		return result, err
 	}
 	return result, nil
+}
+
+func (a ShellCLIAdapter) canceledAttemptResult(attemptID string, err error) AttemptResult {
+	result := AttemptResult{AttemptID: attemptID, AttemptOutcome: AttemptOutcomeFailed, ErrorKind: RuntimeErrorKindCanceled, Error: err.Error()}
+	result.Envelope, _ = a.attemptOutcomeEnvelope("", result.AttemptOutcome, result.ErrorKind, result.Error)
+	return result
 }
 
 func (ShellCLIAdapter) Stop(context.Context, string, string) error {

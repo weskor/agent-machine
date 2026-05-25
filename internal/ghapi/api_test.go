@@ -2,6 +2,7 @@ package ghapi
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -50,6 +51,17 @@ func TestConfigureGitHubRepositoryFromConfigUsesConfigRepoRemote(t *testing.T) {
 
 	if got := os.Getenv("GITHUB_REPOSITORY"); got != "weskor/agent-machine" {
 		t.Fatalf("GITHUB_REPOSITORY = %q, want weskor/agent-machine", got)
+	}
+}
+
+func TestParseRepositoryAllowsDottedRemoteRepositoryNames(t *testing.T) {
+	owner, repo, ok := ParseRepository("git@github.com:acme/foo.bar.git")
+	if !ok || owner != "acme" || repo != "foo.bar" {
+		t.Fatalf("ParseRepository dotted ssh = (%q, %q, %t), want acme/foo.bar true", owner, repo, ok)
+	}
+	owner, repo, ok = ParseRepository("https://github.com/acme/api.v2.git")
+	if !ok || owner != "acme" || repo != "api.v2" {
+		t.Fatalf("ParseRepository dotted https = (%q, %q, %t), want acme/api.v2 true", owner, repo, ok)
 	}
 }
 
@@ -291,5 +303,65 @@ func TestMapPullRequestFeedbackPreservesGhShapedReviewAndCommentFields(t *testin
 	}
 	if len(feedback.ReviewComments) != 1 || feedback.ReviewComments[0].Path != "tools/agent-machine/github_api.go" || feedback.ReviewComments[0].Line != 42 {
 		t.Fatalf("unexpected mapped review comments: %+v", feedback.ReviewComments)
+	}
+}
+
+func TestPullRequestFeedbackAndIssueCommentsFollowPagination(t *testing.T) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		page := r.URL.Query().Get("page")
+		if page == "" {
+			w.Header().Set("Link", fmt.Sprintf("<%s%s?page=2>; rel=\"next\"", server.URL, r.URL.Path))
+		}
+		switch r.URL.Path {
+		case "/repos/acme/rocket/pulls/7/reviews":
+			if page == "2" {
+				_, _ = w.Write([]byte(`[{"state":"CHANGES_REQUESTED","body":"review page 2","user":{"login":"reviewer-two"},"submitted_at":"2026-05-18T21:02:00Z"}]`))
+				return
+			}
+			_, _ = w.Write([]byte(`[{"state":"COMMENTED","body":"review page 1","user":{"login":"reviewer-one"},"submitted_at":"2026-05-18T21:01:00Z"}]`))
+		case "/repos/acme/rocket/issues/7/comments":
+			if page == "2" {
+				_, _ = w.Write([]byte(`[{"id":72,"body":"issue comment page 2","user":{"login":"operator-two"},"created_at":"2026-05-18T21:04:00Z"}]`))
+				return
+			}
+			_, _ = w.Write([]byte(`[{"id":71,"body":"issue comment page 1","user":{"login":"operator-one"},"created_at":"2026-05-18T21:03:00Z"}]`))
+		case "/repos/acme/rocket/pulls/7/comments":
+			if page == "2" {
+				_, _ = w.Write([]byte(`[{"body":"inline page 2","path":"b.go","line":20,"user":{"login":"inline-two"},"created_at":"2026-05-18T21:06:00Z"}]`))
+				return
+			}
+			_, _ = w.Write([]byte(`[{"body":"inline page 1","path":"a.go","line":10,"user":{"login":"inline-one"},"created_at":"2026-05-18T21:05:00Z"}]`))
+		default:
+			t.Fatalf("unexpected GitHub API path: %s", r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	client := github.NewClient(server.Client())
+	client.BaseURL = mustParseURL(t, server.URL+"/")
+	api := goClient{owner: "acme", repo: "rocket", client: client}
+
+	feedback, err := api.PullRequestFeedback(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("PullRequestFeedback() error = %v", err)
+	}
+	if len(feedback.Reviews) != 2 || feedback.Reviews[1].Body != "review page 2" {
+		t.Fatalf("reviews = %+v, want both pages", feedback.Reviews)
+	}
+	if len(feedback.Comments) != 2 || feedback.Comments[1].Body != "issue comment page 2" {
+		t.Fatalf("comments = %+v, want both pages", feedback.Comments)
+	}
+	if len(feedback.ReviewComments) != 2 || feedback.ReviewComments[1].Body != "inline page 2" {
+		t.Fatalf("review comments = %+v, want both pages", feedback.ReviewComments)
+	}
+
+	comments, err := api.IssueComments(context.Background(), "7")
+	if err != nil {
+		t.Fatalf("IssueComments() error = %v", err)
+	}
+	if len(comments) != 2 || comments[0].ID != 71 || comments[1].ID != 72 {
+		t.Fatalf("IssueComments() = %+v, want both pages", comments)
 	}
 }

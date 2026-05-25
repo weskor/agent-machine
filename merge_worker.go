@@ -30,6 +30,11 @@ func (w mergeWorker) HandlePullRequest(ctx context.Context, pr pullRequestSummar
 	if candidate == nil || candidate.State.Name != w.config.HandoffState {
 		return nil
 	}
+	if reason := prInvariantBlockReason(w.config, *candidate, pr); reason != "" {
+		recordMergeEventContext(ctx, w.store, orchstate.EventMergeBlocked, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "reason": reason, "next_action": "reconcile_pr_ownership"})
+		log("%s blocked before merge side effects: %s", pr.URL, reason)
+		return nil
+	}
 
 	states, err := w.client.workflowStatesContext(ctx, candidate.Team.ID)
 	if err != nil {

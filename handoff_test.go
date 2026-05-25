@@ -45,7 +45,7 @@ func TestEnsureRunnerPRHandoffExecutesPersistedPayloadBoundary(t *testing.T) {
 	rewrittenURL := "https://github.com/weskor/agent-machine/pull/179"
 	withFakeGitHubAPI(t, fakeGitHubAPI{
 		handoffDetailsByURL: map[string]prHandoffDetails{
-			rewrittenURL: {Number: 179, URL: rewrittenURL, BaseRefName: "main", HeadRefName: branch},
+			rewrittenURL: {Number: 179, URL: rewrittenURL, BaseRefName: "main", HeadRefName: branch, Author: prAuthor{Login: "app/agent-machine-bot"}},
 		},
 	})
 	previous := readPRHandoffPendingPayloadForExecution
@@ -162,7 +162,7 @@ func TestEnsureRunnerPRHandoffIgnoresWrongBranchAdvisoryPR(t *testing.T) {
 	config.BaseBranch = "main"
 	staleURL := "https://github.com/weskor/agent-machine/pull/25"
 	withFakeGitHubAPI(t, fakeGitHubAPI{
-		handoffDetailsByURL: map[string]prHandoffDetails{staleURL: {Number: 25, URL: staleURL, BaseRefName: "main", HeadRefName: "am/CAG-86-workspace"}},
+		handoffDetailsByURL: map[string]prHandoffDetails{staleURL: {Number: 25, URL: staleURL, BaseRefName: "main", HeadRefName: "am/CAG-86-workspace", Author: prAuthor{Login: "app/agent-machine-bot"}}},
 	})
 
 	prURL, err := ensureRunnerPRHandoff(config, &candidate, workspace, staleURL, nil)
@@ -206,6 +206,35 @@ func TestEnsureRunnerPRHandoffUpdatesExistingRetryBranch(t *testing.T) {
 	}
 	if strings.TrimSpace(remoteHead) != strings.TrimSpace(localHead) {
 		t.Fatalf("remote retry branch was not updated: remote=%s local=%s", remoteHead, localHead)
+	}
+}
+
+func TestEnsureRunnerPRHandoffBlocksUnownedExistingBranchPRBeforeUpdate(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
+	workspace := runnerHandoffGitWorkspace(t, "main")
+	candidate := testIssue("CAG-131", "In Progress")
+	branch := expectedWorkspaceBranch(candidate.Identifier)
+	if err := sh.Run("git switch -q -C "+sh.Quote(branch)+" && echo change > handoff.go", workspace); err != nil {
+		t.Fatal(err)
+	}
+	config := testRunnerConfig(filepath.Dir(workspace))
+	config.BaseBranch = "main"
+	updatedPRs := map[int]bool{}
+	prURL := "https://github.com/weskor/agent-machine/pull/73"
+	withFakeGitHubAPI(t, fakeGitHubAPI{
+		handoffDetailsByURL: map[string]prHandoffDetails{
+			prURL: {Number: 73, URL: prURL, BaseRefName: "main", HeadRefName: branch, Author: prAuthor{Login: "human"}},
+		},
+		prs:        []pullRequestSummary{{Number: 73, URL: prURL, BaseRefName: "main", HeadRefName: branch, Author: prAuthor{Login: "human"}}},
+		updatedPRs: updatedPRs,
+	})
+
+	_, err := ensureRunnerPRHandoff(config, &candidate, workspace, "", nil)
+	if err == nil || !strings.Contains(err.Error(), "PR author") || !strings.Contains(err.Error(), "human") {
+		t.Fatalf("expected PR author validation error, got %v", err)
+	}
+	if updatedPRs[73] {
+		t.Fatal("unowned existing branch PR was updated before ownership validation")
 	}
 }
 
@@ -257,11 +286,12 @@ func TestValidatePRForHandoffFallsBackToOpenPRByExpectedBranch(t *testing.T) {
 		URL:         "https://github.com/weskor/agent-machine/pull/73",
 		BaseRefName: "develop",
 		HeadRefName: branch,
+		Author:      prAuthor{Login: "app/agent-machine-bot"},
 	}
 
 	withFakeGitHubAPI(t, fakeGitHubAPI{
 		handoffErrorsByURL:  map[string]error{"https://github.com/weskor/agent-machine/pull/999": errors.New("GitHub API PR handoff lookup failed: 404 Not Found")},
-		handoffDetailsByURL: map[string]prHandoffDetails{"https://github.com/weskor/agent-machine/pull/73": {Number: 73, URL: "https://github.com/weskor/agent-machine/pull/73", BaseRefName: "develop", HeadRefName: branch}},
+		handoffDetailsByURL: map[string]prHandoffDetails{"https://github.com/weskor/agent-machine/pull/73": {Number: 73, URL: "https://github.com/weskor/agent-machine/pull/73", BaseRefName: "develop", HeadRefName: branch, Author: prAuthor{Login: "app/agent-machine-bot"}}},
 		prs:                 []pullRequestSummary{openPR},
 	})
 
@@ -311,12 +341,12 @@ func TestValidatePRForHandoffFallbackFailsWhenBranchIsAmbiguous(t *testing.T) {
 	withFakeGitHubAPI(t, fakeGitHubAPI{
 		handoffErrorsByURL: map[string]error{"https://github.com/weskor/agent-machine/pull/999": errors.New("GitHub API PR handoff lookup failed: 404 Not Found")},
 		handoffDetailsByURL: map[string]prHandoffDetails{
-			"https://github.com/weskor/agent-machine/pull/73": {Number: 73, URL: "https://github.com/weskor/agent-machine/pull/73", BaseRefName: "develop", HeadRefName: branch},
-			"https://github.com/weskor/agent-machine/pull/84": {Number: 84, URL: "https://github.com/weskor/agent-machine/pull/84", BaseRefName: "develop", HeadRefName: branch},
+			"https://github.com/weskor/agent-machine/pull/73": {Number: 73, URL: "https://github.com/weskor/agent-machine/pull/73", BaseRefName: "develop", HeadRefName: branch, Author: prAuthor{Login: "app/agent-machine-bot"}},
+			"https://github.com/weskor/agent-machine/pull/84": {Number: 84, URL: "https://github.com/weskor/agent-machine/pull/84", BaseRefName: "develop", HeadRefName: branch, Author: prAuthor{Login: "app/agent-machine-bot"}},
 		},
 		prs: []pullRequestSummary{
-			{Number: 73, URL: "https://github.com/weskor/agent-machine/pull/73", BaseRefName: "develop", HeadRefName: branch},
-			{Number: 84, URL: "https://github.com/weskor/agent-machine/pull/84", BaseRefName: "develop", HeadRefName: branch},
+			{Number: 73, URL: "https://github.com/weskor/agent-machine/pull/73", BaseRefName: "develop", HeadRefName: branch, Author: prAuthor{Login: "app/agent-machine-bot"}},
+			{Number: 84, URL: "https://github.com/weskor/agent-machine/pull/84", BaseRefName: "develop", HeadRefName: branch, Author: prAuthor{Login: "app/agent-machine-bot"}},
 		},
 	})
 

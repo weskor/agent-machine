@@ -69,7 +69,7 @@ func TestRunReviewCharacterizesInvocationAndOutcome(t *testing.T) {
 				t.Fatalf("classification = %q, want %q", result.Classification, tc.wantClass)
 			}
 			if tc.wantStatus == "passed" {
-				for _, want := range []string{"cwd=" + workspace, "env=from-test", "--thinking xhigh", "@" + filepath.Join(workspace, ".am-review-prompt.md")} {
+				for _, want := range []string{"cwd=" + workspace, "env=from-test", "--thinking xhigh", "@" + filepath.Join(workspace, ".am-review-prompt-")} {
 					if !strings.Contains(result.Findings, want) {
 						t.Fatalf("findings %q missing %q", result.Findings, want)
 					}
@@ -85,21 +85,17 @@ func TestRunReviewCharacterizesInvocationAndOutcome(t *testing.T) {
 func TestRunReviewIncludesGuidanceFromEvidence(t *testing.T) {
 	workspace := t.TempDir()
 	script := filepath.Join(workspace, "fake-pi")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf 'REVIEW_PASS\\n'\n"), 0o700); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nfor arg in \"$@\"; do case \"$arg\" in @*) cat \"${arg#@}\";; esac; done\nprintf 'REVIEW_PASS\\n'\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 
 	guidance := "Review direct data writes against the repository domain docs."
-	_, err := runReview(sh.Quote(script), workspace, &issue{Identifier: "CAG-94", Title: "Runtime", URL: "https://linear.test/CAG-94"}, "https://github.com/weskor/agent-machine/pull/94", nil, time.Second, &reviewEvidence{ReviewGuidance: guidance})
+	result, err := runReview(sh.Quote(script), workspace, &issue{Identifier: "CAG-94", Title: "Runtime", URL: "https://linear.test/CAG-94"}, "https://github.com/weskor/agent-machine/pull/94", nil, time.Second, &reviewEvidence{ReviewGuidance: guidance})
 	if err != nil {
 		t.Fatalf("runReview returned error: %v", err)
 	}
-	prompt, err := os.ReadFile(filepath.Join(workspace, ".am-review-prompt.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(prompt), guidance) {
-		t.Fatalf("review prompt missing configured guidance:\n%s", string(prompt))
+	if !strings.Contains(result.Findings, guidance) {
+		t.Fatalf("review prompt missing configured guidance:\n%s", result.Findings)
 	}
 }
 

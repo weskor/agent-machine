@@ -49,7 +49,7 @@ func TestPiCLIAdapterPreflightChecksReviewCommandWhenConfigured(t *testing.T) {
 func TestPiCLIAdapterRunAttemptPreservesCommandShapeAndParsesOutput(t *testing.T) {
 	var gotCommand, gotPhase string
 	runtime := PiCLIAdapter{
-		RunCommand: func(command, workdir string, env map[string]string, timeout time.Duration, phase string) (string, error) {
+		RunCommand: func(ctx context.Context, command, workdir string, env map[string]string, timeout time.Duration, phase string) (string, error) {
 			gotCommand = command
 			gotPhase = phase
 			if workdir != "/tmp/work" || env["TOKEN"] != "x" || timeout != time.Second {
@@ -77,7 +77,7 @@ func TestPiCLIAdapterRunAttemptPreservesCommandShapeAndParsesOutput(t *testing.T
 }
 
 func TestPiCLIAdapterRunAttemptMapsTimeout(t *testing.T) {
-	runtime := PiCLIAdapter{RunCommand: func(string, string, map[string]string, time.Duration, string) (string, error) {
+	runtime := PiCLIAdapter{RunCommand: func(context.Context, string, string, map[string]string, time.Duration, string) (string, error) {
 		return "partial", sh.ErrCommandTimeout
 	}}
 
@@ -132,7 +132,7 @@ func TestPiCLIAdapterRunAttemptPopulatesLegacyOutcomeEnvelope(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			runtime := PiCLIAdapter{
-				RunCommand: func(string, string, map[string]string, time.Duration, string) (string, error) {
+				RunCommand: func(context.Context, string, string, map[string]string, time.Duration, string) (string, error) {
 					return tt.output, tt.err
 				},
 				FirstPRURL: func(string) string { return tt.firstPRURL },
@@ -165,8 +165,8 @@ func TestPiCLIAdapterRunAttemptPopulatesLegacyOutcomeEnvelope(t *testing.T) {
 func TestPiCLIAdapterReviewAttemptWritesPromptAndClassifiesFindings(t *testing.T) {
 	workspace := t.TempDir()
 	runtime := PiCLIAdapter{
-		RunCommand: func(command, workdir string, env map[string]string, timeout time.Duration, phase string) (string, error) {
-			if phase != "review" || !strings.Contains(command, ".am-review-prompt.md") {
+		RunCommand: func(ctx context.Context, command, workdir string, env map[string]string, timeout time.Duration, phase string) (string, error) {
+			if phase != "review" || !strings.Contains(command, ".am-review-prompt-") {
 				t.Fatalf("unexpected review command phase=%q command=%q", phase, command)
 			}
 			return "REVIEW_FAIL\nREVIEW_CLASSIFICATION: missing_evidence_only\nAdd evidence.", nil

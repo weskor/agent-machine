@@ -300,6 +300,9 @@ func executeRunnerPRHandoffContext(ctx context.Context, config runnerConfig, can
 			return "", err
 		}
 	} else {
+		if reason := prHandoffBlockReason(config, candidate, details); reason != "" {
+			return "", fmt.Errorf("PR handoff validation failed: %s", reason)
+		}
 		title, body := handoffPRTitleBody(candidate)
 		updated, updateErr := github.UpdatePullRequest(githubCtx, details.Number, title, body, base)
 		if updateErr != nil {
@@ -581,16 +584,15 @@ func resolveHandoffPRByBranch(ctx context.Context, github githubAPI, candidate *
 
 func prHandoffBlockReason(config runnerConfig, candidate *issue, details prHandoffDetails) string {
 	var reasons []string
-	baseBranch := strings.TrimSpace(config.BaseBranch)
-	if baseBranch == "" {
-		baseBranch = "develop"
-	}
-	if !strings.EqualFold(details.BaseRefName, baseBranch) {
-		reasons = append(reasons, fmt.Sprintf("PR base branch is %q; expected %q", emptyAsUnknown(details.BaseRefName), baseBranch))
-	}
-	expectedBranch := expectedWorkspaceBranch(candidate.Identifier)
-	if details.HeadRefName != expectedBranch {
-		reasons = append(reasons, fmt.Sprintf("PR head branch is %q; expected %q", emptyAsUnknown(details.HeadRefName), expectedBranch))
+	if reason := prInvariantBlockReason(config, *candidate, pullRequestSummary{
+		Number:      details.Number,
+		URL:         details.URL,
+		BaseRefName: details.BaseRefName,
+		HeadRefName: details.HeadRefName,
+		Author:      details.Author,
+		Commits:     details.Commits,
+	}); reason != "" {
+		reasons = append(reasons, reason)
 	}
 	if details.ChangedFiles > 80 {
 		reasons = append(reasons, fmt.Sprintf("PR changes %d files, exceeding the scoped-run limit of 80", details.ChangedFiles))

@@ -151,7 +151,7 @@ func TestAcquireRunLockWithStateTreatsJSONLockAsExport(t *testing.T) {
 	}
 }
 
-func TestHeartbeatRunLockWithStateRenewsWithoutJSONExport(t *testing.T) {
+func TestHeartbeatRunLockWithStateDoesNotRenewWithoutJSONExport(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "CAG-109")
 	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
@@ -173,11 +173,11 @@ func TestHeartbeatRunLockWithStateRenewsWithoutJSONExport(t *testing.T) {
 	renewed := now.Add(10 * time.Minute)
 	heartbeatRunLockWithState(store, workspace, renewed)
 	row := readLeaseFixture(t, root, "run:CAG-109")
-	if row.renewedAt != renewed.Format(time.RFC3339Nano) || row.expiresAt != renewed.Add(runLockStaleAfter).Format(time.RFC3339Nano) {
-		t.Fatalf("expected SQLite lease renewal without JSON export, got %#v", row)
+	if row.renewedAt != now.Format(time.RFC3339Nano) || row.expiresAt != now.Add(runLockStaleAfter).Format(time.RFC3339Nano) {
+		t.Fatalf("expected SQLite lease not to renew without JSON export, got %#v", row)
 	}
-	if _, err := os.Stat(runLockPath(workspace)); err != nil {
-		t.Fatalf("expected heartbeat to refresh JSON export: %v", err)
+	if _, err := os.Stat(runLockPath(workspace)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected heartbeat to leave missing JSON export absent, got %v", err)
 	}
 }
 

@@ -34,10 +34,20 @@ func main() {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(livesmoke.SmokeMarkerContent(identifier, path)), 0o644); err != nil {
+	if err := writeSmokeMarker(path, identifier); err != nil {
 		fatal(err)
 	}
 	fmt.Printf("LIVE_SMOKE_FAKE_AGENT wrote %s for %s\n", path, identifier)
+}
+
+func writeSmokeMarker(path, identifier string) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = file.Write([]byte(livesmoke.SmokeMarkerContent(identifier, path)))
+	return err
 }
 
 func fatal(err error) {

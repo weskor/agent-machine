@@ -551,7 +551,7 @@ func TestPRHandoffBlockReasonRejectsWrongBaseAndBroadDiff(t *testing.T) {
 	config := testRunnerConfig(t.TempDir())
 	config.BaseBranch = "develop"
 	candidate := testIssue("CAG-31", "In Progress")
-	details := prHandoffDetails{BaseRefName: "main", HeadRefName: "am/CAG-31-workspace", ChangedFiles: 228, Additions: 12617}
+	details := prHandoffDetails{BaseRefName: "main", HeadRefName: "am/CAG-31-workspace", Author: prAuthor{Login: "app/agent-machine-bot"}, ChangedFiles: 228, Additions: 12617}
 
 	reason := prHandoffBlockReason(config, &candidate, details)
 
@@ -566,7 +566,7 @@ func TestPRHandoffBlockReasonRejectsUnexpectedHeadBranch(t *testing.T) {
 	config := testRunnerConfig(t.TempDir())
 	config.BaseBranch = "develop"
 	candidate := testIssue("CAG-32", "In Progress")
-	details := prHandoffDetails{BaseRefName: "develop", HeadRefName: "feature/random", ChangedFiles: 3, Additions: 120}
+	details := prHandoffDetails{BaseRefName: "develop", HeadRefName: "feature/random", Author: prAuthor{Login: "app/agent-machine-bot"}, ChangedFiles: 3, Additions: 120}
 
 	reason := prHandoffBlockReason(config, &candidate, details)
 
@@ -579,10 +579,23 @@ func TestPRHandoffBlockReasonAllowsScopedDevelopPR(t *testing.T) {
 	config := testRunnerConfig(t.TempDir())
 	config.BaseBranch = "develop"
 	candidate := testIssue("CAG-33", "In Progress")
-	details := prHandoffDetails{BaseRefName: "develop", HeadRefName: "am/CAG-33-workspace", ChangedFiles: 6, Additions: 240}
+	details := prHandoffDetails{BaseRefName: "develop", HeadRefName: "am/CAG-33-workspace", Author: prAuthor{Login: "app/agent-machine-bot"}, ChangedFiles: 6, Additions: 240}
 
 	if reason := prHandoffBlockReason(config, &candidate, details); reason != "" {
 		t.Fatalf("expected no block reason, got %q", reason)
+	}
+}
+
+func TestPRHandoffBlockReasonRejectsHumanAuthoredExistingPR(t *testing.T) {
+	config := testRunnerConfig(t.TempDir())
+	config.BaseBranch = "develop"
+	candidate := testIssue("CAG-34", "In Progress")
+	details := prHandoffDetails{BaseRefName: "develop", HeadRefName: "am/CAG-34-workspace", Author: prAuthor{Login: "human"}, ChangedFiles: 6, Additions: 240}
+
+	reason := prHandoffBlockReason(config, &candidate, details)
+
+	if !strings.Contains(reason, "PR author") || !strings.Contains(reason, "human") {
+		t.Fatalf("expected human PR author rejection, got %q", reason)
 	}
 }
 

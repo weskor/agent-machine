@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -53,7 +54,11 @@ func Scalar(yaml, key, fallback string) string {
 	if len(match) < 2 {
 		return fallback
 	}
-	value := strings.Trim(strings.TrimSpace(match[1]), `"'`)
+	raw := strings.TrimSpace(match[1])
+	value, err := strconv.Unquote(raw)
+	if err != nil {
+		value = strings.Trim(raw, `"'`)
+	}
 	if value == "" || value == "null" {
 		return fallback
 	}

@@ -112,13 +112,15 @@ func ParseRepository(value string) (string, string, bool) {
 		return parts[0], strings.TrimSuffix(parts[1], ".git"), true
 	}
 	patterns := []*regexp.Regexp{
-		regexp.MustCompile(`github\.com[:/]([^/]+)/([^/.]+)(?:\.git)?$`),
-		regexp.MustCompile(`github\.com/([^/]+)/([^/.]+)(?:\.git)?$`),
+		regexp.MustCompile(`github\.com[:/]([^/]+)/([^/]+)$`),
 	}
 	for _, pattern := range patterns {
 		match := pattern.FindStringSubmatch(value)
 		if len(match) == 3 {
-			return match[1], match[2], true
+			repo := strings.TrimSuffix(match[2], ".git")
+			if repo != "" {
+				return match[1], repo, true
+			}
 		}
 	}
 	return "", "", false
@@ -327,19 +329,70 @@ func (c *goClient) PullRequestState(ctx context.Context, prURL string) (string, 
 }
 
 func (c *goClient) PullRequestFeedback(ctx context.Context, prNumber int) (PRFeedback, error) {
-	reviews, _, err := c.client.PullRequests.ListReviews(ctx, c.owner, c.repo, prNumber, nil)
+	reviews, err := c.pullRequestReviews(ctx, prNumber)
 	if err != nil {
 		return PRFeedback{}, err
 	}
-	issueComments, _, err := c.client.Issues.ListComments(ctx, c.owner, c.repo, prNumber, nil)
+	issueComments, err := c.issueComments(ctx, prNumber)
 	if err != nil {
 		return PRFeedback{}, err
 	}
-	reviewComments, _, err := c.client.PullRequests.ListComments(ctx, c.owner, c.repo, prNumber, nil)
+	reviewComments, err := c.pullRequestReviewComments(ctx, prNumber)
 	if err != nil {
 		return PRFeedback{}, err
 	}
 	return MapPullRequestFeedback(reviews, issueComments, reviewComments), nil
+}
+
+func (c *goClient) pullRequestReviews(ctx context.Context, prNumber int) ([]*github.PullRequestReview, error) {
+	options := &github.ListOptions{PerPage: 100}
+	var reviews []*github.PullRequestReview
+	for {
+		page, response, err := c.client.PullRequests.ListReviews(ctx, c.owner, c.repo, prNumber, options)
+		if err != nil {
+			return nil, err
+		}
+		reviews = append(reviews, page...)
+		if response == nil || response.NextPage == 0 {
+			break
+		}
+		options.Page = response.NextPage
+	}
+	return reviews, nil
+}
+
+func (c *goClient) issueComments(ctx context.Context, number int) ([]*github.IssueComment, error) {
+	options := &github.IssueListCommentsOptions{ListOptions: github.ListOptions{PerPage: 100}}
+	var comments []*github.IssueComment
+	for {
+		page, response, err := c.client.Issues.ListComments(ctx, c.owner, c.repo, number, options)
+		if err != nil {
+			return nil, err
+		}
+		comments = append(comments, page...)
+		if response == nil || response.NextPage == 0 {
+			break
+		}
+		options.Page = response.NextPage
+	}
+	return comments, nil
+}
+
+func (c *goClient) pullRequestReviewComments(ctx context.Context, prNumber int) ([]*github.PullRequestComment, error) {
+	options := &github.PullRequestListCommentsOptions{ListOptions: github.ListOptions{PerPage: 100}}
+	var comments []*github.PullRequestComment
+	for {
+		page, response, err := c.client.PullRequests.ListComments(ctx, c.owner, c.repo, prNumber, options)
+		if err != nil {
+			return nil, err
+		}
+		comments = append(comments, page...)
+		if response == nil || response.NextPage == 0 {
+			break
+		}
+		options.Page = response.NextPage
+	}
+	return comments, nil
 }
 
 func MapPullRequestFeedback(reviews []*github.PullRequestReview, issueComments []*github.IssueComment, reviewComments []*github.PullRequestComment) PRFeedback {
@@ -397,7 +450,7 @@ func (c *goClient) IssueComments(ctx context.Context, prNumber string) ([]IssueC
 	if err != nil {
 		return nil, fmt.Errorf("invalid GitHub PR number %q", prNumber)
 	}
-	comments, _, err := c.client.Issues.ListComments(ctx, c.owner, c.repo, number, nil)
+	comments, err := c.issueComments(ctx, number)
 	if err != nil {
 		return nil, err
 	}
@@ -446,7 +499,7 @@ func (c *goClient) PullRequestHandoffDetails(ctx context.Context, prURL string) 
 	if err != nil {
 		return PRHandoffDetails{}, err
 	}
-	return c.prHandoffDetails(ctx, pr), nil
+	return c.prHandoffDetails(ctx, pr)
 }
 
 func (c *goClient) CreatePullRequest(ctx context.Context, title, body, head, base string) (PRHandoffDetails, error) {
@@ -454,7 +507,7 @@ func (c *goClient) CreatePullRequest(ctx context.Context, title, body, head, bas
 	if err != nil {
 		return PRHandoffDetails{}, fmt.Errorf("GitHub API PR create failed: %w", err)
 	}
-	return c.prHandoffDetails(ctx, pr), nil
+	return c.prHandoffDetails(ctx, pr)
 }
 
 func (c *goClient) UpdatePullRequest(ctx context.Context, number int, title, body, base string) (PRHandoffDetails, error) {
@@ -462,12 +515,20 @@ func (c *goClient) UpdatePullRequest(ctx context.Context, number int, title, bod
 	if err != nil {
 		return PRHandoffDetails{}, fmt.Errorf("GitHub API PR update failed for #%d: %w", number, err)
 	}
-	return c.prHandoffDetails(ctx, pr), nil
+	return c.prHandoffDetails(ctx, pr)
 }
 
-func (c *goClient) prHandoffDetails(ctx context.Context, pr *github.PullRequest) PRHandoffDetails {
+func (c *goClient) prHandoffDetails(ctx context.Context, pr *github.PullRequest) (PRHandoffDetails, error) {
 	headSHA := pr.GetHead().GetSHA()
-	return PRHandoffDetails{Number: pr.GetNumber(), URL: pr.GetHTMLURL(), BaseRefName: pr.GetBase().GetRef(), HeadRefName: pr.GetHead().GetRef(), HeadSHA: headSHA, ChangedFiles: pr.GetChangedFiles(), Additions: pr.GetAdditions(), Deletions: pr.GetDeletions(), StatusCheckRollup: checksWithMergeStateFallback(c.statusChecksForRef(ctx, headSHA), mergeStateStatusFromPullRequest(pr))}
+	details := PRHandoffDetails{Number: pr.GetNumber(), URL: pr.GetHTMLURL(), BaseRefName: pr.GetBase().GetRef(), HeadRefName: pr.GetHead().GetRef(), HeadSHA: headSHA, Author: PRAuthor{Login: pr.GetUser().GetLogin()}, ChangedFiles: pr.GetChangedFiles(), Additions: pr.GetAdditions(), Deletions: pr.GetDeletions(), StatusCheckRollup: checksWithMergeStateFallback(c.statusChecksForRef(ctx, headSHA), mergeStateStatusFromPullRequest(pr))}
+	if pr.GetNumber() != 0 {
+		commits, err := c.pullRequestCommits(ctx, pr.GetNumber())
+		if err != nil {
+			return PRHandoffDetails{}, err
+		}
+		details.Commits = commits
+	}
+	return details, nil
 }
 
 func checksWithMergeStateFallback(checks []StatusCheck, mergeState string) []StatusCheck {

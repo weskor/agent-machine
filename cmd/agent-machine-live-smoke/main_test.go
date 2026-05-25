@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -20,15 +21,16 @@ func TestParseOptionsUsesProvidedIssuesAsCount(t *testing.T) {
 }
 
 func TestWriteSmokeConfigUsesSafeGeneratedConfig(t *testing.T) {
-	root := t.TempDir()
+	root := filepath.Join(t.TempDir(), `workspace\root`)
 	config := cfg.Config{
-		Tracker:   cfg.TrackerConfig{Endpoint: "https://api.linear.app/graphql", ProjectSlug: "project-slug", NeedsInfoState: "Needs Info"},
-		Workspace: cfg.WorkspaceConfig{BaseBranch: "main"},
-		Hooks:     cfg.HooksConfig{TimeoutText: "120000"},
-		Agent:     cfg.AgentConfig{MaxRetryBackoffText: "300000"},
-		Pi:        cfg.PiConfig{AfterCreate: "git clone --branch main git@github.com:weskor/agent-machine.git ."},
-		GitHub:    cfg.GitHubConfig{AppSlug: "agent-machine-bot"},
-		Workflow:  cfg.WorkflowConfig{HandoffState: "Human Review", RunningState: "In Progress", NeedsInfoState: "Needs Info", DoneState: "Done"},
+		Repository: cfg.RepositoryConfig{Remote: `git@github.com:weskor/agent-machine.with.dot.git`},
+		Tracker:    cfg.TrackerConfig{Endpoint: "https://api.linear.app/graphql\nnext", ProjectSlug: "project-slug", NeedsInfoState: "Needs Info"},
+		Workspace:  cfg.WorkspaceConfig{BaseBranch: "main"},
+		Hooks:      cfg.HooksConfig{TimeoutText: "120000"},
+		Agent:      cfg.AgentConfig{MaxRetryBackoffText: "300000"},
+		Pi:         cfg.PiConfig{AfterCreate: "git clone --branch main git@github.com:weskor/agent-machine.git ."},
+		GitHub:     cfg.GitHubConfig{AppSlug: "agent-machine-bot"},
+		Workflow:   cfg.WorkflowConfig{HandoffState: "Human Review", RunningState: "In Progress", NeedsInfoState: "Needs Info", DoneState: "Done"},
 	}
 
 	path, err := writeSmokeConfig(options{workspaceRoot: root, concurrency: 2}, config)
@@ -41,8 +43,9 @@ func TestWriteSmokeConfigUsesSafeGeneratedConfig(t *testing.T) {
 	}
 	text := string(data)
 	for _, expected := range []string{
-		"repository:\n  remote: \"git@github.com:weskor/agent-machine.git\"",
-		"root: \"" + root + "\"",
+		"repository:\n  remote: \"git@github.com:weskor/agent-machine.with.dot.git\"",
+		"endpoint: \"https://api.linear.app/graphql\\nnext\"",
+		"root: " + yamlScalar(root),
 		"prompt_path: \"am.live-smoke.agent.md\"",
 		"max_concurrent_agents: 2",
 		"go run ./cmd/agent-machine-live-smoke-agent --role implementation",
@@ -57,8 +60,12 @@ func TestWriteSmokeConfigUsesSafeGeneratedConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generated config was not readable: %v", err)
 	}
-	if _, err := cfg.ParseConfig(proj.YAML); err != nil {
+	parsed, err := cfg.ParseConfig(proj.YAML)
+	if err != nil {
 		t.Fatalf("generated config was not parseable: %v", err)
+	}
+	if parsed.Tracker.Endpoint != "https://api.linear.app/graphql\nnext" || parsed.Workspace.Root != root {
+		t.Fatalf("generated config did not preserve escaped scalars: endpoint=%q root=%q", parsed.Tracker.Endpoint, parsed.Workspace.Root)
 	}
 	if !strings.Contains(proj.Prompt, "Agent Machine Live Smoke Prompt") {
 		t.Fatalf("generated prompt was not loaded: %q", proj.Prompt)

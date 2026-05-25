@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -54,7 +55,7 @@ func TestCaptureAgentOutputDoesNotPrintRawOutputByDefault(t *testing.T) {
 
 	workspace := t.TempDir()
 	stdout := captureStdout(t, func() {
-		output, err := captureAgentOutput("printf %s \"$RAW_AGENT_OUTPUT\"", workspace, map[string]string{"RAW_AGENT_OUTPUT": "raw-jsonl-stream"}, 0, "implementation")
+		output, err := captureAgentOutput(context.Background(), "printf %s \"$RAW_AGENT_OUTPUT\"", workspace, map[string]string{"RAW_AGENT_OUTPUT": "raw-jsonl-stream"}, 0, "implementation")
 		if err != nil {
 			t.Fatalf("captureAgentOutput returned error: %v", err)
 		}
@@ -94,7 +95,7 @@ func TestCaptureAgentOutputCharacterizesCommandCwdEnvAndTimeout(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			workspace := t.TempDir()
-			output, err := captureAgentOutput(tc.command, workspace, tc.env, tc.timeout, "implementation")
+			output, err := captureAgentOutput(context.Background(), tc.command, workspace, tc.env, tc.timeout, "implementation")
 			if tc.wantTimeout {
 				if !errors.Is(err, sh.ErrCommandTimeout) {
 					t.Fatalf("expected timeout, got %v", err)
@@ -117,7 +118,7 @@ func TestCaptureAgentOutputWritesCappedDebugArtifactWhenEnabled(t *testing.T) {
 	t.Setenv("AM_DEBUG_RAW_OUTPUT", "1")
 	t.Setenv("AM_DEBUG_RAW_OUTPUT_LIMIT_BYTES", "5")
 	stdout := captureStdout(t, func() {
-		output, err := captureAgentOutput("printf %s \"$RAW_AGENT_OUTPUT\"", workspace, map[string]string{"RAW_AGENT_OUTPUT": "0123456789"}, 0, "review")
+		output, err := captureAgentOutput(context.Background(), "printf %s \"$RAW_AGENT_OUTPUT\"", workspace, map[string]string{"RAW_AGENT_OUTPUT": "0123456789"}, 0, "review")
 		if err != nil {
 			t.Fatalf("captureAgentOutput returned error: %v", err)
 		}

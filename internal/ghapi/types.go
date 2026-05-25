@@ -81,8 +81,14 @@ type PRHandoffDetails struct {
 	BaseRefName       string        `json:"baseRefName"`
 	HeadRefName       string        `json:"headRefName"`
 	HeadSHA           string        `json:"headSha,omitempty"`
+	Author            PRAuthor      `json:"author"`
+	Commits           []PRCommit    `json:"commits,omitempty"`
 	ChangedFiles      int           `json:"changedFiles"`
 	Additions         int           `json:"additions"`
 	Deletions         int           `json:"deletions"`
 	StatusCheckRollup []StatusCheck `json:"statusCheckRollup,omitempty"`
+}
+
+func (pr PRHandoffDetails) AuthorLogin() string {
+	return strings.TrimSpace(pr.Author.Login)
 }

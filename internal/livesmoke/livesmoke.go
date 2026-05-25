@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type IssueRef struct {
@@ -131,10 +132,12 @@ func AllowedPathFromPrompt(prompt string) (string, error) {
 func titleCase(value string) string {
 	words := strings.Fields(value)
 	for i, word := range words {
-		if word == "" {
+		runes := []rune(word)
+		if len(runes) == 0 {
 			continue
 		}
-		words[i] = strings.ToUpper(word[:1]) + word[1:]
+		runes[0] = unicode.ToUpper(runes[0])
+		words[i] = string(runes)
 	}
 	return strings.Join(words, " ")
 }

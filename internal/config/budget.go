@@ -168,8 +168,12 @@ func parseBudget(yaml string, strict bool) (Budget, error) {
 	if budget.GitHubTimeout, budget.GitHubText, err = durationFromYAML(budgetYAML, "github_timeout", budget.GitHubTimeout, budget.GitHubText, strict); err != nil {
 		return Budget{}, err
 	}
-	budget.MaxTokens = floatFromYAML(budgetYAML, "max_tokens", 0)
-	budget.MaxCost = floatFromYAML(budgetYAML, "max_cost", 0)
+	if budget.MaxTokens, err = floatFromYAML(budgetYAML, "max_tokens", 0, strict); err != nil {
+		return Budget{}, err
+	}
+	if budget.MaxCost, err = floatFromYAML(budgetYAML, "max_cost", 0, strict); err != nil {
+		return Budget{}, err
+	}
 	return budget, nil
 }
 
@@ -191,14 +195,17 @@ func durationFromYAML(yaml, key string, fallback time.Duration, fallbackText str
 	return duration, value, nil
 }
 
-func floatFromYAML(yaml, key string, fallback float64) float64 {
+func floatFromYAML(yaml, key string, fallback float64, strict bool) (float64, error) {
 	value := Scalar(yaml, "  "+key, "")
 	if value == "" {
-		return fallback
+		return fallback, nil
 	}
 	parsed, err := strconv.ParseFloat(value, 64)
 	if err != nil || parsed < 0 {
-		return fallback
+		if strict {
+			return 0, fmt.Errorf("am.yaml budgets.%s must be a non-negative number", key)
+		}
+		return fallback, nil
 	}
-	return parsed
+	return parsed, nil
 }

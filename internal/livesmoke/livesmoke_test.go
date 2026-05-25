@@ -40,3 +40,10 @@ func TestAllowedPathFromPromptRejectsUnsafePath(t *testing.T) {
 		t.Fatal("expected unsafe path to be rejected")
 	}
 }
+
+func TestSmokeMarkerContentTitleCasesUnicodeFilename(t *testing.T) {
+	content := SmokeMarkerContent("CAG-1", "docs/smoke/éclair-test.md")
+	if !strings.HasPrefix(content, "# Éclair Test\n") {
+		t.Fatalf("unexpected marker heading: %q", content)
+	}
+}

@@ -71,22 +71,34 @@ func (c Client) IssueIdentifiersByState(projectSlug, state string) (map[string]b
 }
 
 func (c Client) IssueIdentifiersByStateContext(ctx context.Context, projectSlug, state string) (map[string]bool, error) {
-	var out struct {
-		Issues struct {
-			Nodes []domain.Issue `json:"nodes"`
-		} `json:"issues"`
-	}
-	err := c.queryContext(ctx, `query($projectSlug: String!, $state: String!) {
-  issues(first: 100, filter: { project: { slugId: { eq: $projectSlug } }, state: { name: { eq: $state } } }) {
-    nodes { identifier }
-  }
-}`, map[string]any{"projectSlug": projectSlug, "state": state}, &out)
-	if err != nil {
-		return nil, err
-	}
 	identifiers := map[string]bool{}
-	for _, issue := range out.Issues.Nodes {
-		identifiers[issue.Identifier] = true
+	var after any
+	for {
+		var out struct {
+			Issues struct {
+				Nodes    []domain.Issue `json:"nodes"`
+				PageInfo struct {
+					HasNextPage bool   `json:"hasNextPage"`
+					EndCursor   string `json:"endCursor"`
+				} `json:"pageInfo"`
+			} `json:"issues"`
+		}
+		err := c.queryContext(ctx, `query($projectSlug: String!, $state: String!, $after: String) {
+  issues(first: 100, after: $after, filter: { project: { slugId: { eq: $projectSlug } }, state: { name: { eq: $state } } }) {
+    nodes { identifier }
+    pageInfo { hasNextPage endCursor }
+  }
+}`, map[string]any{"projectSlug": projectSlug, "state": state, "after": after}, &out)
+		if err != nil {
+			return nil, err
+		}
+		for _, issue := range out.Issues.Nodes {
+			identifiers[issue.Identifier] = true
+		}
+		if !out.Issues.PageInfo.HasNextPage {
+			break
+		}
+		after = out.Issues.PageInfo.EndCursor
 	}
 	return identifiers, nil
 }

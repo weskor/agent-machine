@@ -78,6 +78,44 @@ func TestCandidatesContextHonorsCanceledContextBeforeRequest(t *testing.T) {
 	}
 }
 
+func TestIssueIdentifiersByStateContextReadsAllPages(t *testing.T) {
+	var afterValues []any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var requestBody struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if !strings.Contains(requestBody.Query, "pageInfo { hasNextPage endCursor }") || !strings.Contains(requestBody.Query, "after: $after") {
+			t.Fatalf("query = %q, want paginated identifiers query", requestBody.Query)
+		}
+		afterValues = append(afterValues, requestBody.Variables["after"])
+		w.Header().Set("Content-Type", "application/json")
+		if requestBody.Variables["after"] == nil {
+			_, _ = w.Write([]byte(`{"data":{"issues":{"nodes":[{"identifier":"CAG-1"}],"pageInfo":{"hasNextPage":true,"endCursor":"cursor-1"}}}}`))
+			return
+		}
+		if requestBody.Variables["after"] != "cursor-1" {
+			t.Fatalf("after = %v, want cursor-1", requestBody.Variables["after"])
+		}
+		_, _ = w.Write([]byte(`{"data":{"issues":{"nodes":[{"identifier":"CAG-2"}],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}`))
+	}))
+	defer server.Close()
+
+	identifiers, err := NewClient("test-key", server.URL).IssueIdentifiersByStateContext(context.Background(), "am", "Ready for Agent")
+	if err != nil {
+		t.Fatalf("IssueIdentifiersByStateContext returned error: %v", err)
+	}
+	if !identifiers["CAG-1"] || !identifiers["CAG-2"] || len(identifiers) != 2 {
+		t.Fatalf("identifiers = %#v, want both pages", identifiers)
+	}
+	if len(afterValues) != 2 || afterValues[0] != nil || afterValues[1] != "cursor-1" {
+		t.Fatalf("after values = %#v", afterValues)
+	}
+}
+
 func TestMutationsReturnErrorsWhenLinearReportsFailure(t *testing.T) {
 	tests := []struct {
 		name    string

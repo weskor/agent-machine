@@ -55,6 +55,9 @@ func TestPRNumberFromURL(t *testing.T) {
 	if got := prNumberFromURL("https://github.com/weskor/agent-machine/pull/407"); got != "407" {
 		t.Fatalf("unexpected PR number: %q", got)
 	}
+	if got := prNumberFromURL("https://gitlab.com/weskor/agent-machine/-/merge_requests/408"); got != "408" {
+		t.Fatalf("unexpected GitLab MR number: %q", got)
+	}
 	if got := prNumberFromURL("https://example.com/pull/407"); got != "" {
 		t.Fatalf("expected non-GitHub URL to be ignored, got %q", got)
 	}

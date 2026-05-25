@@ -13,6 +13,7 @@ import (
 type Config struct {
 	ConfigPath             string
 	RepositoryRemote       string
+	RepositoryProvider     string
 	APIKey                 string
 	Endpoint               string
 	ProjectSlug            string
@@ -35,6 +36,9 @@ type Config struct {
 	Budget                 cfg.Budget
 	GitHubAppSlug          string
 	GitHubPRAuthorOverride string
+	GitLabEndpoint         string
+	GitLabProject          string
+	GitLabPRAuthorOverride string
 }
 
 type BackfillSummary struct {
@@ -321,19 +325,20 @@ func LoadProjectConfig(configPath string) (cfg.Project, Config, error) {
 	configDir := filepath.Dir(configPath)
 
 	config := Config{
-		ConfigPath:       configPath,
-		RepositoryRemote: schema.Repository.Remote,
-		APIKey:           schema.Tracker.APIKey,
-		Endpoint:         schema.Tracker.Endpoint,
-		ProjectSlug:      schema.Tracker.ProjectSlug,
-		WorkspaceRoot:    resolveConfigRelative(configDir, schema.Workspace.Root),
-		RunningState:     schema.Workflow.RunningState,
-		HandoffState:     schema.Workflow.HandoffState,
-		DoneState:        schema.Workflow.DoneState,
-		NeedsInfoState:   schema.Workflow.NeedsInfoState,
-		ReadyState:       "Ready for Agent",
-		BaseBranch:       schema.Workspace.BaseBranch,
-		ActiveStates:     schema.Tracker.ActiveStates,
+		ConfigPath:         configPath,
+		RepositoryRemote:   schema.Repository.Remote,
+		RepositoryProvider: schema.Repository.Provider,
+		APIKey:             schema.Tracker.APIKey,
+		Endpoint:           schema.Tracker.Endpoint,
+		ProjectSlug:        schema.Tracker.ProjectSlug,
+		WorkspaceRoot:      resolveConfigRelative(configDir, schema.Workspace.Root),
+		RunningState:       schema.Workflow.RunningState,
+		HandoffState:       schema.Workflow.HandoffState,
+		DoneState:          schema.Workflow.DoneState,
+		NeedsInfoState:     schema.Workflow.NeedsInfoState,
+		ReadyState:         "Ready for Agent",
+		BaseBranch:         schema.Workspace.BaseBranch,
+		ActiveStates:       schema.Tracker.ActiveStates,
 	}
 	config.RuntimeProvider = schema.Runtime.Provider
 	config.RuntimeCommand = schema.Runtime.Command
@@ -346,6 +351,9 @@ func LoadProjectConfig(configPath string) (cfg.Project, Config, error) {
 	config.Budget = schema.Budgets
 	config.GitHubAppSlug = schema.GitHub.AppSlug
 	config.GitHubPRAuthorOverride = schema.GitHub.PRAuthorOverride
+	config.GitLabEndpoint = schema.GitLab.Endpoint
+	config.GitLabProject = schema.GitLab.Project
+	config.GitLabPRAuthorOverride = schema.GitLab.PRAuthorOverride
 	return proj, config, nil
 }
 

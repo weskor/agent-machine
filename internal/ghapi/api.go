@@ -5,28 +5,15 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/go-github/v69/github"
+	"github.com/weskor/agent-machine/internal/codehost"
 )
 
-type Client interface {
-	OpenPullRequests(ctx context.Context) ([]PullRequestSummary, error)
-	PullRequestState(ctx context.Context, prURL string) (string, bool, error)
-	PullRequestFeedback(ctx context.Context, prNumber int) (PRFeedback, error)
-	IssueComments(ctx context.Context, prNumber string) ([]IssueComment, error)
-	UpdateIssueComment(ctx context.Context, commentID int64, body string) error
-	CreateIssueComment(ctx context.Context, prNumber int, body string) error
-	SquashMergePullRequest(ctx context.Context, prNumber int) error
-	DeleteBranch(ctx context.Context, branch string) error
-	PullRequestHandoffDetails(ctx context.Context, prURL string) (PRHandoffDetails, error)
-	CreatePullRequest(ctx context.Context, title, body, head, base string) (PRHandoffDetails, error)
-	UpdatePullRequest(ctx context.Context, number int, title, body, base string) (PRHandoffDetails, error)
-}
+type Client = codehost.Client
 
 var AppEnvFromEnvironmentForAPI = AppEnvFromEnvironment
 
@@ -80,50 +67,35 @@ func CurrentRepository() (string, string, error) {
 			return owner, repo, nil
 		}
 	}
-	owner, repo, err := gitHubRepoFromDir(".")
+	repo, err := gitHubRepoFromDir(".")
 	if err != nil {
 		return "", "", fmt.Errorf("GitHub repository could not be determined from GITHUB_REPOSITORY or git remote origin: %w", err)
 	}
-	return owner, repo, nil
+	return repo.Owner, repo.Name, nil
 }
 
 func ConfigureRepositoryFromConfig(configPath string) {
-	owner, repo, err := gitHubRepoFromDir(filepath.Dir(configPath))
-	if err != nil {
-		return
-	}
-	_ = os.Setenv("GITHUB_REPOSITORY", owner+"/"+repo)
+	codehost.ConfigureRepositoryEnvFromConfig(configPath, os.Setenv)
 }
 
-func gitHubRepoFromDir(dir string) (string, string, error) {
+func gitHubRepoFromDir(dir string) (codehost.Repository, error) {
 	out, err := exec.Command("git", "-C", dir, "config", "--get", "remote.origin.url").Output()
 	if err != nil {
-		return "", "", err
+		return codehost.Repository{}, err
 	}
 	remote := strings.TrimSpace(string(out))
-	if owner, repo, ok := ParseRepository(remote); ok {
-		return owner, repo, nil
+	if owner, name, ok := ParseRepository(remote); ok {
+		return codehost.Repository{Provider: codehost.ProviderGitHub, Host: "github.com", Owner: owner, Name: name, Path: owner + "/" + name}, nil
 	}
-	return "", "", fmt.Errorf("GitHub repository could not be parsed from remote origin %q", remote)
+	return codehost.Repository{}, fmt.Errorf("GitHub repository could not be parsed from remote origin %q", remote)
 }
 
 func ParseRepository(value string) (string, string, bool) {
-	if parts := strings.Split(value, "/"); len(parts) == 2 && parts[0] != "" && parts[1] != "" && !strings.Contains(parts[0], ":") {
-		return parts[0], strings.TrimSuffix(parts[1], ".git"), true
+	repo, ok := codehost.ParseRepository(value)
+	if !ok || (repo.Provider != "" && repo.Provider != codehost.ProviderGitHub) {
+		return "", "", false
 	}
-	patterns := []*regexp.Regexp{
-		regexp.MustCompile(`github\.com[:/]([^/]+)/([^/]+)$`),
-	}
-	for _, pattern := range patterns {
-		match := pattern.FindStringSubmatch(value)
-		if len(match) == 3 {
-			repo := strings.TrimSuffix(match[2], ".git")
-			if repo != "" {
-				return match[1], repo, true
-			}
-		}
-	}
-	return "", "", false
+	return repo.Owner, repo.Name, true
 }
 
 func ClientWithTimeout(timeout time.Duration) (Client, context.Context, context.CancelFunc, error) {

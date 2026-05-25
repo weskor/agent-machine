@@ -14,15 +14,15 @@ import (
 
 const repairReviewFindingsNextAction = "repair_review_findings_before_handoff"
 
-func collectPRFeedback(prNumber int) (string, error) {
-	github, ctx, cancel, err := githubClientWithTimeout(defaultGitHubCommandTimeout)
+func collectPRFeedback(prURL string, prNumber int) (string, error) {
+	github, ctx, cancel, err := codeHostClientForPRURLWithTimeout(prURL, defaultGitHubCommandTimeout)
 	if err != nil {
 		return "", err
 	}
 	defer cancel()
 	feedback, err := github.PullRequestFeedback(ctx, prNumber)
 	if err != nil {
-		return "", fmt.Errorf("GitHub API PR feedback lookup failed for #%d: %w", prNumber, err)
+		return "", fmt.Errorf("code-host API PR feedback lookup failed for #%d: %w", prNumber, err)
 	}
 	return renderPRFeedback(prNumber, feedback), nil
 }

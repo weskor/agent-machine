@@ -31,7 +31,7 @@ func printStatus(client linearClient, config runnerConfig) error {
 		log("- %s [%s] %s", issue.Identifier, issue.State.Name, issue.Title)
 	}
 
-	prs, err := openAgentMachinePRs()
+	prs, err := openAgentMachinePRs(config)
 	if err != nil {
 		return err
 	}
@@ -326,15 +326,15 @@ func formatEventSummary(event eventSummary) string {
 	return fmt.Sprintf("- #%d %s issue=%s source=%s at=%s", event.Sequence, event.Type, issue, event.Source, event.OccurredAt.UTC().Format(time.RFC3339))
 }
 
-func openAgentMachinePRs() ([]pullRequestSummary, error) {
-	github, ctx, cancel, err := githubClientWithTimeout(defaultGitHubCommandTimeout)
+func openAgentMachinePRs(config runnerConfig) ([]pullRequestSummary, error) {
+	github, ctx, cancel, err := codeHostClientWithTimeout(config, defaultGitHubCommandTimeout)
 	if err != nil {
 		return nil, err
 	}
 	defer cancel()
 	prs, err := github.OpenPullRequests(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("GitHub API open PR metadata lookup failed: %w", err)
+		return nil, fmt.Errorf("code-host API open PR metadata lookup failed: %w", err)
 	}
 	return amPRs(prs), nil
 }

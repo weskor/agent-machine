@@ -30,10 +30,12 @@ type Config struct {
 	Budgets    Budget
 	Workflow   WorkflowConfig
 	GitHub     GitHubConfig
+	GitLab     GitLabConfig
 }
 
 type RepositoryConfig struct {
-	Remote string
+	Remote   string
+	Provider string
 }
 
 type TrackerConfig struct {
@@ -105,6 +107,12 @@ type GitHubConfig struct {
 	PRAuthorOverride string
 }
 
+type GitLabConfig struct {
+	Endpoint         string
+	Project          string
+	PRAuthorOverride string
+}
+
 // ParseConfig validates and normalizes am.yaml while preserving
 // the runner's historical defaults and environment expansion behavior.
 func ParseConfig(yaml string) (Config, error) {
@@ -118,6 +126,7 @@ func ParseConfig(yaml string) (Config, error) {
 	reviewYAML := Section(yaml, "review")
 	workflowYAML := Section(yaml, "workflow")
 	githubYAML := Section(yaml, "github")
+	gitlabYAML := Section(yaml, "gitlab")
 
 	budgets, err := ParseBudgetValidated(yaml)
 	if err != nil {
@@ -132,7 +141,8 @@ func ParseConfig(yaml string) (Config, error) {
 
 	config := Config{
 		Repository: RepositoryConfig{
-			Remote: Scalar(repositoryYAML, "  remote", ""),
+			Remote:   Scalar(repositoryYAML, "  remote", ""),
+			Provider: Scalar(repositoryYAML, "  provider", "github"),
 		},
 		Tracker: TrackerConfig{
 			Kind:           Scalar(trackerYAML, "  kind", "linear"),
@@ -185,6 +195,11 @@ func ParseConfig(yaml string) (Config, error) {
 		GitHub: GitHubConfig{
 			AppSlug:          Scalar(githubYAML, "  app_slug", ""),
 			PRAuthorOverride: Scalar(githubYAML, "  pr_author_override", ""),
+		},
+		GitLab: GitLabConfig{
+			Endpoint:         Scalar(gitlabYAML, "  endpoint", ""),
+			Project:          Scalar(gitlabYAML, "  project", ""),
+			PRAuthorOverride: Scalar(gitlabYAML, "  pr_author_override", ""),
 		},
 	}
 	if len(config.Tracker.ActiveStates) == 0 {

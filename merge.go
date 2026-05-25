@@ -51,7 +51,7 @@ func mergeApprovedPRsWithStoreContext(parent context.Context, client linearClien
 	if store == nil {
 		return fmt.Errorf("SQLite state store unavailable for merge at %s", orchstate.DefaultDBPath(config.WorkspaceRoot))
 	}
-	github, ctx, cancel, err := githubClientWithContextTimeout(parent, config.Budget.MergeTimeout)
+	github, ctx, cancel, err := codeHostClientWithContextTimeout(parent, config, config.Budget.MergeTimeout)
 	if err != nil {
 		recordMergeErrorContext(parent, store, "", "", 0, err)
 		return err
@@ -60,7 +60,7 @@ func mergeApprovedPRsWithStoreContext(parent context.Context, client linearClien
 	prs, err := github.OpenPullRequests(ctx)
 	if err != nil {
 		recordMergeErrorContext(ctx, store, "", "", 0, err)
-		return fmt.Errorf("GitHub API open PR metadata lookup failed: %w", err)
+		return fmt.Errorf("code-host API open PR metadata lookup failed: %w", err)
 	}
 	prs = amPRs(prs)
 	log("found %d Agent Machine-owned open PR(s)", len(prs))
@@ -77,7 +77,7 @@ func scheduleMergeWorkerTasks(ctx context.Context, client linearClient, config r
 	if store == nil {
 		return false, fmt.Errorf("SQLite state store unavailable for merge scheduling at %s", orchstate.DefaultDBPath(config.WorkspaceRoot))
 	}
-	github, ghCtx, cancel, err := githubClientWithContextTimeout(ctx, config.Budget.MergeTimeout)
+	github, ghCtx, cancel, err := codeHostClientWithContextTimeout(ctx, config, config.Budget.MergeTimeout)
 	if err != nil {
 		recordMergeErrorContext(ctx, store, "", "", 0, err)
 		return false, err
@@ -86,7 +86,7 @@ func scheduleMergeWorkerTasks(ctx context.Context, client linearClient, config r
 	prs, err := github.OpenPullRequests(ghCtx)
 	if err != nil {
 		recordMergeErrorContext(ctx, store, "", "", 0, err)
-		return false, fmt.Errorf("GitHub API open PR metadata lookup failed: %w", err)
+		return false, fmt.Errorf("code-host API open PR metadata lookup failed: %w", err)
 	}
 	didWork := false
 	now := time.Now().UTC()
@@ -123,7 +123,7 @@ func runQueuedMergeWorkerTaskContext(parent context.Context, client linearClient
 	if store == nil {
 		return false, fmt.Errorf("SQLite state store unavailable for merge worker at %s", orchstate.DefaultDBPath(config.WorkspaceRoot))
 	}
-	github, ctx, cancel, err := githubClientWithContextTimeout(parent, config.Budget.MergeTimeout)
+	github, ctx, cancel, err := codeHostClientWithContextTimeout(parent, config, config.Budget.MergeTimeout)
 	if err != nil {
 		recordMergeErrorContext(parent, store, "", "", 0, err)
 		return false, err
@@ -143,7 +143,7 @@ func runQueuedMergeWorkerTaskContext(parent context.Context, client linearClient
 	if err != nil {
 		finishedAt := time.Now().UTC()
 		recordMergeErrorContext(ctx, store, task.IssueKey, task.IssueID, taskPayload.PRNumber, err)
-		return true, errors.Join(fmt.Errorf("GitHub API open PR metadata lookup failed: %w", err), completeClaimedMergeWorkerTask(ctx, store, task, "failed", true, "github_open_pr_lookup_failed", err.Error(), startedAt, finishedAt))
+		return true, errors.Join(fmt.Errorf("code-host API open PR metadata lookup failed: %w", err), completeClaimedMergeWorkerTask(ctx, store, task, "failed", true, "codehost_open_pr_lookup_failed", err.Error(), startedAt, finishedAt))
 	}
 	pr, ok := findMergeTaskPullRequest(amPRs(prs), task, taskPayload)
 	if !ok {

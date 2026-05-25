@@ -95,7 +95,7 @@ func (w mergeWorker) handleApprovedPR(ctx context.Context, candidate *issue, sta
 	if err := w.github.SquashMergePullRequest(ctx, pr.Number); err != nil {
 		recordMergeEventContext(ctx, w.store, orchstate.EventMergeFailed, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "phase": "squash_merge", "error": err.Error()})
 		recordMergeErrorContext(ctx, w.store, candidate.Identifier, candidate.ID, pr.Number, err)
-		return fmt.Errorf("GitHub API squash merge failed for PR #%d: %w", pr.Number, err)
+		return fmt.Errorf("code-host squash merge failed for PR/MR #%d: %w", pr.Number, err)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -106,7 +106,7 @@ func (w mergeWorker) handleApprovedPR(ctx context.Context, candidate *issue, sta
 		recordMergeEventContext(ctx, w.store, orchstate.EventBranchDeletionFinished, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "head_ref": pr.HeadRefName, "result": "failed", "error": err.Error()})
 		recordMergeEventContext(ctx, w.store, orchstate.EventMergeFailed, candidate.Identifier, candidate.ID, pr.Number, map[string]any{"pr_url": pr.URL, "phase": "branch_deletion", "error": err.Error()})
 		recordMergeErrorContext(ctx, w.store, candidate.Identifier, candidate.ID, pr.Number, err)
-		return fmt.Errorf("GitHub API branch deletion failed for %s after merged PR #%d: %w", pr.HeadRefName, pr.Number, err)
+		return fmt.Errorf("code-host branch deletion failed for %s after merged PR/MR #%d: %w", pr.HeadRefName, pr.Number, err)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -134,7 +134,7 @@ func (w mergeWorker) handleApprovedPR(ctx context.Context, candidate *issue, sta
 }
 
 func (w mergeWorker) handleChangesRequestedPR(ctx context.Context, candidate *issue, states []workflowState, linearStatus linearStatusWorker, pr pullRequestSummary) error {
-	feedback, err := collectPRFeedback(pr.Number)
+	feedback, err := collectPRFeedback(pr.URL, pr.Number)
 	if err != nil {
 		return err
 	}

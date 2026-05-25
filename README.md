@@ -2,7 +2,7 @@
 
 Agent Machine is a local-first runner for moving well-scoped Linear issues through
 an isolated workspace, an Agent implementation pass, optional review, and a
-GitHub PR handoff.
+GitHub PR / GitLab MR handoff.
 
 The project is preparing for a v0.1 open-source release and currently dogfoods
 itself. The design goal is conservative automation: Agent Machine should make
@@ -15,8 +15,8 @@ state, credentials, or scope are unclear.
 - Creates one isolated workspace per issue under `.am/workspaces/`.
 - Runs an implementation Agent through a configured runtime provider.
 - Runs validation hooks before and after the Agent attempt.
-- Performs runner-owned GitHub handoff: branch, commit, push, PR create/update,
-  PR identity validation, and deterministic handoff comments.
+- Performs runner-owned code-host handoff: branch, commit, push, PR/MR
+  create/update, identity validation, and deterministic handoff comments.
 - Optionally runs a separate review pass before moving the Linear issue to
   Human Review.
 - Records local SQLite state, progress snapshots, run records, evaluation
@@ -26,7 +26,7 @@ state, credentials, or scope are unclear.
 
 ## Current Status
 
-This repo owns the runner implementation, tests, specs, GitHub/Linear
+This repo owns the runner implementation, tests, specs, code-host/Linear
 integrations, CLI, release packaging, and dogfood configuration. Consumer repos
 should keep only their `am.yaml`, `am.agent.md`, and ignored
 `.am/` runtime state.
@@ -64,8 +64,9 @@ the release archives unless and until Linux packages are added.
 - `codex` CLI on `PATH` for the default `codex_cli` runtime.
 - Optional: `pi` CLI on `PATH` when `runtime.provider: pi_cli` is configured.
 - A Linear API token.
-- Either `GITHUB_TOKEN` / `GH_TOKEN`, or GitHub App credentials with repository
-  access.
+- Code-host credentials for the configured repository provider:
+  `GITHUB_TOKEN` / `GH_TOKEN` or GitHub App credentials for GitHub, or
+  `GITLAB_TOKEN` / `GL_TOKEN` for GitLab.
 
 ## Quick Start
 
@@ -85,6 +86,8 @@ cp am.agent.example.md /path/to/target/am.agent.md
 Edit `/path/to/target/am.yaml`:
 
 - `repository.remote`: clone URL for new workspaces.
+- `repository.provider`: `github` by default; use `gitlab` for GitLab merge
+  request handoff.
 - `tracker.project_slug`: Linear project slug.
 - `workspace.root`: workspace directory, usually `.am/workspaces`.
 - `workspace.base_branch`: PR base branch, for example `main` or `develop`.
@@ -98,6 +101,8 @@ Put secrets in the process environment, an explicit `--env-file`, or
 ```bash
 LINEAR_API_KEY=lin_...
 GITHUB_TOKEN=ghp_...
+# For GitLab:
+# GITLAB_TOKEN=glpat-...
 ```
 
 For GitHub App auth, use:
@@ -106,6 +111,18 @@ For GitHub App auth, use:
 GITHUB_APP_ID=...
 GITHUB_APP_INSTALLATION_ID=...
 GITHUB_APP_PRIVATE_KEY_PATH=./path/to/private-key.pem
+```
+
+For GitLab projects, configure the code host and expected MR author:
+
+```yaml
+repository:
+  provider: gitlab
+  remote: git@gitlab.com:OWNER/REPO.git
+gitlab:
+  endpoint: https://gitlab.com
+  project: OWNER/REPO
+  pr_author_override: agent-machine-bot
 ```
 
 Process environment values win over `.env.local` values. Do not commit tokens,
@@ -168,10 +185,10 @@ Run commands from this repository. `--config` defaults to `am.yaml`.
 
 | Command | Purpose |
 | --- | --- |
-| `go run . config print` | Print the resolved, redacted config. No Linear/GitHub access required. |
+| `go run . config print` | Print the resolved, redacted config. No Linear/code-host access required. |
 | `go run . --version` | Print the binary version. No config or credentials required. |
 | `go run . status` | Print Linear, PR, workspace, SQLite, and artifact status. |
-| `go run . run-status CAG-123` | Print one local progress line for an issue. No Linear/GitHub access required. |
+| `go run . run-status CAG-123` | Print one local progress line for an issue. No Linear/code-host access required. |
 | `go run . explain` | Print the next scheduling decision, merge blockers, and cleanup eligibility without mutating state. |
 | `go run . start` | Run scheduler, cleanup, merge, handoff, review, and implementation lanes. |
 | `go run . worker implementation` | Run one selected implementation worker process. |
@@ -401,7 +418,7 @@ git push origin v0.1.1
 - Do not batch unrelated work through one Linear issue.
 - Do not run mutating cleanup with `--apply` unless status/explain output makes
   the cleanup reason clear.
-- Treat missing Linear/GitHub credentials, ambiguous tickets, stale locks,
+- Treat missing Linear/code-host credentials, ambiguous tickets, stale locks,
   conflicting SQLite/artifact facts, and unexpected PR ownership as blockers.
 
 ## Security

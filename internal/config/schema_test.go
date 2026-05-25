@@ -34,6 +34,30 @@ pi:
 	if config.Review.Guidance != "" {
 		t.Fatalf("default review guidance = %q, want empty", config.Review.Guidance)
 	}
+	if config.Repository.Provider != "github" {
+		t.Fatalf("repository provider = %q, want github", config.Repository.Provider)
+	}
+}
+
+func TestParseConfigGitLabCodeHost(t *testing.T) {
+	config, err := ParseConfig(`repository:
+  provider: gitlab
+  remote: git@gitlab.com:acme/runner.git
+tracker:
+  project_slug: CAG
+workspace:
+  root: /tmp/workspaces
+gitlab:
+  endpoint: https://gitlab.example.com
+  project: acme/runner
+  pr_author_override: agent-machine-bot
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Repository.Provider != "gitlab" || config.GitLab.Endpoint != "https://gitlab.example.com" || config.GitLab.Project != "acme/runner" || config.GitLab.PRAuthorOverride != "agent-machine-bot" {
+		t.Fatalf("unexpected GitLab config: %+v", config)
+	}
 }
 
 func TestParseConfigDefaultsToCodexRuntime(t *testing.T) {

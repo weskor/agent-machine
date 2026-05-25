@@ -309,7 +309,7 @@ func TestRunReconciliationScanRecordsReconciliationNeededEvent(t *testing.T) {
 	candidatesForReconciliationWorker = func(client linearClient, config runnerConfig) ([]issue, error) {
 		return []issue{candidate}, nil
 	}
-	openPRsForReconciliationWorker = func() ([]pullRequestSummary, error) {
+	openPRsForReconciliationWorker = func(runnerConfig) ([]pullRequestSummary, error) {
 		return nil, nil
 	}
 	artifactSummariesForReconciliationWorker = func(workspaceRoot string) ([]artifactSummary, error) {

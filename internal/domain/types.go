@@ -117,6 +117,7 @@ type WorkflowState struct {
 type RunnerConfig struct {
 	ConfigPath             string
 	RepositoryRemote       string
+	RepositoryProvider     string
 	ProjectSlug            string
 	WorkspaceRoot          string
 	RunningState           string
@@ -137,6 +138,9 @@ type RunnerConfig struct {
 	Budget                 Budget
 	GitHubAppSlug          string
 	GitHubPRAuthorOverride string
+	GitLabEndpoint         string
+	GitLabProject          string
+	GitLabPRAuthorOverride string
 }
 
 func (r *RunRecord) UnmarshalJSON(data []byte) error {

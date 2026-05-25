@@ -11,9 +11,10 @@ import (
 
 	"github.com/weskor/agent-machine/internal/agentruntime"
 	artifactio "github.com/weskor/agent-machine/internal/artifacts"
+	"github.com/weskor/agent-machine/internal/codehost"
 )
 
-var prURLPattern = regexp.MustCompile(`https://github\.com/([^/\s"'<>]+)/([^/\s"'<>]+)/pull/[0-9]+`)
+var prURLPattern = regexp.MustCompile(`https://[^\s"'<>]+/(?:pull|-/merge_requests)/[0-9]+`)
 var codexTokensUsedPattern = regexp.MustCompile(`(?im)^tokens used\s*\n\s*([0-9][0-9,]*)\s*$`)
 
 const (
@@ -127,14 +128,15 @@ func firstPRURL(output string) string {
 }
 
 func firstPRURLForRepository(output, owner, repo string, repoKnown bool) string {
-	for _, match := range prURLPattern.FindAllStringSubmatch(output, -1) {
-		if len(match) < 3 {
+	for _, match := range prURLPattern.FindAllString(output, -1) {
+		parsed, ok := codehost.ParsePullRequestURL(match)
+		if !ok {
 			continue
 		}
-		if repoKnown && (match[1] != owner || match[2] != repo) {
+		if repoKnown && (parsed.Owner != owner || parsed.Repo != repo) {
 			continue
 		}
-		return match[0]
+		return match
 	}
 	return ""
 }

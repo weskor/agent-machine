@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weskor/agent-machine/internal/codehost"
 	orchstate "github.com/weskor/agent-machine/internal/state"
 	ws "github.com/weskor/agent-machine/internal/workspace"
 )
@@ -399,18 +400,20 @@ func cleanupDecisionFromMergedPR(facts orchstate.CleanupFacts, base cleanupResul
 }
 
 func githubCleanupPRFactsForURL(prURL string) (cleanupPRFacts, error) {
-	owner, repo, ok := parseGitHubPRRepository(prURL)
+	parsed, ok := codehost.ParsePullRequestURL(prURL)
 	if !ok {
-		return cleanupPRFacts{}, fmt.Errorf("invalid GitHub PR URL %q", prURL)
+		return cleanupPRFacts{}, fmt.Errorf("invalid code-host PR URL %q", prURL)
 	}
-	expectedOwner, expectedRepo, err := currentGitHubRepo()
-	if err != nil {
-		return cleanupPRFacts{}, err
+	if parsed.Provider == codehost.ProviderGitHub {
+		expectedOwner, expectedRepo, err := currentGitHubRepo()
+		if err != nil {
+			return cleanupPRFacts{}, err
+		}
+		if !strings.EqualFold(parsed.Owner, expectedOwner) || !strings.EqualFold(parsed.Repo, expectedRepo) {
+			return cleanupPRFacts{}, fmt.Errorf("PR repository is %s/%s; expected %s/%s", parsed.Owner, parsed.Repo, expectedOwner, expectedRepo)
+		}
 	}
-	if !strings.EqualFold(owner, expectedOwner) || !strings.EqualFold(repo, expectedRepo) {
-		return cleanupPRFacts{}, fmt.Errorf("PR repository is %s/%s; expected %s/%s", owner, repo, expectedOwner, expectedRepo)
-	}
-	github, ctx, cancel, err := githubClientWithTimeout(defaultGitHubCommandTimeout)
+	github, ctx, cancel, err := codeHostClientForPRURLWithTimeout(prURL, defaultGitHubCommandTimeout)
 	if err != nil {
 		return cleanupPRFacts{}, err
 	}

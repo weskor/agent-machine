@@ -245,14 +245,14 @@ func emitCandidateEventContext(ctx context.Context, store *state.Store, eventTyp
 }
 
 func openPRsByIssue(config runnerConfig) (map[string]*pullRequestSummary, error) {
-	github, ctx, cancel, err := githubClientWithTimeout(config.Budget.MergeTimeout)
+	github, ctx, cancel, err := codeHostClientWithTimeout(config, config.Budget.MergeTimeout)
 	if err != nil {
 		return nil, err
 	}
 	defer cancel()
 	prs, err := github.OpenPullRequests(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("GitHub API open PR metadata lookup failed: %w", err)
+		return nil, fmt.Errorf("code-host API open PR metadata lookup failed: %w", err)
 	}
 	prs = amPRs(prs)
 	byIssue := map[string]*pullRequestSummary{}

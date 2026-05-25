@@ -1,4 +1,5 @@
 repository:
+  provider: github
   remote: git@github.com:OWNER/REPO.git
 tracker:
   kind: linear
@@ -45,6 +46,14 @@ budgets:
   review_timeout: 30m
   merge_timeout: 10m
   github_timeout: 2m
+# To use GitLab merge requests instead of GitHub pull requests:
+# repository:
+#   provider: gitlab
+#   remote: git@gitlab.com:OWNER/REPO.git
+# gitlab:
+#   endpoint: https://gitlab.com
+#   project: OWNER/REPO
+#   pr_author_override: agent-machine-bot
 workflow:
   handoff_state: Human Review
   running_state: In Progress

@@ -76,6 +76,18 @@ func withFakeGitHubAPI(t interface{ Cleanup(func()) }, api githubAPI) {
 	t.Cleanup(func() { newGitHubAPI = previous })
 }
 
+func TestCodeHostProviderNormalizesConfiguredProvider(t *testing.T) {
+	if got := codeHostProvider(runnerConfig{RepositoryProvider: " GitLab "}); got != "gitlab" {
+		t.Fatalf("provider = %q, want gitlab", got)
+	}
+}
+
+func TestNewCodeHostAPIRejectsUnsupportedProvider(t *testing.T) {
+	if _, err := newCodeHostAPI(runnerConfig{RepositoryProvider: "bitbucket"}); err == nil {
+		t.Fatal("expected unsupported provider error")
+	}
+}
+
 func (f fakeGitHubAPI) PullRequestHandoffDetails(_ context.Context, prURL string) (prHandoffDetails, error) {
 	if f.handoffErrorsByURL != nil {
 		if detailsErr, ok := f.handoffErrorsByURL[prURL]; ok {

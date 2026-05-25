@@ -378,6 +378,17 @@ func TestLoadProjectConfigParsesGitHubOwnership(t *testing.T) {
 	}
 }
 
+func TestLoadProjectConfigParsesGitLabCodeHost(t *testing.T) {
+	configPath := writeConfig(t, "repository:\n  provider: gitlab\n  remote: git@gitlab.com:acme/runner.git\ngitlab:\n  endpoint: https://gitlab.example.com\n  project: acme/runner\n  pr_author_override: agent-machine-bot\n")
+	_, config, err := LoadProjectConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig() error = %v", err)
+	}
+	if config.RepositoryProvider != "gitlab" || config.GitLabEndpoint != "https://gitlab.example.com" || config.GitLabProject != "acme/runner" || config.GitLabPRAuthorOverride != "agent-machine-bot" {
+		t.Fatalf("unexpected GitLab code host config: %+v", config)
+	}
+}
+
 func testDeps(t *testing.T, gotMode *string, gotApply *bool, gotCycles *int) Dependencies[fakeClient] {
 	t.Helper()
 	setMode := func(mode string) {

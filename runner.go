@@ -77,6 +77,7 @@ func runnerConfigFromCLI(config cli.Config) runnerConfig {
 	return runnerConfig{
 		ConfigPath:             config.ConfigPath,
 		RepositoryRemote:       config.RepositoryRemote,
+		RepositoryProvider:     config.RepositoryProvider,
 		ProjectSlug:            config.ProjectSlug,
 		WorkspaceRoot:          config.WorkspaceRoot,
 		RunningState:           config.RunningState,
@@ -97,6 +98,9 @@ func runnerConfigFromCLI(config cli.Config) runnerConfig {
 		Budget:                 config.Budget,
 		GitHubAppSlug:          config.GitHubAppSlug,
 		GitHubPRAuthorOverride: config.GitHubPRAuthorOverride,
+		GitLabEndpoint:         config.GitLabEndpoint,
+		GitLabProject:          config.GitLabProject,
+		GitLabPRAuthorOverride: config.GitLabPRAuthorOverride,
 	}
 }
 

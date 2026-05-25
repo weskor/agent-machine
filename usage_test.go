@@ -110,3 +110,10 @@ func TestFirstPRURLRejectsDifferentRepositoryWhenConfigured(t *testing.T) {
 		t.Fatalf("expected no PR URL, got %q", got)
 	}
 }
+
+func TestFirstPRURLForRepositorySupportsGitLabMergeRequests(t *testing.T) {
+	output := "created https://gitlab.com/weskor/agent-machine/-/merge_requests/123"
+	if got := firstPRURLForRepository(output, "weskor", "agent-machine", true); got != "https://gitlab.com/weskor/agent-machine/-/merge_requests/123" {
+		t.Fatalf("unexpected GitLab MR URL: %q", got)
+	}
+}

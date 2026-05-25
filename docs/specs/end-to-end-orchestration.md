@@ -4,7 +4,7 @@ This spec describes the target end-to-end Agent Machine behavior for V1. It does
 
 ## Goals
 
-- Make the Linear issue to GitHub PR loop smooth, observable, and recoverable.
+- Make the Linear issue to code-host PR/MR loop smooth, observable, and recoverable.
 - Ensure every Agent attempt outcome is explicit: success, retry, Needs Info, Human Review, reconciliation-needed, or terminal failure.
 - Support multiple Agent attempts without duplicate issue claims, unsafe workspace mutation, or unclear ownership.
 - Make quality evidence durable enough for a human reviewer to trust the PR without reconstructing the run from logs.
@@ -13,7 +13,7 @@ This spec describes the target end-to-end Agent Machine behavior for V1. It does
 ## Actors and systems
 
 - **Linear** is the external system of record for Linear issue identity, workflow state, comments, labels, priority, and operator handoff states.
-- **GitHub** is the external system of record for repository state, PR identity, review decision, checks, mergeability, authorship, branches, and merge result.
+- **Code host** is the external system of record for repository state, PR/MR identity, review or approval decision, checks or pipelines, mergeability, authorship, branches, and merge result. GitHub is the default provider; GitLab is supported through `repository.provider: gitlab`.
 - **SQLite orchestration state** is the intended local source of truth for Agent Machine decisions once the SQLite behavior contract is implemented.
 - **Workspace artifacts** are audit and evidence exports. They may seed backfill or repair, but after SQLite adoption they must not silently override newer local state.
 - **Agent attempts** perform bounded implementation or review work in isolated workspaces through a selected AgentRuntime provider.
@@ -67,23 +67,23 @@ capture, and deterministic handoff support.
 ## Happy path
 
 1. A Linear issue is written with Goal, Scope, Requirements, Acceptance Criteria, and Validation.
-2. The Candidate reconciliation Module determines that the issue is runnable and not blocked by active attempts, open PRs, durable reconciliation blockers, or missing external facts. After the relevant SQLite rollout phase, it uses SQLite for local claim/retry/reconciliation decisions, fresh Linear/GitHub for their external facts, and artifacts only as evidence exports or explicit reconciliation/backfill inputs.
+2. The Candidate reconciliation Module determines that the issue is runnable and not blocked by active attempts, open PRs/MRs, durable reconciliation blockers, or missing external facts. After the relevant SQLite rollout phase, it uses SQLite for local claim/retry/reconciliation decisions, fresh Linear/code-host state for external facts, and artifacts only as evidence exports or explicit reconciliation/backfill inputs.
 3. Agent Machine claims the issue by recording a lease and heartbeat before mutating external state.
 4. Agent Machine creates or refreshes an isolated Workspace for the attempt.
 5. The Agent attempt reads `AGENTS.md`, `CONTEXT.md`, `LANGUAGE.md`, relevant specs, relevant ADRs, and the Linear issue contract.
 6. The Agent attempt writes or updates tests first when behavior is changed or characterized.
 7. The Agent attempt implements the smallest scoped change that satisfies the issue.
 8. Validation runs in the Workspace using the project-configured commands.
-9. Agent Machine owns Git/PR handoff: commit or validate the exact scoped diff, push the expected branch, create or update exactly one PR, validate the PR URL, and record artifacts. Before those side effects, Agent Machine writes and re-reads a bounded `pr_handoff_pending` payload so PR handoff has an explicit runner-owned input contract. The selected `handoff` worker can recover that payload, execute PR handoff, and queue the next review/final-handoff payload without rerunning implementation. The Agent stops after the scoped diff and validation notes; any Agent-emitted PR URL remains advisory compatibility input.
+9. Agent Machine owns Git/PR/MR handoff: commit or validate the exact scoped diff, push the expected branch, create or update exactly one PR/MR, validate the PR/MR URL, and record artifacts. Before those side effects, Agent Machine writes and re-reads a bounded `pr_handoff_pending` payload so handoff has an explicit runner-owned input contract. The selected `handoff` worker can recover that payload, execute PR/MR handoff, and queue the next review/final-handoff payload without rerunning implementation. The Agent stops after the scoped diff and validation notes; any Agent-emitted PR/MR URL remains advisory compatibility input.
    - When retrying the same issue, Agent Machine may update only the exact expected `am/<issue>-workspace` remote branch with a lease-protected push so stale failed-attempt branches do not require manual deletion.
 10. Agent Machine validates that the PR belongs to the configured repository, expected branch, expected base branch, expected author/owner policy, and current issue attempt.
 11. When review is configured, Agent Machine refreshes PR/check/scope evidence, confirms the run is ready for semantic review, and passes that deterministic evidence packet into the review prompt.
-    - If GitHub checks are still pending or unavailable after the bounded pre-review wait, Agent Machine records retryable `review_not_ready` / `waiting_for_checks` evidence for the existing PR and leaves implementation output intact. When a later cycle observes successful checks, it resumes semantic review for that PR instead of starting a fresh implementation attempt. The terminal run/evaluation/progress exports must keep this as a waiting-for-checks retry state rather than reclassifying it as an operational failure. Failed checks remain a blocker until the PR checks are repaired.
+    - If code-host checks are still pending or unavailable after the bounded pre-review wait, Agent Machine records retryable `review_not_ready` / `waiting_for_checks` evidence for the existing PR/MR and leaves implementation output intact. When a later cycle observes successful checks, it resumes semantic review for that PR/MR instead of starting a fresh implementation attempt. The terminal run/evaluation/progress exports must keep this as a waiting-for-checks retry state rather than reclassifying it as an operational failure. Failed checks remain a blocker until the PR/MR checks are repaired.
     - Before semantic review side effects, Agent Machine writes and re-reads a bounded `review_pending` payload so inline review, resumed review, and the selected `review` worker use the same review-domain input contract. A standalone review worker that completes non-terminal review writes `handoff_pending` output for the handoff worker instead of executing handoff side effects itself.
 12. Review runs when configured and classifies the semantic/spec result.
 13. Agent Machine posts deterministic PR and Linear Handoff comments with behavior-contract evidence.
 14. The Linear issue moves to Human Review, Needs Info, Done, or another configured state according to the outcome.
-15. The scheduler queues merge tasks for current Agent Machine-owned Human Review PRs, and the merge lane claims those durable tasks, refreshes GitHub/Linear/SQLite facts, and merges only PRs that pass all configured gates.
+15. The scheduler queues merge tasks for current Agent Machine-owned Human Review PRs/MRs, and the merge lane claims those durable tasks, refreshes code-host/Linear/SQLite facts, and merges only PRs/MRs that pass all configured gates.
 16. The scheduler queues cleanup tasks for current workspaces, and the cleanup lane claims those durable tasks, refreshes Done/SQLite/workspace facts, deletes only workspaces that are safe by current cleanup policy, and records cleanup state.
 
 During the attempt, Agent Machine updates a compact local progress snapshot for the

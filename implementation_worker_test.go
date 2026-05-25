@@ -23,11 +23,11 @@ func TestImplementationPromptKeepsRunnerHandoffBoundary(t *testing.T) {
 	for _, want := range []string{
 		"Work on CAG-154 attempt 1.",
 		"Linear issue description:\n## Goal\n\nRefactor run_one boundaries.",
-		"GitHub PR feedback to address before handoff:\nReviewer asked for focused tests.",
+		"Code-host PR/MR feedback to address before handoff:\nReviewer asked for focused tests.",
 		"output NEEDS_INFO followed by numbered questions instead of guessing",
-		"Do not create, update, push, or comment on a GitHub PR",
+		"Do not create, update, push, or comment on a code-host PR/MR",
 		"branch am/CAG-154-workspace into base branch main",
-		"The runner will move the Linear issue to Human Review after runner PR handoff, or to Needs Info when NEEDS_INFO is detected.",
+		"The runner will move the Linear issue to Human Review after runner PR/MR handoff, or to Needs Info when NEEDS_INFO is detected.",
 		"Behavior-contract preflight for refactors, replacements, and rewrites:",
 	} {
 		if !strings.Contains(prompt, want) {

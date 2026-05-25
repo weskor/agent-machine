@@ -49,14 +49,14 @@ func githubPRStateForURL(prURL string) (string, bool, error) {
 	if strings.TrimSpace(prURL) == "" {
 		return "", false, nil
 	}
-	github, ctx, cancel, err := githubClientWithTimeout(defaultGitHubCommandTimeout)
+	github, ctx, cancel, err := codeHostClientForPRURLWithTimeout(prURL, defaultGitHubCommandTimeout)
 	if err != nil {
 		return "", false, err
 	}
 	defer cancel()
 	state, merged, err := github.PullRequestState(ctx, prURL)
 	if err != nil {
-		return "", false, fmt.Errorf("GitHub API PR state lookup failed for %s: %w", prURL, err)
+		return "", false, fmt.Errorf("code-host API PR state lookup failed for %s: %w", prURL, err)
 	}
 	return state, merged, nil
 }

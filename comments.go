@@ -8,11 +8,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/weskor/agent-machine/internal/codehost"
 )
 
 const prSummaryMarker = "<!-- am-summary -->"
 
-var prNumberFromURLPattern = regexp.MustCompile(`/pull/([0-9]+)(?:$|[/?#])`)
+var prNumberFromURLPattern = regexp.MustCompile(`/(?:pull|merge_requests)/([0-9]+)(?:$|[/?#])`)
 
 type handoffSummary struct {
 	IssueIdentifier string
@@ -78,9 +80,9 @@ func postOrUpdatePRHandoffComment(summary handoffSummary) error {
 	}
 	number, err := strconv.Atoi(prNumber)
 	if err != nil {
-		return fmt.Errorf("invalid GitHub PR number %q: %w", prNumber, err)
+		return fmt.Errorf("invalid code-host PR number %q: %w", prNumber, err)
 	}
-	github, ctx, cancel, err := githubClientWithTimeout(defaultGitHubCommandTimeout)
+	github, ctx, cancel, err := codeHostClientForPRURLWithTimeout(summary.PRURL, defaultGitHubCommandTimeout)
 	if err != nil {
 		return err
 	}
@@ -99,7 +101,7 @@ func postOrUpdatePRHandoffComment(summary handoffSummary) error {
 func findExistingPRSummaryComment(github githubAPI, ctx context.Context, prNumber string) (int64, error) {
 	comments, err := github.IssueComments(ctx, prNumber)
 	if err != nil {
-		return 0, fmt.Errorf("GitHub API issue comment lookup failed for PR #%s: %w", prNumber, err)
+		return 0, fmt.Errorf("code-host API handoff comment lookup failed for PR #%s: %w", prNumber, err)
 	}
 	for _, comment := range comments {
 		if strings.Contains(comment.Body, prSummaryMarker) {
@@ -110,6 +112,9 @@ func findExistingPRSummaryComment(github githubAPI, ctx context.Context, prNumbe
 }
 
 func prNumberFromURL(raw string) string {
+	if parsed, ok := codehost.ParsePullRequestURL(raw); ok {
+		return strconv.Itoa(parsed.Number)
+	}
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || parsed.Host != "github.com" || parsed.Path == "" {
 		return ""

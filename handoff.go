@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weskor/agent-machine/internal/codehost"
 	sh "github.com/weskor/agent-machine/internal/shell"
 	"github.com/weskor/agent-machine/internal/state"
 )
@@ -164,19 +165,20 @@ func expectedWorkspaceBranch(identifier string) string {
 
 func validatePRForHandoff(config runnerConfig, candidate *issue, prURL string) (string, string, error) {
 	if prURL != "" {
-		owner, repo, ok := parseGitHubPRRepository(prURL)
+		owner, repo, ok := parseCodeHostPRRepository(config, prURL)
 		if !ok {
-			return prURL, "", fmt.Errorf("invalid GitHub PR URL %q", prURL)
+			return prURL, "", fmt.Errorf("invalid code-host PR URL %q", prURL)
 		}
-		expectedOwner, expectedRepo, err := currentGitHubRepo()
+		expected, err := currentCodeHostRepo(config)
 		if err != nil {
 			return prURL, "", err
 		}
+		expectedOwner, expectedRepo := expected.Owner, expected.Name
 		if !strings.EqualFold(owner, expectedOwner) || !strings.EqualFold(repo, expectedRepo) {
 			return prURL, "", fmt.Errorf("PR repository is %s/%s; expected %s/%s", owner, repo, expectedOwner, expectedRepo)
 		}
 	}
-	github, ctx, cancel, err := githubClientWithTimeout(config.Budget.GitHubTimeout)
+	github, ctx, cancel, err := codeHostClientWithTimeout(config, config.Budget.GitHubTimeout)
 	if err != nil {
 		return prURL, "", err
 	}
@@ -185,12 +187,12 @@ func validatePRForHandoff(config runnerConfig, candidate *issue, prURL string) (
 	details, err := github.PullRequestHandoffDetails(ctx, prURL)
 	if err != nil {
 		if !isRecoverablePRLookupError(err) {
-			return prURL, "", fmt.Errorf("GitHub API PR handoff lookup failed for %s: %w", prURL, err)
+			return prURL, "", fmt.Errorf("code-host PR handoff lookup failed for %s: %w", prURL, err)
 		}
 
 		fallback, fallbackErr := resolveHandoffPRByBranch(ctx, github, candidate)
 		if fallbackErr != nil {
-			return prURL, "", fmt.Errorf("GitHub API PR handoff lookup failed for %s: %w", prURL, fallbackErr)
+			return prURL, "", fmt.Errorf("code-host PR handoff lookup failed for %s: %w", prURL, fallbackErr)
 		}
 		details = fallback
 	}
@@ -272,7 +274,7 @@ func executeRunnerPRHandoffContext(ctx context.Context, config runnerConfig, can
 		return "", fmt.Errorf("git push failed for %s: %w", branch, err)
 	}
 
-	github, githubCtx, cancel, err := githubClientWithContextTimeout(ctx, config.Budget.GitHubTimeout)
+	github, githubCtx, cancel, err := codeHostClientWithContextTimeout(ctx, config, config.Budget.GitHubTimeout)
 	if err != nil {
 		return "", err
 	}
@@ -496,14 +498,15 @@ func readPRHandoffPendingPayloadFromPath(path string) (prHandoffPendingPayload, 
 var readPRHandoffPendingPayloadForExecution = readPRHandoffPendingPayload
 
 func validateAdvisoryPRForHandoff(ctx context.Context, github githubAPI, config runnerConfig, candidate *issue, prURL string) (string, string, bool, error) {
-	owner, repo, ok := parseGitHubPRRepository(prURL)
+	owner, repo, ok := parseCodeHostPRRepository(config, prURL)
 	if !ok {
-		return prURL, "", false, fmt.Errorf("invalid GitHub PR URL %q", prURL)
+		return prURL, "", false, fmt.Errorf("invalid code-host PR URL %q", prURL)
 	}
-	expectedOwner, expectedRepo, err := currentGitHubRepo()
+	expected, err := currentCodeHostRepo(config)
 	if err != nil {
 		return prURL, "", false, err
 	}
+	expectedOwner, expectedRepo := expected.Owner, expected.Name
 	if !strings.EqualFold(owner, expectedOwner) || !strings.EqualFold(repo, expectedRepo) {
 		return prURL, "", false, fmt.Errorf("PR repository is %s/%s; expected %s/%s", owner, repo, expectedOwner, expectedRepo)
 	}
@@ -511,7 +514,7 @@ func validateAdvisoryPRForHandoff(ctx context.Context, github githubAPI, config 
 	details, err := github.PullRequestHandoffDetails(ctx, prURL)
 	if err != nil {
 		if !isRecoverablePRLookupError(err) {
-			return prURL, "", false, fmt.Errorf("GitHub API PR handoff lookup failed for %s: %w", prURL, err)
+			return prURL, "", false, fmt.Errorf("code-host PR handoff lookup failed for %s: %w", prURL, err)
 		}
 
 		fallback, fallbackErr := resolveHandoffPRByBranch(ctx, github, candidate)
@@ -519,7 +522,7 @@ func validateAdvisoryPRForHandoff(ctx context.Context, github githubAPI, config 
 			if strings.Contains(fallbackErr.Error(), "no open PR found") {
 				return "", "", false, nil
 			}
-			return prURL, "", false, fmt.Errorf("GitHub API PR handoff lookup failed for %s: %w", prURL, fallbackErr)
+			return prURL, "", false, fmt.Errorf("code-host PR handoff lookup failed for %s: %w", prURL, fallbackErr)
 		}
 		details = fallback
 	}
@@ -539,12 +542,15 @@ func handoffPRTitleBody(candidate *issue) (string, string) {
 	return title, body
 }
 
-func parseGitHubPRRepository(prURL string) (string, string, bool) {
-	parts := strings.Split(strings.TrimRight(strings.TrimSpace(prURL), "/"), "/")
-	if len(parts) < 7 || parts[0] != "https:" || parts[2] != "github.com" || parts[5] != "pull" {
+func parseCodeHostPRRepository(config runnerConfig, prURL string) (string, string, bool) {
+	parsed, ok := codehost.ParsePullRequestURL(prURL)
+	if !ok {
 		return "", "", false
 	}
-	return parts[3], parts[4], true
+	if provider := codeHostProvider(config); provider != "" && parsed.Provider != provider {
+		return "", "", false
+	}
+	return parsed.Owner, parsed.Repo, true
 }
 
 func isRecoverablePRLookupError(err error) bool {

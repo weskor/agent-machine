@@ -69,7 +69,7 @@ Owns read-only orchestration planning/explain output. It refreshes candidate,
 PR, cleanup, and local state facts and reports the next planned actions without
 claiming implementation, review, handoff, merge, cleanup, or Linear status work.
 
-It must not mutate Linear, GitHub, workspaces, artifacts, or worker tasks beyond
+It must not mutate Linear, code-host state, workspaces, artifacts, or worker tasks beyond
 its own process task, lease, heartbeat, and event records.
 
 ### Implementation worker
@@ -78,7 +78,7 @@ Owns workspace preparation, prompt writing, AgentRuntime preflight/execution,
 usage capture, Needs Info detection, validation hooks, and raw/debug artifact
 exports for implementation attempts.
 
-It must not create or update GitHub PRs as the final handoff action, approve
+It must not create or update code-host PRs/MRs as the final handoff action, approve
 merge eligibility, or move issues to Done.
 
 ### Review worker
@@ -94,12 +94,12 @@ bounded review payload before semantic review side effects, then re-reads that
 payload for evidence collection and review execution. Progress output is a
 compatibility/export artifact for operators. Review resume after
 `review_not_ready` is discovered from SQLite attempt/PR state once current
-GitHub checks are successful, then uses the same payload execution boundary
+code-host checks are successful, then uses the same payload execution boundary
 before handing the review result back to the caller. The selected `review`
 process first claims existing `review_pending` refs through SQLite and the run
 lease, then claims queued `review:<issue>:<attempt>:resume` worker tasks for
 SQLite-discovered review-not-ready resumes. Review-resume tasks refresh
-Linear/GitHub/reconciliation facts before acquiring the run lease and executing
+Linear/code-host/reconciliation facts before acquiring the run lease and executing
 the same review payload boundary. A review worker that completes non-terminal
 review queues `handoff_pending` output for the handoff worker.
 
@@ -140,7 +140,7 @@ refresh or workspace cleanup prepass.
 Continuous merge dispatch is task-backed: the scheduler creates stable
 `merge:<issue>:<pr>` worker tasks from fresh open Agent Machine PR metadata and the
 current Linear handoff state. The merge lane claims one queued merge task,
-refreshes open GitHub PR metadata plus Linear/SQLite reconciliation facts before
+refreshes open code-host PR/MR metadata plus Linear/SQLite reconciliation facts before
 acting, and records a worker result for the claimed task. A missing closed PR is
 completed as processed stale work rather than merged from stale scheduler input.
 
@@ -218,7 +218,7 @@ cancels the task-scoped execution context, records a failed worker result with a
 supervision reason, and fails closed instead of continuing under uncertain
 ownership.
 Worker-domain entry points must accept and honor that task-scoped context for
-claiming queued tasks, GitHub/Linear calls with runner timeouts, AgentRuntime
+claiming queued tasks, code-host/Linear calls with runner timeouts, AgentRuntime
 preflight/execution, workspace setup hooks, scope-guard git reads, semantic
 review evidence polling, semantic review execution, PR handoff git/GitHub
 commands, merge cleanup, and final handoff completion.
@@ -246,9 +246,9 @@ JSON artifact read to know the latest attempt decision.
 Review-resume and implementation dispatch write issue-specific durable worker
 tasks before acquiring the run lease or mutating the workspace. The scheduler
 lane may enqueue `review:<issue>:<attempt>:resume` tasks for SQLite
-`review_not_ready` attempts whose current GitHub checks are successful. The selected
+`review_not_ready` attempts whose current code-host checks are successful. The selected
 implementation worker first claims queued `implementation:<issue>:<attempt>`
-tasks from SQLite and refreshes Linear/GitHub/reconciliation facts before taking
+tasks from SQLite and refreshes Linear/code-host/reconciliation facts before taking
 the run lease. When no queued implementation task exists during the scheduler
 transition, the implementation lane may select the next runnable candidate and
 enqueue that task, then immediately claim it. A currently claimed task blocks
@@ -269,7 +269,7 @@ not overwrite it.
 Merge dispatch follows the same durable-task shape for externally visible merge
 work: the scheduler may enqueue `merge:<issue>:<pr>` tasks only from current
 GitHub open PR metadata and current Linear handoff state, and the merge worker
-must re-read current GitHub/Linear/SQLite facts before merge, branch deletion,
+must re-read current code-host/Linear/SQLite facts before merge, branch deletion,
 Linear Done transition, or conflict feedback side effects.
 
 Cleanup dispatch uses durable `cleanup:<workspace>` tasks so filesystem
@@ -320,7 +320,7 @@ cleanup, while merge claims queued merge tasks and runs merge-approved
 processing through the shared continuous SQLite store without a cleanup prepass.
 The `review` process only claims existing SQLite
 `review_pending` payload refs before resuming SQLite `review_not_ready`
-attempts whose current GitHub checks are successful. The `implementation`
+attempts whose current code-host checks are successful. The `implementation`
 process claims fresh runnable attempts and skips review-ready resumes owned by
 `review`; the
 compatibility `work` process is constrained to the same implementation-domain

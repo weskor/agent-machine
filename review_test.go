@@ -245,7 +245,7 @@ func TestReviewPromptIncludesRunnerOwnedEvidencePacket(t *testing.T) {
 	evidence := reviewEvidence{IssueIdentifier: "CAG-120", IssueTitle: "Review evidence", PRURL: "https://github.com/weskor/agent-machine/pull/120", Workspace: "/tmp/workspace", BaseBranch: "main", HeadBranch: "am/CAG-120-workspace", HeadSHA: "abc123", ChangedFiles: 3, Additions: 42, Deletions: 7, ChecksStatus: "success", ChecksSummary: "go-ci=COMPLETED/SUCCESS", ScopeSummary: "changed files matched the Linear ticket path contract", Validation: []string{"mise exec go -- make ci", "git diff --check"}, ProgressPath: "/repo/.am/state/run-progress/CAG-120/progress.json"}
 	prompt := reviewPrompt(&issue{Identifier: "CAG-120", Title: "Review evidence"}, evidence.PRURL, evidence.Workspace, "", &evidence)
 
-	for _, expected := range []string{"Runner-owned deterministic review evidence", "Head SHA: abc123", "GitHub checks: success", "go-ci=COMPLETED/SUCCESS", "Scope guard: changed files matched", "mise exec go -- make ci", "Progress snapshot", "source of truth for deterministic PR/check/scope facts", "semantic/spec quality"} {
+	for _, expected := range []string{"Runner-owned deterministic review evidence", "Head SHA: abc123", "Code-host checks: success", "go-ci=COMPLETED/SUCCESS", "Scope guard: changed files matched", "mise exec go -- make ci", "Progress snapshot", "source of truth for deterministic PR/check/scope facts", "semantic/spec quality"} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("review prompt missing %q:\n%s", expected, prompt)
 		}

@@ -28,3 +28,13 @@ Phase 1 inventory plus Phase 2/3 parity notes for replacing core `gh` CLI behavi
 Read-only GitHub gates and core merge/comment/branch-delete mutations use the typed GitHub API client. Any remaining `gh` usage is non-core shell compatibility or follow-up inventory.
 
 Known remaining non-core `gh` usage: `closeInvalidPR` still shells out to `gh pr close` for pre-handoff sanity-check cleanup, which is outside the CAG-41 merge/comment/branch-delete replacement scope.
+
+## Code-host adapter extension
+
+GitHub remains the default provider and the parity checklist above remains the
+GitHub compatibility contract. `repository.provider: gitlab` switches runner
+PR-shaped operations to a GitLab merge-request adapter backed by
+`gitlab.com/gitlab-org/api/client-go/v2`. The GitLab adapter maps open MRs,
+MR details, notes, approvals, pipelines, squash merge, and source branch deletion
+onto the same runner-owned handoff and merge gates. GitLab MR ownership must be
+configured with `gitlab.pr_author_override` or `GITLAB_PR_AUTHOR_OVERRIDE`.

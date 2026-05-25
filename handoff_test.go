@@ -371,7 +371,7 @@ func TestValidatePRForHandoffDoesNotFallbackOnNon404LookupError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-recoverable lookup failure")
 	}
-	if !strings.Contains(err.Error(), "GitHub API PR handoff lookup failed for") {
+	if !strings.Contains(err.Error(), "code-host PR handoff lookup failed for") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

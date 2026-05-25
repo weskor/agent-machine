@@ -40,7 +40,7 @@ func (e reviewEvidence) PromptBlock() string {
 	if e.ChangedFiles > 0 || e.Additions > 0 || e.Deletions > 0 {
 		writeEvidenceLine(&b, "Diff size", fmt.Sprintf("files=%d additions=%d deletions=%d", e.ChangedFiles, e.Additions, e.Deletions))
 	}
-	writeEvidenceLine(&b, "GitHub checks", emptyAsUnknown(e.ChecksStatus)+" — "+emptyAsUnknown(e.ChecksSummary))
+	writeEvidenceLine(&b, "Code-host checks", emptyAsUnknown(e.ChecksStatus)+" — "+emptyAsUnknown(e.ChecksSummary))
 	writeEvidenceLine(&b, "Scope guard", e.ScopeSummary)
 	if len(e.Validation) > 0 {
 		b.WriteString("- Validation:\n")
@@ -76,7 +76,7 @@ func collectReviewEvidenceContext(parent context.Context, config runnerConfig, c
 	if err := parent.Err(); err != nil {
 		return reviewEvidence{}, err
 	}
-	github, ctx, cancel, err := githubClientWithContextTimeout(parent, config.Budget.GitHubTimeout)
+	github, ctx, cancel, err := codeHostClientWithContextTimeout(parent, config, config.Budget.GitHubTimeout)
 	if err != nil {
 		return reviewEvidence{}, err
 	}
@@ -104,7 +104,7 @@ func collectReviewEvidenceContext(parent context.Context, config runnerConfig, c
 
 func reviewChecksStatus(checks []statusCheck) (string, string) {
 	if len(checks) == 0 {
-		return "unavailable", "no status checks were reported by GitHub"
+		return "unavailable", "no status checks were reported by the code host"
 	}
 	if reason := checksBlockReason(checks); reason == "" {
 		return "success", summarizeStatusChecks(checks)
@@ -146,7 +146,7 @@ func reviewEvidenceNotReadyError(e reviewEvidence) error {
 	if e.ChecksStatus == "" || e.ChecksStatus == "success" {
 		return nil
 	}
-	return fmt.Errorf("review not ready: GitHub checks %s: %s", e.ChecksStatus, e.ChecksSummary)
+	return fmt.Errorf("review not ready: code-host checks %s: %s", e.ChecksStatus, e.ChecksSummary)
 }
 
 const reviewPassMarker = "REVIEW_PASS"
@@ -173,7 +173,7 @@ Workspace: %s
 
 %s
 
-Review only. Do not edit files, commit, push, merge, or comment on GitHub/Linear.
+Review only. Do not edit files, commit, push, merge, or comment on the code host or Linear.
 
 Check for:
 - scope drift from the Linear issue description

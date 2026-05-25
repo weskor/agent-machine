@@ -36,6 +36,19 @@ func newGitHubOwnershipPolicy(config runnerConfig) githubOwnershipPolicy {
 
 }
 
+func newCodeHostOwnershipPolicy(config runnerConfig) githubOwnershipPolicy {
+	if codeHostProvider(config) == "gitlab" {
+		if override := splitAuthorLogins(config.GitLabPRAuthorOverride); len(override) > 0 {
+			return githubAppOwnershipPolicy{logins: override, source: "config gitlab.pr_author_override"}
+		}
+		if override := splitAuthorLogins(os.Getenv("GITLAB_PR_AUTHOR_OVERRIDE")); len(override) > 0 {
+			return githubAppOwnershipPolicy{logins: override, source: "GITLAB_PR_AUTHOR_OVERRIDE"}
+		}
+		return githubAppOwnershipPolicy{source: "missing config gitlab.pr_author_override or GITLAB_PR_AUTHOR_OVERRIDE"}
+	}
+	return newGitHubOwnershipPolicy(config)
+}
+
 func splitAuthorLogins(value string) []string {
 	fields := strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '\t' })
 	var out []string

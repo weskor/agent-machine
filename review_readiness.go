@@ -64,7 +64,7 @@ func resumeReviewReadyRunContext(ctx context.Context, client linearClient, state
 		writeRunRecordWithCommandStateContext(ctx, stateStore, workspace, runRecordFor(candidate, workspace, configuredRuntimeCommand(config), githubAuth, runStarted, time.Now(), nil, nil, prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), err.Error()))
 		return true, err
 	}
-	validation := []string{"Implementation was preserved from prior runner-owned PR handoff; semantic review resumed after GitHub checks became terminal."}
+	validation := []string{"Implementation was preserved from prior runner-owned PR/MR handoff; semantic review resumed after code-host checks became terminal."}
 	if strings.TrimSpace(scopeResult.Summary()) != "" {
 		validation = append(validation, "Scope guard: "+scopeResult.Summary())
 	} else if scopeResult.Checked {

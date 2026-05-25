@@ -768,8 +768,8 @@ func TestRunOneMovesNeedsInfoAndCommentsWithoutPRHandoff(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"Do not create, update, push, or comment on a GitHub PR",
-		"the Agent Machine runner will commit, push, create or update exactly one PR",
+		"Do not create, update, push, or comment on a code-host PR/MR",
+		"the Agent Machine runner will commit, push, create or update exactly one PR/MR",
 		"Stop after the scoped diff and validation notes.",
 	} {
 		if !strings.Contains(string(prompt), want) {

@@ -229,7 +229,7 @@ func runReconciliationScanContext(ctx context.Context, client linearClient, conf
 	if err != nil {
 		return false, err
 	}
-	prs, err := openPRsForReconciliationWorker()
+	prs, err := openPRsForReconciliationWorker(config)
 	if err != nil {
 		return false, err
 	}
@@ -500,12 +500,14 @@ func prInvariantBlockReason(config runnerConfig, candidate issue, pr pullRequest
 	if pr.HeadRefName != expectedWorkspaceBranch(candidate.Identifier) {
 		reasons = append(reasons, fmt.Sprintf("PR head branch is %q; expected %q", emptyAsUnknown(pr.HeadRefName), expectedWorkspaceBranch(candidate.Identifier)))
 	}
-	ownership := newGitHubOwnershipPolicy(config)
+	ownership := newCodeHostOwnershipPolicy(config)
 	if !ownership.AllowsPRAuthor(pr.AuthorLogin()) {
 		reasons = append(reasons, fmt.Sprintf("PR author is %q; expected %s", emptyAsUnknown(pr.AuthorLogin()), ownership.ExpectedPRAuthorSource()))
 	}
-	if reason := commitAuthorInvariantBlockReason(pr); reason != "" {
-		reasons = append(reasons, reason)
+	if codeHostProvider(config) != "gitlab" {
+		if reason := commitAuthorInvariantBlockReason(pr); reason != "" {
+			reasons = append(reasons, reason)
+		}
 	}
 	return strings.Join(reasons, "; ")
 }

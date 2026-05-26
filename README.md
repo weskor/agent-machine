@@ -24,6 +24,25 @@ state, credentials, or scope are unclear.
 - Merges only when conservative gates pass: expected branch/base/repository,
   approval, green checks, review evidence, app/author ownership, and clean state.
 
+```mermaid
+flowchart TD
+    Config["Project config<br/>am.yaml + am.agent.md"] --> Doctor["doctor / preflight"]
+    Doctor --> Candidate["Select runnable Linear candidate"]
+    Candidate --> Claim["Claim issue<br/>lock + SQLite task state"]
+    Claim --> Workspace["Create isolated workspace<br/>.am/workspaces/&lt;issue&gt;"]
+    Workspace --> Implement["Run implementation Agent<br/>configured runtime provider"]
+    Implement --> Validate["Run validation hooks<br/>capture evidence"]
+    Validate --> Review{"Review pass<br/>enabled?"}
+    Review -- yes --> AgentReview["Run review Agent<br/>classify result"]
+    Review -- no --> Handoff["Runner-owned PR/MR handoff"]
+    AgentReview --> Handoff
+    Handoff --> HumanReview["Move Linear issue<br/>to Human Review"]
+    HumanReview --> MergeGate{"Merge gates pass?"}
+    MergeGate -- yes --> Merge["Merge PR/MR<br/>and record outcome"]
+    MergeGate -- no --> Blocked["Explain blocker<br/>retry, Needs Info, or reconciliation-needed"]
+    Merge --> Cleanup["Cleanup eligible workspace"]
+```
+
 ## Current Status
 
 This repo owns the runner implementation, tests, specs, code-host/Linear

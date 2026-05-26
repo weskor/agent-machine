@@ -38,7 +38,10 @@ type options struct {
 	concurrency   int
 	workspaceRoot string
 	reportPath    string
+	publicReport  string
 	fromReport    string
+	renderReport  bool
+	manualNote    string
 	fakeAgent     bool
 	applyMerge    bool
 	issues        issueList
@@ -53,6 +56,9 @@ func main() {
 
 func run(ctx context.Context, args []string, environ []string) error {
 	opts := parseOptions(args)
+	if opts.renderReport {
+		return renderPublicReport(opts)
+	}
 	loadDotEnvLocal(".env.local")
 	loadDotEnvLocal(filepath.Join(filepath.Dir(opts.project), ".env.local"))
 	env := envMap(environ)
@@ -102,6 +108,9 @@ func run(ctx context.Context, args []string, environ []string) error {
 	if opts.reportPath == "" {
 		opts.reportPath = filepath.Join(".am", "live-smoke", fmt.Sprintf("live-smoke-%s.json", time.Now().UTC().Format("20060102T150405Z")))
 	}
+	if opts.publicReport == "auto" {
+		opts.publicReport = livesmoke.PublicReportPath(opts.reportPath)
+	}
 
 	client := linearClient{endpoint: config.Tracker.Endpoint, apiKey: env["LINEAR_API_KEY"]}
 	linearProject, err := client.project(ctx, config.Tracker.ProjectSlug)
@@ -122,7 +131,8 @@ func run(ctx context.Context, args []string, environ []string) error {
 		return err
 	}
 
-	report := livesmoke.Report{StartedAt: time.Now().UTC(), ConfigPath: opts.project, SmokeConfig: smokeConfig, WorkspaceRoot: opts.workspaceRoot, FakeAgent: opts.fakeAgent, ApplyMerge: opts.applyMerge, Issues: issueRefs, ReportPath: opts.reportPath}
+	report := livesmoke.Report{StartedAt: time.Now().UTC(), ConfigPath: opts.project, SmokeConfig: smokeConfig, WorkspaceRoot: opts.workspaceRoot, FakeAgent: opts.fakeAgent, ApplyMerge: opts.applyMerge, Issues: issueRefs, ReportPath: opts.reportPath, PublicReportPath: opts.publicReport}
+	report.ManualIntervention = opts.manualNote
 	fmt.Printf("smoke_config=%s\n", smokeConfig)
 	fmt.Printf("workspace_root=%s\n", opts.workspaceRoot)
 	for _, issue := range issueRefs {
@@ -132,30 +142,45 @@ func run(ctx context.Context, args []string, environ []string) error {
 	for range issueRefs {
 		command := fmt.Sprintf("go run . worker implementation --config %s", shellQuote(smokeConfig))
 		report.Commands = append(report.Commands, command)
-		if err := runCommand(ctx, command, "."); err != nil {
+		result := runCommand(ctx, command, ".")
+		report.CommandResults = append(report.CommandResults, result)
+		if !result.Success {
 			_ = writeReport(report)
-			return err
+			_ = writePublicReport(report)
+			return commandResultError(result)
 		}
 	}
 	statusCommand := fmt.Sprintf("go run . status --config %s", shellQuote(smokeConfig))
 	report.Commands = append(report.Commands, statusCommand)
-	if err := runCommand(ctx, statusCommand, "."); err != nil {
+	result := runCommand(ctx, statusCommand, ".")
+	report.CommandResults = append(report.CommandResults, result)
+	if !result.Success {
 		_ = writeReport(report)
-		return err
+		_ = writePublicReport(report)
+		return commandResultError(result)
 	}
 	report.FinalStatusRan = true
 	if opts.applyMerge {
 		mergeCommand := fmt.Sprintf("go run . merge-approved --config %s", shellQuote(smokeConfig))
 		report.Commands = append(report.Commands, mergeCommand)
-		if err := runCommand(ctx, mergeCommand, "."); err != nil {
+		result := runCommand(ctx, mergeCommand, ".")
+		report.CommandResults = append(report.CommandResults, result)
+		if !result.Success {
 			_ = writeReport(report)
-			return err
+			_ = writePublicReport(report)
+			return commandResultError(result)
 		}
 	}
 	if err := writeReport(report); err != nil {
 		return err
 	}
+	if err := writePublicReport(report); err != nil {
+		return err
+	}
 	fmt.Printf("report=%s\n", opts.reportPath)
+	if opts.publicReport != "" {
+		fmt.Printf("public_report=%s\n", opts.publicReport)
+	}
 	return nil
 }
 
@@ -167,7 +192,10 @@ func parseOptions(args []string) options {
 	flags.IntVar(&opts.concurrency, "concurrency", opts.concurrency, "agent.max_concurrent_agents value written to the generated project")
 	flags.StringVar(&opts.workspaceRoot, "workspace-root", "", "isolated workspace root for the smoke project")
 	flags.StringVar(&opts.reportPath, "report", "", "JSON report path")
+	flags.StringVar(&opts.publicReport, "public-report", "", "optional Markdown evidence report path; use 'auto' for docs/smoke/<report>-evidence.md")
 	flags.StringVar(&opts.fromReport, "from-report", "", "reuse issue list and workspace root from a previous live smoke JSON report")
+	flags.StringVar(&opts.manualNote, "manual-intervention", "", "explicit manual/operator intervention note to include in the public evidence report")
+	flags.BoolVar(&opts.renderReport, "render-report", false, "render a public Markdown evidence report from --from-report without contacting Linear")
 	flags.BoolVar(&opts.fakeAgent, "fake-agent", opts.fakeAgent, "use the deterministic fake smoke agent")
 	flags.BoolVar(&opts.applyMerge, "apply-merge", false, "also run merge-approved; requires LIVE_SMOKE_APPLY=1")
 	flags.Var(&opts.issues, "issue", "existing disposable Linear issue identifier to use; repeatable")
@@ -176,6 +204,32 @@ func parseOptions(args []string) options {
 		opts.count = len(opts.issues)
 	}
 	return opts
+}
+
+func renderPublicReport(opts options) error {
+	if strings.TrimSpace(opts.fromReport) == "" {
+		return errors.New("--render-report requires --from-report")
+	}
+	report, err := readReport(opts.fromReport)
+	if err != nil {
+		return err
+	}
+	if report.ReportPath == "" {
+		report.ReportPath = opts.fromReport
+	}
+	if strings.TrimSpace(opts.manualNote) != "" {
+		report.ManualIntervention = opts.manualNote
+	}
+	if opts.publicReport == "auto" || strings.TrimSpace(opts.publicReport) == "" {
+		report.PublicReportPath = livesmoke.PublicReportPath(opts.fromReport)
+	} else {
+		report.PublicReportPath = opts.publicReport
+	}
+	if err := writePublicReport(report); err != nil {
+		return err
+	}
+	fmt.Printf("public_report=%s\n", report.PublicReportPath)
+	return nil
 }
 
 func applyReportOptions(opts options, report livesmoke.Report) options {
@@ -470,7 +524,7 @@ func (c linearClient) query(ctx context.Context, query string, variables map[str
 	return json.Unmarshal(envelope.Data, out)
 }
 
-func runCommand(ctx context.Context, command, dir string) error {
+func runCommand(ctx context.Context, command, dir string) livesmoke.CommandResult {
 	fmt.Printf("$ %s\n", command)
 	cmd := exec.CommandContext(ctx, "sh", "-lc", command)
 	cmd.Dir = dir
@@ -478,7 +532,22 @@ func runCommand(ctx context.Context, command, dir string) error {
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	cmd.Env = os.Environ()
-	return cmd.Run()
+	err := cmd.Run()
+	result := livesmoke.CommandResult{Command: command, Success: err == nil}
+	if cmd.ProcessState != nil {
+		result.ExitCode = cmd.ProcessState.ExitCode()
+	}
+	if err != nil {
+		result.Error = err.Error()
+	}
+	return result
+}
+
+func commandResultError(result livesmoke.CommandResult) error {
+	if result.Error != "" {
+		return fmt.Errorf("command failed: %s: %s", result.Command, result.Error)
+	}
+	return fmt.Errorf("command failed: %s", result.Command)
 }
 
 func writeReport(report livesmoke.Report) error {
@@ -490,6 +559,16 @@ func writeReport(report livesmoke.Report) error {
 		return err
 	}
 	return os.WriteFile(report.ReportPath, append(data, '\n'), 0o600)
+}
+
+func writePublicReport(report livesmoke.Report) error {
+	if strings.TrimSpace(report.PublicReportPath) == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(report.PublicReportPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(report.PublicReportPath, []byte(livesmoke.MarkdownReport(report)), 0o644)
 }
 
 func readReport(path string) (livesmoke.Report, error) {

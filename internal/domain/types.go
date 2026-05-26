@@ -2,6 +2,7 @@ package domain
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/weskor/agent-machine/internal/config"
@@ -118,6 +119,7 @@ type RunnerConfig struct {
 	ConfigPath             string
 	RepositoryRemote       string
 	RepositoryProvider     string
+	APIKey                 string
 	ProjectSlug            string
 	WorkspaceRoot          string
 	RunningState           string
@@ -132,6 +134,7 @@ type RunnerConfig struct {
 	PiCommand              string
 	ReviewCommand          string
 	ReviewGuidance         string
+	PromptPath             string
 	AfterCreate            string
 	BeforeRun              string
 	AfterRun               string
@@ -141,6 +144,13 @@ type RunnerConfig struct {
 	GitLabEndpoint         string
 	GitLabProject          string
 	GitLabPRAuthorOverride string
+}
+
+func (c RunnerConfig) RuntimeImplementationCommand() string {
+	if strings.TrimSpace(c.RuntimeCommand) != "" {
+		return c.RuntimeCommand
+	}
+	return c.PiCommand
 }
 
 func (r *RunRecord) UnmarshalJSON(data []byte) error {

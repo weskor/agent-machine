@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/weskor/agent-machine/internal/runledger"
 )
 
 const runProgressArtifactName = "progress.json"
@@ -121,7 +123,13 @@ func writeRunProgressResult(workspaceRoot string, snapshot runProgressSnapshot) 
 	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	if err := appendRunLedger(workspaceRoot, snapshot); err != nil {
+		log("failed to append run ledger for %s: %v", snapshot.IssueIdentifier, err)
+	}
+	return nil
 }
 
 func readRunProgress(workspaceRoot, issueIdentifier string) (runProgressSnapshot, error) {
@@ -168,6 +176,55 @@ func printRunProgress(workspaceRoot, issueIdentifier string) error {
 	}
 	fmt.Println(formatRunProgress(snapshot))
 	return nil
+}
+
+func printRunLedger(workspaceRoot, issueIdentifier string) error {
+	events, path, err := runledger.Read(workspaceRoot, issueIdentifier)
+	if err != nil {
+		if !errors.Is(err, runledger.ErrNotFound) {
+			return err
+		}
+		snapshot, progressErr := readRunProgress(workspaceRoot, issueIdentifier)
+		if progressErr != nil {
+			return err
+		}
+		path, _ = runledger.Path(workspaceRoot, issueIdentifier)
+		events = []runledger.Event{runLedgerEventFromProgress(snapshot)}
+	}
+	fmt.Println(runledger.Format(issueIdentifier, events, path))
+	return nil
+}
+
+func appendRunLedger(workspaceRoot string, snapshot runProgressSnapshot) error {
+	return runledger.Append(workspaceRoot, runLedgerEventFromProgress(snapshot))
+}
+
+func runLedgerEventFromProgress(snapshot runProgressSnapshot) runledger.Event {
+	return runledger.Event{
+		IssueIdentifier:      snapshot.IssueIdentifier,
+		IssueTitle:           snapshot.IssueTitle,
+		Phase:                snapshot.Phase,
+		Status:               snapshot.Status,
+		Outcome:              snapshot.Outcome,
+		ChecksStatus:         snapshot.ChecksStatus,
+		ReviewStatus:         snapshot.ReviewStatus,
+		ReviewClassification: snapshot.ReviewClassification,
+		PRURL:                snapshot.PRURL,
+		Branch:               snapshot.Branch,
+		ExpectedBranch:       snapshot.ExpectedBranch,
+		Workspace:            snapshot.Workspace,
+		StartedAt:            snapshot.StartedAt,
+		ObservedAt:           snapshot.UpdatedAt,
+		DurationMS:           snapshot.DurationMS,
+		NextAction:           snapshot.NextAction,
+		Error:                snapshot.Error,
+		RunRecordPath:        snapshot.RunRecordPath,
+		EvaluationPath:       snapshot.EvaluationPath,
+		ProgressPath:         snapshot.ProgressPath,
+		PRHandoffPayloadPath: snapshot.PRHandoffPayloadPath,
+		ReviewPayloadPath:    snapshot.ReviewPayloadPath,
+		HandoffPayloadPath:   snapshot.HandoffPayloadPath,
+	}
 }
 
 func formatRunProgress(snapshot runProgressSnapshot) string {

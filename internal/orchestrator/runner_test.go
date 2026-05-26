@@ -69,6 +69,13 @@ func TestCLIDependenciesAdaptsModeOperationsThroughRunnerFacade(t *testing.T) {
 			calls = append(calls, "run-status")
 			return nil
 		},
+		RunLedgerFunc: func(root, issueIdentifier string) error {
+			if root != "workspace" || issueIdentifier != "CAG-1" {
+				t.Fatalf("run ledger args = %q, %q; want workspace, CAG-1", root, issueIdentifier)
+			}
+			calls = append(calls, "run-ledger")
+			return nil
+		},
 		ExplainFunc: func(client testClient, config testConfig) error {
 			assertConfig(client, config)
 			calls = append(calls, "explain")
@@ -79,6 +86,13 @@ func TestCLIDependenciesAdaptsModeOperationsThroughRunnerFacade(t *testing.T) {
 				t.Fatalf("snapshot project = %q, want CAG", config.project)
 			}
 			calls = append(calls, "snapshot")
+			return nil
+		},
+		DoctorFunc: func(config testConfig) error {
+			if config.project != "CAG" {
+				t.Fatalf("doctor project = %q, want CAG", config.project)
+			}
+			calls = append(calls, "doctor")
 			return nil
 		},
 		MergeFunc: func(client testClient, config testConfig) error {
@@ -125,11 +139,17 @@ func TestCLIDependenciesAdaptsModeOperationsThroughRunnerFacade(t *testing.T) {
 	if err := deps.PrintRunProgress("workspace", "CAG-1"); err != nil {
 		t.Fatalf("PrintRunProgress returned error: %v", err)
 	}
+	if err := deps.PrintRunLedger("workspace", "CAG-1"); err != nil {
+		t.Fatalf("PrintRunLedger returned error: %v", err)
+	}
 	if err := deps.Explain(testClient{id: "linear"}, cliConfig); err != nil {
 		t.Fatalf("Explain returned error: %v", err)
 	}
 	if err := deps.SurfaceSnapshot(cliConfig); err != nil {
 		t.Fatalf("SurfaceSnapshot returned error: %v", err)
+	}
+	if err := deps.Doctor(cliConfig); err != nil {
+		t.Fatalf("Doctor returned error: %v", err)
 	}
 	if err := deps.MergeApprovedPRs(testClient{id: "linear"}, cliConfig); err != nil {
 		t.Fatalf("MergeApprovedPRs returned error: %v", err)
@@ -141,7 +161,7 @@ func TestCLIDependenciesAdaptsModeOperationsThroughRunnerFacade(t *testing.T) {
 		t.Fatalf("RunWorker returned error: %v", err)
 	}
 
-	wantCalls := []string{"backfill", "repair", "repair-task", "cleanup", "status", "run-status", "explain", "snapshot", "merge", "continuous", "worker"}
+	wantCalls := []string{"backfill", "repair", "repair-task", "cleanup", "status", "run-status", "run-ledger", "explain", "snapshot", "doctor", "merge", "continuous", "worker"}
 	if !reflect.DeepEqual(calls, wantCalls) {
 		t.Fatalf("calls = %#v, want %#v", calls, wantCalls)
 	}

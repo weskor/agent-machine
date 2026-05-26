@@ -133,7 +133,7 @@ func executePRHandoffPendingAttempt(ctx context.Context, client linearClient, co
 		now := time.Now()
 		candidate := payload.Issue()
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseHandoff, PRURL: payload.AgentPRURL, Error: err.Error()})
-		writeRunRecordWithCommandStateContext(ctx, stateStore, payload.Workspace, runRecordFor(candidate, payload.Workspace, configuredRuntimeCommand(config), "github_app_error", payload.AttemptStartedAt, now, payload.RuntimeUsage, nil, payload.AgentPRURL, decision.Status, err.Error(), config.Budget.Active(), ""))
+		writeRunRecordWithCommandStateContext(ctx, stateStore, payload.Workspace, runRecordFor(candidate, payload.Workspace, config.RuntimeImplementationCommand(), "github_app_error", payload.AttemptStartedAt, now, payload.RuntimeUsage, nil, payload.AgentPRURL, decision.Status, err.Error(), config.Budget.Active(), ""))
 		return true, err
 	}
 	payload.GitHubAuth = githubAuth
@@ -142,7 +142,7 @@ func executePRHandoffPendingAttempt(ctx context.Context, client linearClient, co
 		now := time.Now()
 		candidate := payload.Issue()
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseHandoff, PRURL: payload.AgentPRURL, Error: err.Error()})
-		writeRunRecordWithCommandStateContext(ctx, stateStore, payload.Workspace, runRecordFor(candidate, payload.Workspace, configuredRuntimeCommand(config), githubAuth, payload.AttemptStartedAt, now, payload.RuntimeUsage, nil, payload.AgentPRURL, decision.Status, err.Error(), config.Budget.Active(), ""))
+		writeRunRecordWithCommandStateContext(ctx, stateStore, payload.Workspace, runRecordFor(candidate, payload.Workspace, config.RuntimeImplementationCommand(), githubAuth, payload.AttemptStartedAt, now, payload.RuntimeUsage, nil, payload.AgentPRURL, decision.Status, err.Error(), config.Budget.Active(), ""))
 		return true, err
 	}
 	payload.AgentPRURL = prURL

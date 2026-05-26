@@ -29,7 +29,12 @@ func TestRunDispatchesRepresentativeArgCombinations(t *testing.T) {
 		{name: "run status", args: []string{"--run-status=CAG-119", configPath}, wantMode: modeRunStatus},
 		{name: "run status flag argument", args: []string{"--run-status", "CAG-119", "--config", configPath}, wantMode: modeRunStatus},
 		{name: "run status command", args: []string{"run-status", "CAG-119", "--config", configPath}, wantMode: modeRunStatus},
+		{name: "run ledger", args: []string{"--run-ledger=CAG-119", configPath}, wantMode: modeRunLedger},
+		{name: "run ledger command", args: []string{"run-ledger", "CAG-119", "--config", configPath}, wantMode: modeRunLedger},
+		{name: "status issue prints ledger", args: []string{"status", "CAG-119", "--config", configPath}, wantMode: modeRunLedger},
 		{name: "explain", args: []string{"--explain", configPath}, wantMode: modeExplain},
+		{name: "doctor", args: []string{"doctor", "--config", configPath}, wantMode: modeDoctor},
+		{name: "doctor flag", args: []string{"--doctor", configPath}, wantMode: modeDoctor},
 		{name: "surface snapshot", args: []string{"surface", "snapshot", "--config", configPath}, wantMode: modeSurface},
 		{name: "snapshot alias", args: []string{"snapshot", "--config", configPath}, wantMode: modeSurface},
 		{name: "surface snapshot flag", args: []string{"--surface-snapshot", configPath}, wantMode: modeSurface},
@@ -77,6 +82,31 @@ func TestRunRejectsRemovedOnceMode(t *testing.T) {
 	err := Run([]string{"--once", configPath}, testDeps(t, nil, nil, nil))
 	if err == nil || !strings.Contains(err.Error(), "--once has been removed") {
 		t.Fatalf("Run() error = %v, want removed once mode error", err)
+	}
+}
+
+func TestDoctorDoesNotRequireLinearClient(t *testing.T) {
+	configPath := writeConfig(t, "tracker:\n  api_key: \"\"\n")
+	calledClient := false
+	var gotConfig Config
+	deps := testDeps(t, nil, nil, nil)
+	deps.NewLinearClient = func(apiKey, endpoint string) fakeClient {
+		calledClient = true
+		return fakeClient{}
+	}
+	deps.Doctor = func(config Config) error {
+		gotConfig = config
+		return nil
+	}
+
+	if err := Run([]string{"doctor", "--config", configPath}, deps); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if calledClient {
+		t.Fatal("NewLinearClient called for doctor")
+	}
+	if gotConfig.WorkspaceRoot != "/tmp/am-test-workspaces" || gotConfig.ProjectSlug != "CAG" || gotConfig.PromptPath == "" {
+		t.Fatalf("Doctor config = %+v", gotConfig)
 	}
 }
 
@@ -168,6 +198,33 @@ func TestRunStatusDoesNotRequireLinearClient(t *testing.T) {
 	}
 	if gotRoot != "/tmp/am-test-workspaces" || gotIssue != "CAG-119" {
 		t.Fatalf("PrintRunProgress(%q, %q)", gotRoot, gotIssue)
+	}
+}
+
+func TestRunLedgerDoesNotRequireLinearClient(t *testing.T) {
+	configPath := writeConfig(t, "tracker:\n  api_key: \"\"\n")
+	calledClient := false
+	var gotRoot string
+	var gotIssue string
+	deps := testDeps(t, nil, nil, nil)
+	deps.NewLinearClient = func(apiKey, endpoint string) fakeClient {
+		calledClient = true
+		return fakeClient{}
+	}
+	deps.PrintRunLedger = func(workspaceRoot, issueIdentifier string) error {
+		gotRoot = workspaceRoot
+		gotIssue = issueIdentifier
+		return nil
+	}
+
+	if err := Run([]string{"status", "CAG-119", "--config", configPath}, deps); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if calledClient {
+		t.Fatal("NewLinearClient called for run ledger")
+	}
+	if gotRoot != "/tmp/am-test-workspaces" || gotIssue != "CAG-119" {
+		t.Fatalf("PrintRunLedger(%q, %q)", gotRoot, gotIssue)
 	}
 }
 
@@ -434,12 +491,20 @@ func testDeps(t *testing.T, gotMode *string, gotApply *bool, gotCycles *int) Dep
 			setMode(modeRunStatus)
 			return nil
 		},
+		PrintRunLedger: func(string, string) error {
+			setMode(modeRunLedger)
+			return nil
+		},
 		Explain: func(fakeClient, Config) error {
 			setMode(modeExplain)
 			return nil
 		},
 		SurfaceSnapshot: func(Config) error {
 			setMode(modeSurface)
+			return nil
+		},
+		Doctor: func(Config) error {
+			setMode(modeDoctor)
 			return nil
 		},
 		MergeApprovedPRs: func(fakeClient, Config) error {

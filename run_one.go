@@ -62,7 +62,7 @@ func claimNextRunAttemptWithOptionsContext(ctx context.Context, client linearCli
 		writeRunProgress(config.WorkspaceRoot, snapshot)
 		return nil, true, err
 	}
-	if _, err := runtime.Preflight(ctx, agentruntime.PreflightInput{ImplementationCommand: configuredRuntimeCommand(config), ReviewCommand: config.ReviewCommand}); err != nil {
+	if _, err := runtime.Preflight(ctx, agentruntime.PreflightInput{ImplementationCommand: config.RuntimeImplementationCommand(), ReviewCommand: config.ReviewCommand}); err != nil {
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhasePreflight, RuntimeErrorKind: "configuration", Error: err.Error()})
 		snapshot := runProgressForIssue(candidate, workspace, "failed", progressStarted)
 		snapshot.Error = err.Error()
@@ -140,7 +140,7 @@ func executeClaimedRunAttempt(ctx context.Context, client linearClient, proj pro
 	githubEnv, githubAuth, err := githubAppEnvFromEnvironment()
 	if err != nil {
 		now := time.Now()
-		writeRunRecordWithCommandStateContext(ctx, stateStore, workspace, runRecordFor(candidate, workspace, configuredRuntimeCommand(config), "github_app_error", now, now, nil, nil, "", runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
+		writeRunRecordWithCommandStateContext(ctx, stateStore, workspace, runRecordFor(candidate, workspace, config.RuntimeImplementationCommand(), "github_app_error", now, now, nil, nil, "", runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
 		return true, err
 	}
 	if githubAuth != "" {
@@ -171,7 +171,7 @@ func executeClaimedRunAttempt(ctx context.Context, client linearClient, proj pro
 	scopeResult, err := checkScopeGuardContext(ctx, candidate.Description, workspace, config.BaseBranch)
 	if err != nil {
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseScopeGuard, PRURL: prURL, ScopeError: err.Error()})
-		writeRunRecordWithCommandStateContext(ctx, stateStore, workspace, runRecordFor(candidate, workspace, configuredRuntimeCommand(config), githubAuth, piStart, time.Now(), runtimeUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), err.Error()))
+		writeRunRecordWithCommandStateContext(ctx, stateStore, workspace, runRecordFor(candidate, workspace, config.RuntimeImplementationCommand(), githubAuth, piStart, time.Now(), runtimeUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), err.Error()))
 		return true, err
 	}
 	if scopeResult.Blocks() {
@@ -179,14 +179,14 @@ func executeClaimedRunAttempt(ctx context.Context, client linearClient, proj pro
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseScopeGuard, PRURL: prURL, ScopeResult: scopeResult})
 		review := &reviewResult{Status: decision.ReviewStatus, Classification: decision.ReviewClassification, Findings: reason}
 		if _, err := linearStatus.MoveToContext(ctx, config.ReadyState); err != nil {
-			writeRunRecordWithCommandStateContext(ctx, stateStore, workspace, runRecordFor(candidate, workspace, configuredRuntimeCommand(config), githubAuth, piStart, time.Now(), runtimeUsage, review, prURL, decision.Status, err.Error(), config.Budget.Active(), ""))
+			writeRunRecordWithCommandStateContext(ctx, stateStore, workspace, runRecordFor(candidate, workspace, config.RuntimeImplementationCommand(), githubAuth, piStart, time.Now(), runtimeUsage, review, prURL, decision.Status, err.Error(), config.Budget.Active(), ""))
 			return true, err
 		}
 		comment := fmt.Sprintf("Scope guard failed before handoff; moved back to %s.\n\nPR: %s\nReason: %s", config.ReadyState, prURL, reason)
 		if err := linearStatus.CommentContext(ctx, comment); err != nil {
 			log("failed to comment on %s: %v", candidate.Identifier, err)
 		}
-		if err := writeRunRecordWithCommandStateContext(ctx, stateStore, workspace, runRecordFor(candidate, workspace, configuredRuntimeCommand(config), githubAuth, piStart, time.Now(), runtimeUsage, review, prURL, decision.Status, "scope guard failed", config.Budget.Active(), "")); err != nil {
+		if err := writeRunRecordWithCommandStateContext(ctx, stateStore, workspace, runRecordFor(candidate, workspace, config.RuntimeImplementationCommand(), githubAuth, piStart, time.Now(), runtimeUsage, review, prURL, decision.Status, "scope guard failed", config.Budget.Active(), "")); err != nil {
 			return true, err
 		}
 		log("scope guard failed for %s; moved back to %s: %s", candidate.Identifier, config.ReadyState, reason)
@@ -209,7 +209,7 @@ func executeClaimedRunAttempt(ctx context.Context, client linearClient, proj pro
 	prURL, err = ensureRunnerPRHandoffFromInputContext(ctx, config, prHandoffInput{Candidate: candidate, Workspace: workspace, AgentPRURL: prURL, ProgressStarted: progressStarted, AttemptStartedAt: piStart, RuntimeUsage: runtimeUsage, ScopeResult: scopeResult, Validation: validation, GitHubAuth: githubAuth, StateStore: stateStore}, githubEnv)
 	if err != nil {
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseHandoff, PRURL: prURL, Error: err.Error()})
-		writeRunRecordWithCommandStateContext(ctx, stateStore, workspace, runRecordFor(candidate, workspace, configuredRuntimeCommand(config), githubAuth, piStart, time.Now(), runtimeUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), ""))
+		writeRunRecordWithCommandStateContext(ctx, stateStore, workspace, runRecordFor(candidate, workspace, config.RuntimeImplementationCommand(), githubAuth, piStart, time.Now(), runtimeUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), ""))
 		return true, err
 	}
 	handoff := runProgressForIssue(candidate, workspace, "handoff_pr", progressStarted)

@@ -30,6 +30,7 @@ type Config struct {
 	PiCommand              string
 	ReviewCommand          string
 	ReviewGuidance         string
+	PromptPath             string
 	AfterCreate            string
 	BeforeRun              string
 	AfterRun               string
@@ -69,8 +70,10 @@ type Dependencies[Client any] struct {
 	CleanupWorkspaces                   func(string, CleanupOptions) error
 	PrintStatus                         func(Client, Config) error
 	PrintRunProgress                    func(string, string) error
+	PrintRunLedger                      func(string, string) error
 	Explain                             func(Client, Config) error
 	SurfaceSnapshot                     func(Config) error
+	Doctor                              func(Config) error
 	MergeApprovedPRs                    func(Client, Config) error
 	RunContinuous                       func(Client, cfg.Project, Config, int) error
 	RunWorker                           func(Client, cfg.Project, Config, string) error
@@ -96,8 +99,10 @@ const (
 	modeCleanup     = "cleanup-workspaces"
 	modeStatus      = "status"
 	modeRunStatus   = "run-status"
+	modeRunLedger   = "run-ledger"
 	modeExplain     = "explain"
 	modeSurface     = "surface-snapshot"
+	modeDoctor      = "doctor"
 	modeContinuous  = "continuous"
 	modeWorker      = "worker"
 	modeConfigPrint = "config-print"
@@ -150,8 +155,17 @@ func Run[Client any](args []string, deps Dependencies[Client]) error {
 		}
 		return deps.PrintRunProgress(config.WorkspaceRoot, parsed.runStatusID)
 	}
+	if parsed.mode == modeRunLedger {
+		if parsed.runStatusID == "" {
+			return errors.New("run-ledger requires an issue identifier, for example run-ledger CAG-123")
+		}
+		return deps.PrintRunLedger(config.WorkspaceRoot, parsed.runStatusID)
+	}
 	if parsed.mode == modeSurface {
 		return deps.SurfaceSnapshot(config)
+	}
+	if parsed.mode == modeDoctor {
+		return deps.Doctor(config)
 	}
 	if parsed.mode == modeRepairTask {
 		if strings.TrimSpace(parsed.repairTaskKey) == "" {
@@ -215,15 +229,29 @@ func parseArgs(args []string) parsedArgs {
 		case "start":
 			setMode(modeContinuous, 1)
 		case "status":
-			setMode(modeStatus, 3)
+			if i+1 < len(args) && looksLikeIssueIdentifier(args[i+1]) {
+				setMode(modeRunLedger, 3)
+				parsed.runStatusID = args[i+1]
+				i++
+			} else {
+				setMode(modeStatus, 3)
+			}
 		case "run-status":
 			setMode(modeRunStatus, 3)
 			if i+1 < len(args) {
 				parsed.runStatusID = args[i+1]
 				i++
 			}
+		case "run-ledger":
+			setMode(modeRunLedger, 3)
+			if i+1 < len(args) {
+				parsed.runStatusID = args[i+1]
+				i++
+			}
 		case "explain":
 			setMode(modeExplain, 7)
+		case "doctor":
+			setMode(modeDoctor, 9)
 		case "snapshot":
 			setMode(modeSurface, 7)
 		case "surface":
@@ -266,8 +294,16 @@ func parseArgs(args []string) parsedArgs {
 				parsed.runStatusID = args[i+1]
 				i++
 			}
+		case "--run-ledger":
+			setMode(modeRunLedger, 3)
+			if i+1 < len(args) {
+				parsed.runStatusID = args[i+1]
+				i++
+			}
 		case "--explain", "--dry-run":
 			setMode(modeExplain, 7)
+		case "--doctor":
+			setMode(modeDoctor, 9)
 		case "--surface-snapshot":
 			setMode(modeSurface, 7)
 		case "--apply":
@@ -298,6 +334,9 @@ func parseArgs(args []string) parsedArgs {
 			} else if value, ok := strings.CutPrefix(arg, "--run-status="); ok {
 				setMode(modeRunStatus, 3)
 				parsed.runStatusID = value
+			} else if value, ok := strings.CutPrefix(arg, "--run-ledger="); ok {
+				setMode(modeRunLedger, 3)
+				parsed.runStatusID = value
 			} else if value, ok := strings.CutPrefix(arg, "--worker="); ok {
 				setMode(modeWorker, 8)
 				parsed.workerRole = value
@@ -310,6 +349,28 @@ func parseArgs(args []string) parsedArgs {
 		}
 	}
 	return parsed
+}
+
+func looksLikeIssueIdentifier(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.HasPrefix(value, "-") || strings.ContainsAny(value, `/\`) || strings.HasSuffix(value, ".yaml") || strings.HasSuffix(value, ".yml") {
+		return false
+	}
+	prefix, suffix, ok := strings.Cut(value, "-")
+	if !ok || prefix == "" || suffix == "" {
+		return false
+	}
+	for _, r := range prefix {
+		if r < 'A' || r > 'Z' {
+			return false
+		}
+	}
+	for _, r := range suffix {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func LoadProjectConfig(configPath string) (cfg.Project, Config, error) {
@@ -345,6 +406,7 @@ func LoadProjectConfig(configPath string) (cfg.Project, Config, error) {
 	config.PiCommand = schema.Runtime.Command
 	config.ReviewCommand = schema.Runtime.ReviewCommand
 	config.ReviewGuidance = schema.Review.Guidance
+	config.PromptPath = resolveConfigRelative(configDir, schema.Agent.PromptPath)
 	config.AfterCreate = firstNonEmpty(schema.Hooks.AfterCreate, schema.Pi.AfterCreate)
 	config.BeforeRun = firstNonEmpty(schema.Hooks.BeforeRun, schema.Pi.BeforeRun)
 	config.AfterRun = firstNonEmpty(schema.Hooks.AfterRun, schema.Pi.AfterRun)

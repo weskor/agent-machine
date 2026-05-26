@@ -1,6 +1,11 @@
 package main
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/weskor/agent-machine/internal/behaviorcontract"
+	"github.com/weskor/agent-machine/internal/ticketcontract"
+)
 
 // runClassification is the shared classification result consumed by evaluation
 // artifacts, handoff comments, status summaries, and terminal-outcome mirrors.
@@ -30,8 +35,8 @@ type runClassificationInput struct {
 
 func classifyRun(input runClassificationInput) runClassification {
 	classification := runClassification{
-		BehaviorContractEvidence: behaviorContractEvidenceForRun(input.Record),
-		TicketContractEvidence:   ticketContractEvidenceForRun(input.Record),
+		BehaviorContractEvidence: behaviorcontract.EvidenceForRun(input.Record),
+		TicketContractEvidence:   ticketcontract.EvidenceForRun(input.Record),
 	}
 	classification.FrictionSignals = classifyFrictionSignals(input)
 	classification.CandidateHarnessImprovements = harnessImprovements(classification.FrictionSignals)

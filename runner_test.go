@@ -1030,35 +1030,6 @@ func TestRunOneBlocksOutOfScopeDiffBeforeReviewHandoff(t *testing.T) {
 	}
 }
 
-func TestBehaviorContractPreflightPromptCoversGenericReplacementContracts(t *testing.T) {
-	prompt := behaviorContractPreflightPrompt()
-
-	for _, expected := range []string{
-		"refactors, replacements, and rewrites",
-		"CONTEXT.md",
-		"LANGUAGE.md",
-		"docs/adr/",
-		"docs/specs/",
-		"code, commands, dependencies, integrations, workflows, or state-machine logic",
-		"inputs/outputs, side effects, cleanup, error handling, security/ownership assumptions, state transitions, and hidden operational contracts",
-		"Behavior Contract Evidence",
-		"cite relevant specs/ADRs",
-		"behavior preserved",
-		"behavior intentionally changed",
-		"unknown behavior that needs clarification",
-		"no spec changes were needed",
-		"TDD or characterization tests",
-		"complexity/LOC budget",
-		"expected files touched",
-		"what bespoke code is removed",
-		"NEEDS_INFO",
-	} {
-		if !strings.Contains(prompt, expected) {
-			t.Fatalf("preflight prompt missing %q:\n%s", expected, prompt)
-		}
-	}
-}
-
 func TestRunRecordStoresBehaviorContractEvidence(t *testing.T) {
 	workspace := t.TempDir()
 	record := runRecordFor(&issue{Identifier: "CAG-38"}, workspace, "pi", "", nowFixture(), nowFixture(), nil, &reviewResult{Status: "failed", Findings: "REVIEW_FAIL missing parity checklist"}, "", "review_failed", "review did not pass", nil, "")

@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/weskor/agent-machine/internal/agentruntime"
+	"github.com/weskor/agent-machine/internal/behaviorcontract"
 	sh "github.com/weskor/agent-machine/internal/shell"
 	"github.com/weskor/agent-machine/internal/state"
+	"github.com/weskor/agent-machine/internal/ticketcontract"
 )
 
 type implementationWorker struct {
@@ -58,7 +60,7 @@ func (w implementationWorker) Prepare(ctx context.Context) error {
 				if errors.Is(err, sh.ErrCommandTimeout) {
 					decision := commandFailureLifecycleDecision(attemptLifecyclePhaseWorkspace, err, true)
 					_ = linearStatus.CommentContext(ctx, renderBudgetFailureComment(err.Error()))
-					writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), "", w.runStarted, time.Now(), nil, nil, "", decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
+					writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), "", w.runStarted, time.Now(), nil, nil, "", decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
 				}
 				return err
 			}
@@ -72,7 +74,7 @@ func (w implementationWorker) Prepare(ctx context.Context) error {
 			if errors.Is(err, sh.ErrCommandTimeout) {
 				decision := commandFailureLifecycleDecision(attemptLifecyclePhaseWorkspace, err, true)
 				_ = linearStatus.CommentContext(ctx, renderBudgetFailureComment(err.Error()))
-				writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), "", w.runStarted, time.Now(), nil, nil, "", decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
+				writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), "", w.runStarted, time.Now(), nil, nil, "", decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
 			}
 			return err
 		}
@@ -108,7 +110,7 @@ func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]stri
 	if err != nil {
 		return implementationWorkerResult{}, err
 	}
-	attempt, err := runtime.StartAttempt(ctx, agentruntime.StartAttemptInput{IssueID: w.candidate.ID, IssueIdentifier: w.candidate.Identifier, Workspace: w.workspace, Branch: w.branch, ExpectedBranch: expectedWorkspaceBranch(w.candidate.Identifier), Attempt: 1, WorkingDir: w.workspace, Command: configuredRuntimeCommand(w.config), PromptPath: promptPath, Timeouts: agentruntime.AttemptTimeouts{WallClock: w.config.Budget.WallClock, Command: w.config.Budget.CommandTimeout, Review: w.config.Budget.ReviewTimeout}, Environment: githubEnv})
+	attempt, err := runtime.StartAttempt(ctx, agentruntime.StartAttemptInput{IssueID: w.candidate.ID, IssueIdentifier: w.candidate.Identifier, Workspace: w.workspace, Branch: w.branch, ExpectedBranch: expectedWorkspaceBranch(w.candidate.Identifier), Attempt: 1, WorkingDir: w.workspace, Command: w.config.RuntimeImplementationCommand(), PromptPath: promptPath, Timeouts: agentruntime.AttemptTimeouts{WallClock: w.config.Budget.WallClock, Command: w.config.Budget.CommandTimeout, Review: w.config.Budget.ReviewTimeout}, Environment: githubEnv})
 	if err != nil {
 		return implementationWorkerResult{}, err
 	}
@@ -116,7 +118,7 @@ func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]stri
 	implementing := runProgressForIssue(w.candidate, w.workspace, "implementing", w.progressStarted)
 	implementing.Branch = w.branch
 	writeRunProgress(w.config.WorkspaceRoot, implementing)
-	piResult, err := runtime.RunAttempt(ctx, attempt.ID, agentruntime.RunAttemptInput{Command: configuredRuntimeCommand(w.config), PromptPath: promptPath, WorkingDir: w.workspace, Timeout: w.config.Budget.RuntimeDuration(), Environment: githubEnv}, agentruntime.NoopSink{})
+	piResult, err := runtime.RunAttempt(ctx, attempt.ID, agentruntime.RunAttemptInput{Command: w.config.RuntimeImplementationCommand(), PromptPath: promptPath, WorkingDir: w.workspace, Timeout: w.config.Budget.RuntimeDuration(), Environment: githubEnv}, agentruntime.NoopSink{})
 	piEnvelope := normalizedAttemptEnvelope(piResult)
 	piStart := piResult.StartedAt
 	piEnded := piResult.EndedAt
@@ -130,7 +132,7 @@ func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]stri
 				log("failed to comment on %s: %v", w.candidate.Identifier, commentErr)
 			}
 		}
-		writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), githubAuth, piStart, piEnded, result.Usage, nil, piEnvelope.PRURL, decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
+		writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), githubAuth, piStart, piEnded, result.Usage, nil, piEnvelope.PRURL, decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
 		result.Terminal = true
 		return result, err
 	}
@@ -149,7 +151,7 @@ func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]stri
 		if err := linearStatus.CommentContext(ctx, renderBudgetFailureComment(exceeded)); err != nil {
 			log("failed to comment on %s: %v", w.candidate.Identifier, err)
 		}
-		writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), githubAuth, piStart, time.Now(), result.Usage, nil, result.PRURL, decision.Status, exceeded, w.config.Budget.Active(), exceeded))
+		writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), githubAuth, piStart, time.Now(), result.Usage, nil, result.PRURL, decision.Status, exceeded, w.config.Budget.Active(), exceeded))
 		result.Terminal = true
 		return result, fmt.Errorf("%s", exceeded)
 	}
@@ -157,7 +159,7 @@ func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]stri
 		moved, err := linearStatus.MoveToContext(ctx, w.config.NeedsInfoState)
 		if err != nil {
 			decision := needsInfoLifecycleDecision(piEnvelope.NeedsInfoQuestions, runAttemptStatusNeedsInfoFail, err.Error())
-			writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), githubAuth, piStart, time.Now(), result.Usage, nil, result.PRURL, decision.Status, err.Error(), w.config.Budget.Active(), ""))
+			writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), githubAuth, piStart, time.Now(), result.Usage, nil, result.PRURL, decision.Status, err.Error(), w.config.Budget.Active(), ""))
 			result.Terminal = true
 			return result, err
 		}
@@ -169,7 +171,7 @@ func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]stri
 			log("failed to comment on %s: %v", w.candidate.Identifier, err)
 		}
 		decision := needsInfoLifecycleDecision(piEnvelope.NeedsInfoQuestions, "", "")
-		if err := writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), githubAuth, piStart, time.Now(), result.Usage, nil, "", decision.Status, strings.Join(piEnvelope.NeedsInfoQuestions, "\n"), w.config.Budget.Active(), "")); err != nil {
+		if err := writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), githubAuth, piStart, time.Now(), result.Usage, nil, "", decision.Status, strings.Join(piEnvelope.NeedsInfoQuestions, "\n"), w.config.Budget.Active(), "")); err != nil {
 			result.Terminal = true
 			return result, err
 		}
@@ -186,7 +188,7 @@ func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]stri
 					log("failed to comment on %s: %v", w.candidate.Identifier, commentErr)
 				}
 			}
-			writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), githubAuth, piStart, time.Now(), result.Usage, nil, result.PRURL, decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
+			writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), githubAuth, piStart, time.Now(), result.Usage, nil, result.PRURL, decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
 			result.Terminal = true
 			return result, err
 		}
@@ -199,5 +201,5 @@ func implementationPrompt(projectPrompt string, candidate *issue, feedback strin
 	if strings.TrimSpace(feedback) != "" {
 		feedbackBlock = fmt.Sprintf("\n\nCode-host PR/MR feedback to address before handoff:\n%s\n", feedback)
 	}
-	return renderPrompt(projectPrompt, *candidate, 1) + fmt.Sprintf("\n\nLinear issue description:\n%s%s\n\n%s\n\n%s\n\nAgent Machine runner constraints:\n- Follow the Linear issue description exactly; do not infer broader implementation work from the title alone.\n- If code-host PR/MR feedback is present, address that feedback in the existing PR branch rather than starting unrelated work.\n- If required information is missing or the ticket is ambiguous/unsafe to implement, output NEEDS_INFO followed by numbered questions instead of guessing.\n- Run exactly once; do not ask for continuation.\n- Keep context usage minimal.\n- Leave scoped code/test/doc changes in this workspace and include validation notes.\n- Do not create, update, push, or comment on a code-host PR/MR; the Agent Machine runner will commit, push, create or update exactly one PR/MR from branch %s into base branch %s, and post deterministic handoff comments.\n- Before finishing, perform a focused self-review of the final diff for scope, secrets, validation, tenant/security risk, unrelated files, and behavior-contract evidence; fix any clear findings.\n- Stop after the scoped diff and validation notes.\n- The runner will move the Linear issue to %s after runner PR/MR handoff, or to %s when NEEDS_INFO is detected.\n", candidate.Description, feedbackBlock, ticketContractPrompt(), behaviorContractPreflightPrompt(), expectedWorkspaceBranch(candidate.Identifier), config.BaseBranch, config.HandoffState, config.NeedsInfoState)
+	return renderPrompt(projectPrompt, *candidate, 1) + fmt.Sprintf("\n\nLinear issue description:\n%s%s\n\n%s\n\n%s\n\nAgent Machine runner constraints:\n- Follow the Linear issue description exactly; do not infer broader implementation work from the title alone.\n- If code-host PR/MR feedback is present, address that feedback in the existing PR branch rather than starting unrelated work.\n- If required information is missing or the ticket is ambiguous/unsafe to implement, output NEEDS_INFO followed by numbered questions instead of guessing.\n- Run exactly once; do not ask for continuation.\n- Keep context usage minimal.\n- Leave scoped code/test/doc changes in this workspace and include validation notes.\n- Do not create, update, push, or comment on a code-host PR/MR; the Agent Machine runner will commit, push, create or update exactly one PR/MR from branch %s into base branch %s, and post deterministic handoff comments.\n- Before finishing, perform a focused self-review of the final diff for scope, secrets, validation, tenant/security risk, unrelated files, and behavior-contract evidence; fix any clear findings.\n- Stop after the scoped diff and validation notes.\n- The runner will move the Linear issue to %s after runner PR/MR handoff, or to %s when NEEDS_INFO is detected.\n", candidate.Description, feedbackBlock, ticketcontract.Prompt(), behaviorcontract.PreflightPrompt(), expectedWorkspaceBranch(candidate.Identifier), config.BaseBranch, config.HandoffState, config.NeedsInfoState)
 }

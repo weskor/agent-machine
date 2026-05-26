@@ -141,8 +141,10 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 - `--repair-worker-task=<task_key>`: operator-triggered repair for a durable worker task that is currently `reconciliation_needed`; it requeues that exact task through SQLite and records a repair event instead of requiring manual database edits.
 - `status` / `--status`: print runner/workspace status for the project config.
 - `run-status <issue>` / `--run-status=<issue>`: print one compact progress line for an active or recently terminal run from the runner-owned progress snapshot under `.am/state/run-progress/<issue>/progress.json`. This command is local/read-only and must not require Linear or GitHub access.
+- `run-ledger <issue>` / `--run-ledger=<issue>` / `status <issue>`: print the append-only local timeline from `.am/state/run-ledger/<issue>/events.jsonl`. Ledger events are exported from runner progress snapshots and terminal run-record summaries. If an older run has no ledger file yet, the command may synthesize a one-event read-only view from the current progress snapshot. This command is local/read-only and must not require Linear or GitHub access.
 - `explain` / `--explain` / `--dry-run`: print structured JSON for the next scheduling decision, merge blockers, and cleanup eligibility without mutating Linear, code-host state, workspaces, artifacts, or orchestration state.
 - `config print`: print the resolved, redacted config and does not require Linear or code-host access.
+- `doctor` / `--doctor`: print a read-only first-run diagnostic for the selected project config. It validates local config readability, prompt file availability, workspace-root parent usability, required credential presence, supported runtime provider selection, and selected runtime command executables without contacting Linear or a code host and without mutating workspaces, artifacts, or orchestration state. Missing hard prerequisites exit non-zero with actionable check messages.
 - `--status` includes SQLite event-log counts and recent event summaries when the durable orchestration event schema is available; these diagnostics do not replace artifact summaries or lifecycle decisions.
 - `--status` includes durable worker task and worker result rows when available. Worker result rows are the latest typed status for each continuous/selected worker task and are preferred over reconstructing worker outcomes from logs or event streams.
 
@@ -207,6 +209,12 @@ are observability-only. They may help an operator inspect an active or recently
 terminal attempt, but they must not drive candidate selection, Linear/code-host
 transitions, SQLite leases, merge gates, cleanup eligibility, retry decisions,
 or review classification.
+
+Run ledgers under `.am/state/run-ledger/<issue>/events.jsonl` are also
+observability-only. They append progress-derived events for local inspection and
+public evidence reconstruction, but they must not drive candidate selection,
+Linear/code-host transitions, SQLite leases, merge gates, cleanup eligibility,
+retry decisions, or review classification.
 
 | Transition | Current trigger and facts | Current runner decision | Current authority | SQLite target authority |
 | --- | --- | --- | --- | --- |

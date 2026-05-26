@@ -24,8 +24,10 @@ type ModeRunner[Client any, Config any] interface {
 	Cleanup(string, cli.CleanupOptions) error
 	Status(Client, Config) error
 	RunStatus(string, string) error
+	RunLedger(string, string) error
 	Explain(Client, Config) error
 	SurfaceSnapshot(Config) error
+	Doctor(Config) error
 	Merge(Client, Config) error
 	Continuous(Client, cfg.Project, Config, int) error
 	Worker(Client, cfg.Project, Config, string) error
@@ -41,8 +43,10 @@ type ModeOperationFuncs[Client any, Config any] struct {
 	CleanupFunc    func(string, cli.CleanupOptions) error
 	StatusFunc     func(Client, Config) error
 	RunStatusFunc  func(string, string) error
+	RunLedgerFunc  func(string, string) error
 	ExplainFunc    func(Client, Config) error
 	SnapshotFunc   func(Config) error
+	DoctorFunc     func(Config) error
 	MergeFunc      func(Client, Config) error
 	ContinuousFunc func(Client, cfg.Project, Config, int) error
 	WorkerFunc     func(Client, cfg.Project, Config, string) error
@@ -70,12 +74,20 @@ func (m ModeOperationFuncs[Client, Config]) RunStatus(workspaceRoot, issueIdenti
 	return m.RunStatusFunc(workspaceRoot, issueIdentifier)
 }
 
+func (m ModeOperationFuncs[Client, Config]) RunLedger(workspaceRoot, issueIdentifier string) error {
+	return m.RunLedgerFunc(workspaceRoot, issueIdentifier)
+}
+
 func (m ModeOperationFuncs[Client, Config]) Explain(client Client, config Config) error {
 	return m.ExplainFunc(client, config)
 }
 
 func (m ModeOperationFuncs[Client, Config]) SurfaceSnapshot(config Config) error {
 	return m.SnapshotFunc(config)
+}
+
+func (m ModeOperationFuncs[Client, Config]) Doctor(config Config) error {
+	return m.DoctorFunc(config)
 }
 
 func (m ModeOperationFuncs[Client, Config]) Merge(client Client, config Config) error {
@@ -124,11 +136,15 @@ func (r runner[Client, Config]) CLIDependencies() cli.Dependencies[Client] {
 			return r.modes.Status(client, r.fromCLIConfig(config))
 		},
 		PrintRunProgress: r.modes.RunStatus,
+		PrintRunLedger:   r.modes.RunLedger,
 		Explain: func(client Client, config cli.Config) error {
 			return r.modes.Explain(client, r.fromCLIConfig(config))
 		},
 		SurfaceSnapshot: func(config cli.Config) error {
 			return r.modes.SurfaceSnapshot(r.fromCLIConfig(config))
+		},
+		Doctor: func(config cli.Config) error {
+			return r.modes.Doctor(r.fromCLIConfig(config))
 		},
 		MergeApprovedPRs: func(client Client, config cli.Config) error {
 			return r.modes.Merge(client, r.fromCLIConfig(config))

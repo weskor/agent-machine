@@ -61,7 +61,10 @@ func TestClaudeCLIAdapterReviewAttemptWritesPromptAndClassifiesFindings(t *testi
 			if phase != "review" || !strings.Contains(command, ".am-review-prompt-") || !strings.Contains(command, " < ") {
 				t.Fatalf("unexpected review command phase=%q command=%q", phase, command)
 			}
-			return "REVIEW_PASS\nLooks good.", nil
+			return `{"type":"result","result":"REVIEW_PASS\nLooks good."}`, nil
+		},
+		ReviewFindings: func(output string) string {
+			return "REVIEW_PASS\nLooks good."
 		},
 		ReviewStatus: func(output string) string { return "passed" },
 		ReviewClassification: func(status, output string) string {

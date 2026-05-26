@@ -18,6 +18,8 @@ MCP, ACP, app, and dashboard surfaces should use the same typed contract shape.
 - The no-mode CLI entrypoint launches the TUI by default. Mutating work remains
   behind explicit runner commands such as `start`, `worker`, `merge-approved`,
   `repair-artifacts`, and `cleanup-workspaces --apply`.
+- The runner may launch a compiled `agent-machine-tui` helper when present.
+  Source checkouts may fall back to Bun for local development.
 
 ## TUI Adapter
 
@@ -61,7 +63,9 @@ The snapshot includes:
 The snapshot intentionally excludes secrets and raw agent output.
 
 Product surfaces may use `AM_BIN` to call a built runner binary. The command
-contract remains `surface snapshot --config <path>`.
+contract remains `surface snapshot --config <path>`. The runner may use
+`AM_TUI_BIN` or a sibling `agent-machine-tui` executable to launch a compiled
+TUI helper before falling back to a source-checkout Bun command.
 
 ## Future commands
 

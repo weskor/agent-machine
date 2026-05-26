@@ -273,10 +273,18 @@ Controls:
 - `r`: refresh the local snapshot.
 - `q`: quit.
 
-The TUI shells out to the local runner by default. Set `AM_BIN` to use an
-already-built binary instead of `go run .`. The Logs view shows typed worker
-results and recent orchestration events; raw Agent output stays in capped debug
-artifacts and is not streamed into the dashboard.
+When launched through `am`, the TUI first looks for a compiled
+`agent-machine-tui` helper beside the runner binary, from `AM_TUI_BIN`, or under
+`dist/tui/` for the current platform. Source checkouts fall back to `bun run`.
+Build a local helper with:
+
+```bash
+mise exec go -- make tui-build
+```
+
+Set `AM_BIN` when running the TUI directly against an already-built runner. The
+Logs view shows typed worker results and recent orchestration events; raw Agent
+output stays in capped debug artifacts and is not streamed into the dashboard.
 
 ## Runtime Providers
 

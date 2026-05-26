@@ -8,12 +8,15 @@ import (
 )
 
 const (
-	defaultRuntimeProvider    = "codex_cli"
-	legacyPiRuntime           = "pi_cli"
-	defaultCodexCommand       = "codex --ask-for-approval never exec --ignore-user-config --ignore-rules --ephemeral --sandbox workspace-write"
-	defaultCodexReviewCommand = "codex --ask-for-approval never exec --ignore-user-config --ignore-rules --ephemeral --sandbox read-only"
-	defaultPiCommand          = "pi --print --no-session --thinking low"
-	defaultPiReviewCommand    = "pi --print --no-session --thinking xhigh"
+	defaultRuntimeProvider     = "codex_cli"
+	legacyPiRuntime            = "pi_cli"
+	claudeRuntime              = "claude_cli"
+	defaultCodexCommand        = "codex --ask-for-approval never exec --ignore-user-config --ignore-rules --ephemeral --sandbox workspace-write"
+	defaultCodexReviewCommand  = "codex --ask-for-approval never exec --ignore-user-config --ignore-rules --ephemeral --sandbox read-only"
+	defaultClaudeCommand       = "claude --print --no-session-persistence --permission-mode acceptEdits"
+	defaultClaudeReviewCommand = "claude --print --no-session-persistence"
+	defaultPiCommand           = "pi --print --no-session --thinking low"
+	defaultPiReviewCommand     = "pi --print --no-session --thinking xhigh"
 )
 
 // Config is the normalized am.yaml configuration consumed by the runner.
@@ -238,15 +241,21 @@ func runtimeProviderFromYAML(runtimeYAML, agentYAML, legacyPiCommand, legacyPiRe
 }
 
 func defaultRuntimeCommand(provider string) string {
-	if strings.TrimSpace(provider) == legacyPiRuntime {
+	switch strings.TrimSpace(provider) {
+	case legacyPiRuntime:
 		return defaultPiCommand
+	case claudeRuntime:
+		return defaultClaudeCommand
 	}
 	return defaultCodexCommand
 }
 
 func defaultRuntimeReviewCommand(provider string) string {
-	if strings.TrimSpace(provider) == legacyPiRuntime {
+	switch strings.TrimSpace(provider) {
+	case legacyPiRuntime:
 		return defaultPiReviewCommand
+	case claudeRuntime:
+		return defaultClaudeReviewCommand
 	}
 	return defaultCodexReviewCommand
 }

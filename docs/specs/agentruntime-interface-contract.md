@@ -36,6 +36,10 @@ must not be used as architecture names for the runner itself.
   `codex` installed and configured on `PATH` for the default production runtime.
   That dependency should fail during runner preflight before claiming or mutating
   work, not after a workspace or Linear issue has been changed.
+- `claude_cli`: a local shell Adapter for Claude Code. It shells to
+  `claude --print`, reads the prepared prompt file through stdin, and supports
+  the same one-shot implementation and review attempt shape as `codex_cli`.
+  Users need `claude` installed and configured on `PATH` when selected.
 - `pi_cli`: the legacy local Adapter. It shells to the local `pi` executable and
   remains available as an explicit runtime provider for operators that opt into
   it.

@@ -63,6 +63,8 @@ the release archives unless and until Linux packages are added.
 - Go through `mise` (`mise install`, then `mise exec go -- ...`).
 - `codex` CLI on `PATH` for the default `codex_cli` runtime.
 - Optional: `pi` CLI on `PATH` when `runtime.provider: pi_cli` is configured.
+- Optional: `claude` CLI on `PATH` when `runtime.provider: claude_cli` is
+  configured.
 - A Linear API token.
 - Code-host credentials for the configured repository provider:
   `GITHUB_TOKEN` / `GH_TOKEN` or GitHub App credentials for GitHub, or
@@ -91,8 +93,8 @@ Edit `/path/to/target/am.yaml`:
 - `tracker.project_slug`: Linear project slug.
 - `workspace.root`: workspace directory, usually `.am/workspaces`.
 - `workspace.base_branch`: PR base branch, for example `main` or `develop`.
-- `runtime.provider`: usually `codex_cli`; use `pi_cli` only for the legacy Pi
-  CLI runtime.
+- `runtime.provider`: usually `codex_cli`; use `claude_cli` for Claude Code or
+  `pi_cli` for the legacy Pi CLI runtime.
 - `workflow.*`: Linear lane names for running, handoff, needs-info, and done.
 
 Put secrets in the process environment, an explicit `--env-file`, or
@@ -255,6 +257,14 @@ runtime:
   provider: pi_cli
 ```
 
+The `claude_cli` runtime shells out to Claude Code in non-interactive print mode
+and passes the prepared prompt through stdin:
+
+```yaml
+runtime:
+  provider: claude_cli
+```
+
 Runtime command overrides are available when a repository needs them:
 
 ```yaml
@@ -262,6 +272,16 @@ runtime:
   provider: codex_cli
   command: codex --ask-for-approval never exec --sandbox workspace-write
   review_command: codex --ask-for-approval never exec --sandbox read-only
+```
+
+For Claude Code, override the command when your environment needs a different
+permission mode, model, or settings source:
+
+```yaml
+runtime:
+  provider: claude_cli
+  command: claude --print --no-session-persistence --permission-mode acceptEdits
+  review_command: claude --print --no-session-persistence
 ```
 
 The selected implementation and review commands are preflighted before the

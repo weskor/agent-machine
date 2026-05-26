@@ -3,6 +3,9 @@ package main
 import (
 	"path/filepath"
 	"time"
+
+	"github.com/weskor/agent-machine/internal/behaviorcontract"
+	"github.com/weskor/agent-machine/internal/ticketcontract"
 )
 
 const (
@@ -48,8 +51,8 @@ func (o runAttemptOutcome) Record(candidate *issue, workspace, runtimeCommand st
 	root := filepath.Dir(workspace)
 	feedback, _ := readPRFeedback(workspace)
 	record := runRecord{IssueIdentifier: candidate.Identifier, IssueID: candidate.ID, IssueTitle: candidate.Title, IssueURL: candidate.URL, Workspace: workspace, WorkspaceRoot: root, Branch: branch, ExpectedBranch: expectedWorkspaceBranch(candidate.Identifier), RuntimeCommand: runtimeCommand, PiCommand: runtimeCommand, GitHubAuth: o.GitHubAuth, StartedAt: o.StartedAt, EndedAt: o.EndedAt, DurationMS: o.EndedAt.Sub(o.StartedAt).Milliseconds(), RuntimeUsage: o.RuntimeUsage, PiUsage: o.RuntimeUsage, ReviewStatus: reviewStatus, ReviewClassification: reviewClassification, ReviewFindings: reviewFindings, ReviewUsage: reviewUsage, PRURL: o.PRURL, FeedbackHash: feedbackHash(feedback), Status: o.Status, Error: o.Error, Budget: o.Budget, BudgetExceeded: o.BudgetExceeded}
-	record.BehaviorContractEvidence = behaviorContractEvidenceForRun(record)
-	record.BehaviorContractEvidence = append(record.BehaviorContractEvidence, ticketContractEvidenceForRun(record)...)
+	record.BehaviorContractEvidence = behaviorcontract.EvidenceForRun(record)
+	record.BehaviorContractEvidence = append(record.BehaviorContractEvidence, ticketcontract.EvidenceForRun(record)...)
 	return record
 }
 

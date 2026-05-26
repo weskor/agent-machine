@@ -12,6 +12,7 @@ import (
 	"github.com/weskor/agent-machine/internal/agentruntime"
 	artifactio "github.com/weskor/agent-machine/internal/artifacts"
 	"github.com/weskor/agent-machine/internal/codehost"
+	"github.com/weskor/agent-machine/internal/reviewpolicy"
 )
 
 var prURLPattern = regexp.MustCompile(`https://[^\s"'<>]+/(?:pull|-/merge_requests)/[0-9]+`)
@@ -33,8 +34,8 @@ func newPiCLIRuntime() agentruntime.AgentRuntime {
 		FirstPRURL:           firstPRURL,
 		NeedsInfoQuestions:   needsInfoQuestionsToRuntime,
 		AssistantText:        assistantText,
-		ReviewStatus:         reviewStatus,
-		ReviewClassification: reviewClassification,
+		ReviewStatus:         reviewpolicy.Status,
+		ReviewClassification: reviewpolicy.Classification,
 	}
 }
 
@@ -44,8 +45,8 @@ func newCodexCLIRuntime() agentruntime.AgentRuntime {
 		ParseUsage:           codexUsageToRuntime,
 		FirstPRURL:           firstPRURL,
 		NeedsInfoQuestions:   needsInfoQuestionsToRuntime,
-		ReviewStatus:         reviewStatus,
-		ReviewClassification: reviewClassification,
+		ReviewStatus:         reviewpolicy.Status,
+		ReviewClassification: reviewpolicy.Classification,
 	}
 }
 
@@ -58,13 +59,6 @@ func newAgentRuntime(provider string) (agentruntime.AgentRuntime, error) {
 	default:
 		return nil, fmt.Errorf("unsupported runtime.provider %q; supported providers: %s, %s", provider, runtimeProviderPiCLI, runtimeProviderCodexCLI)
 	}
-}
-
-func configuredRuntimeCommand(config runnerConfig) string {
-	if strings.TrimSpace(config.RuntimeCommand) != "" {
-		return config.RuntimeCommand
-	}
-	return config.PiCommand
 }
 
 func recordRuntimeUsage(record runRecord) *usage {

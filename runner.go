@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"os"
 
 	"github.com/weskor/agent-machine/internal/cli"
 	cfg "github.com/weskor/agent-machine/internal/config"
+	"github.com/weskor/agent-machine/internal/doctor"
 	"github.com/weskor/agent-machine/internal/orchestrator"
 )
 
@@ -54,11 +56,17 @@ func orchestratorRunner() orchestrator.Runner[linearClient, runnerConfig] {
 		RunStatusFunc: func(workspaceRoot, issueIdentifier string) error {
 			return printRunProgress(workspaceRoot, issueIdentifier)
 		},
+		RunLedgerFunc: func(workspaceRoot, issueIdentifier string) error {
+			return printRunLedger(workspaceRoot, issueIdentifier)
+		},
 		ExplainFunc: func(client linearClient, config runnerConfig) error {
 			return printExplain(client, config)
 		},
 		SnapshotFunc: func(config runnerConfig) error {
 			return printSurfaceSnapshot(config)
+		},
+		DoctorFunc: func(config runnerConfig) error {
+			return printDoctor(config)
 		},
 		MergeFunc: func(client linearClient, config runnerConfig) error {
 			return mergeApprovedPRs(client, config)
@@ -78,6 +86,7 @@ func runnerConfigFromCLI(config cli.Config) runnerConfig {
 		ConfigPath:             config.ConfigPath,
 		RepositoryRemote:       config.RepositoryRemote,
 		RepositoryProvider:     config.RepositoryProvider,
+		APIKey:                 config.APIKey,
 		ProjectSlug:            config.ProjectSlug,
 		WorkspaceRoot:          config.WorkspaceRoot,
 		RunningState:           config.RunningState,
@@ -92,6 +101,7 @@ func runnerConfigFromCLI(config cli.Config) runnerConfig {
 		PiCommand:              config.PiCommand,
 		ReviewCommand:          config.ReviewCommand,
 		ReviewGuidance:         config.ReviewGuidance,
+		PromptPath:             config.PromptPath,
 		AfterCreate:            config.AfterCreate,
 		BeforeRun:              config.BeforeRun,
 		AfterRun:               config.AfterRun,
@@ -102,6 +112,28 @@ func runnerConfigFromCLI(config cli.Config) runnerConfig {
 		GitLabProject:          config.GitLabProject,
 		GitLabPRAuthorOverride: config.GitLabPRAuthorOverride,
 	}
+}
+
+func printDoctor(config runnerConfig) error {
+	report := doctor.Evaluate(context.Background(), doctor.Config{
+		ConfigPath:         config.ConfigPath,
+		ProjectSlug:        config.ProjectSlug,
+		LinearAPIKey:       config.APIKey,
+		RepositoryProvider: config.RepositoryProvider,
+		RepositoryRemote:   config.RepositoryRemote,
+		WorkspaceRoot:      config.WorkspaceRoot,
+		PromptPath:         config.PromptPath,
+		RuntimeProvider:    config.RuntimeProvider,
+		RuntimeCommand:     config.RuntimeImplementationCommand(),
+		ReviewCommand:      config.ReviewCommand,
+		GitLabProject:      config.GitLabProject,
+	}, func(provider string) (doctor.Runtime, error) {
+		return newAgentRuntime(provider)
+	}, os.LookupEnv)
+	if err := report.Write(os.Stdout); err != nil {
+		return err
+	}
+	return report.Err()
 }
 
 func convertBackfillSkipped(skipped []backfillSkip) []cli.BackfillSkipped {

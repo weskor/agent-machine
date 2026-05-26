@@ -1,8 +1,12 @@
-package main
+package ticketcontract
 
-import "strings"
+import (
+	"strings"
 
-func ticketContractPrompt() string {
+	"github.com/weskor/agent-machine/internal/domain"
+)
+
+func Prompt() string {
 	return `Ticket-contract preflight:
 - Restate the five Linear ticket sections before planning: Goal, Scope, Requirements, Acceptance Criteria, Validation.
 - Treat explicit MUST / MUST NOT statements, required packages or approaches, allowed paths, and out-of-scope items as hard constraints.
@@ -12,7 +16,7 @@ func ticketContractPrompt() string {
 - Example hard constraint: MUST use github.com/google/go-github/v66/github; MUST NOT add bespoke net/http GitHub API wrappers.`
 }
 
-func ticketContractReviewPrompt() string {
+func ReviewPrompt() string {
 	return `Ticket-contract review requirements:
 - REVIEW_FAIL if the implementation violates explicit MUST / MUST NOT statements, required packages or approaches, allowed paths, out-of-scope items, or objective Acceptance Criteria.
 - REVIEW_FAIL if a refactor/replacement ticket lacked enough Scope, Requirements, or Acceptance Criteria to proceed safely and the implementation guessed instead of using NEEDS_INFO.
@@ -20,7 +24,7 @@ func ticketContractReviewPrompt() string {
 - Existing legacy CAG issues may proceed when they already contain enough detail to verify scope, requirements, acceptance criteria, and validation.`
 }
 
-func ticketContractEvidenceForRun(record runRecord) []string {
+func EvidenceForRun(record domain.RunRecord) []string {
 	evidence := []string{"implementation_prompt_required_five_section_ticket_contract"}
 	if record.ReviewStatus != "" {
 		evidence = append(evidence, "review_prompt_enforced_ticket_contract_hard_gates")

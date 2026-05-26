@@ -11,13 +11,6 @@ import (
 	sh "github.com/weskor/agent-machine/internal/shell"
 )
 
-func TestReviewStatusUsesFirstMarkerLine(t *testing.T) {
-	output := "REVIEW_PASS\nNo blockers. Historical note mentions REVIEW_FAIL."
-	if got := reviewStatus(output); got != "passed" {
-		t.Fatalf("expected passed, got %q", got)
-	}
-}
-
 func TestRunReviewCharacterizesInvocationAndOutcome(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
@@ -96,53 +89,6 @@ func TestRunReviewIncludesGuidanceFromEvidence(t *testing.T) {
 	}
 	if !strings.Contains(result.Findings, guidance) {
 		t.Fatalf("review prompt missing configured guidance:\n%s", result.Findings)
-	}
-}
-
-func TestReviewStatusFailsWhenFailMarkerPrecedesPromptEcho(t *testing.T) {
-	output := "review prompt mentions REVIEW_PASS inline\nREVIEW_FAIL\nScope drift found."
-	if got := reviewStatus(output); got != "failed" {
-		t.Fatalf("expected failed, got %q", got)
-	}
-}
-
-func TestReviewStatusFailsOnFailMarker(t *testing.T) {
-	if got := reviewStatus("REVIEW_FAIL\nScope drift found."); got != "failed" {
-		t.Fatalf("expected failed, got %q", got)
-	}
-}
-
-func TestReviewStatusUnknownWithoutMarker(t *testing.T) {
-	if got := reviewStatus("No explicit marker."); got != "unknown" {
-		t.Fatalf("expected unknown, got %q", got)
-	}
-}
-
-func TestReviewClassificationPassIsEmpty(t *testing.T) {
-	if got := reviewClassification("passed", "REVIEW_PASS"); got != "" {
-		t.Fatalf("expected empty pass classification, got %q", got)
-	}
-}
-
-func TestReviewClassificationBehaviorSpecBlocker(t *testing.T) {
-	output := "REVIEW_FAIL\nREVIEW_CLASSIFICATION: behavior_spec_blocker\nScope drift found."
-	if got := reviewClassification("failed", output); got != reviewClassificationBehaviorSpecBlocker {
-		t.Fatalf("classification = %q", got)
-	}
-}
-
-func TestReviewClassificationMissingEvidenceOnly(t *testing.T) {
-	output := "REVIEW_FAIL\nREVIEW_CLASSIFICATION: missing_evidence_only\nPR body needs Behavior Contract Evidence."
-	if got := reviewClassification("failed", output); got != reviewClassificationMissingEvidenceOnly {
-		t.Fatalf("classification = %q", got)
-	}
-}
-
-func TestReviewClassificationUnknownWhenMissingOrMalformed(t *testing.T) {
-	for _, output := range []string{"REVIEW_FAIL", "REVIEW_FAIL\nREVIEW_CLASSIFICATION: maybe"} {
-		if got := reviewClassification("failed", output); got != reviewClassificationUnknown {
-			t.Fatalf("classification = %q for %q", got, output)
-		}
 	}
 }
 

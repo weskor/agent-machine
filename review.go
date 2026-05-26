@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/weskor/agent-machine/internal/agentruntime"
+	"github.com/weskor/agent-machine/internal/reviewpolicy"
+	"github.com/weskor/agent-machine/internal/ticketcontract"
 )
 
 type reviewEvidence struct {
@@ -149,13 +151,13 @@ func reviewEvidenceNotReadyError(e reviewEvidence) error {
 	return fmt.Errorf("review not ready: code-host checks %s: %s", e.ChecksStatus, e.ChecksSummary)
 }
 
-const reviewPassMarker = "REVIEW_PASS"
-const reviewFailMarker = "REVIEW_FAIL"
+const reviewPassMarker = reviewpolicy.PassMarker
+const reviewFailMarker = reviewpolicy.FailMarker
 
 const (
-	reviewClassificationBehaviorSpecBlocker = "behavior_spec_blocker"
-	reviewClassificationMissingEvidenceOnly = "missing_evidence_only"
-	reviewClassificationUnknown             = "unknown"
+	reviewClassificationBehaviorSpecBlocker = reviewpolicy.BehaviorSpecBlocker
+	reviewClassificationMissingEvidenceOnly = reviewpolicy.MissingEvidenceOnly
+	reviewClassificationUnknown             = reviewpolicy.Unknown
 )
 
 var reviewEvidencePollInterval = 5 * time.Second
@@ -211,7 +213,7 @@ Classification rules:
 - unknown: malformed, ambiguous, or mixed findings. Use unknown unless missing_evidence_only is clearly the only issue.
 
 Then add concise findings.
-`, candidate.Identifier, prURL, workspace, evidenceBlock, ticketContractReviewPrompt(), guidanceBlock, reviewPassMarker, reviewFailMarker, reviewFailMarker)
+`, candidate.Identifier, prURL, workspace, evidenceBlock, ticketcontract.ReviewPrompt(), guidanceBlock, reviewPassMarker, reviewFailMarker, reviewFailMarker)
 }
 
 func reviewGuidancePromptBlock(guidance string) string {
@@ -284,37 +286,6 @@ func reviewGuidanceFromEvidence(evidence *reviewEvidence) string {
 	return evidence.ReviewGuidance
 }
 
-func reviewClassification(status, output string) string {
-	if status == "passed" {
-		return ""
-	}
-	for _, line := range strings.Split(output, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(strings.ToUpper(trimmed), "REVIEW_CLASSIFICATION:") {
-			value := strings.TrimSpace(trimmed[len("REVIEW_CLASSIFICATION:"):])
-			switch value {
-			case reviewClassificationBehaviorSpecBlocker, reviewClassificationMissingEvidenceOnly, reviewClassificationUnknown:
-				return value
-			default:
-				return reviewClassificationUnknown
-			}
-		}
-	}
-	return reviewClassificationUnknown
-}
-
 func reviewFailureRoutesToHumanHandoff(review *reviewResult, prURL string) bool {
 	return review != nil && review.Status == "failed" && review.Classification == reviewClassificationMissingEvidenceOnly && strings.TrimSpace(prURL) != ""
-}
-
-func reviewStatus(output string) string {
-	for _, line := range strings.Split(output, "\n") {
-		switch strings.TrimSpace(line) {
-		case reviewPassMarker:
-			return "passed"
-		case reviewFailMarker:
-			return "failed"
-		}
-	}
-	return "unknown"
 }

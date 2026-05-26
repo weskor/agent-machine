@@ -137,7 +137,7 @@ func executeReviewPendingAttempt(ctx context.Context, client linearClient, confi
 	if err != nil {
 		now := time.Now()
 		worker := payload.Worker(client, config, stateStore, states, nil)
-		writeRunRecordWithCommandStateContext(ctx, stateStore, worker.workspace, runRecordFor(worker.candidate, worker.workspace, configuredRuntimeCommand(config), "github_app_error", now, now, worker.runtimeUsage, nil, worker.prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
+		writeRunRecordWithCommandStateContext(ctx, stateStore, worker.workspace, runRecordFor(worker.candidate, worker.workspace, config.RuntimeImplementationCommand(), "github_app_error", now, now, worker.runtimeUsage, nil, worker.prURL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
 		return true, err
 	}
 	payload.GitHubAuth = githubAuth
@@ -287,7 +287,7 @@ func prepareClaimedReviewReadyWorkerTask(ctx context.Context, client linearClien
 		writeRunProgress(config.WorkspaceRoot, snapshot)
 		return failTask("runtime_preflight_failed", err)
 	}
-	if _, err := runtime.Preflight(ctx, agentruntime.PreflightInput{ImplementationCommand: configuredRuntimeCommand(config), ReviewCommand: config.ReviewCommand}); err != nil {
+	if _, err := runtime.Preflight(ctx, agentruntime.PreflightInput{ImplementationCommand: config.RuntimeImplementationCommand(), ReviewCommand: config.ReviewCommand}); err != nil {
 		snapshot := runProgressForIssue(candidate, workspace, "failed", progressStarted)
 		snapshot.Error = err.Error()
 		writeRunProgress(config.WorkspaceRoot, snapshot)
@@ -349,7 +349,7 @@ func claimNextReviewReadyAttemptContext(ctx context.Context, client linearClient
 			writeRunProgress(config.WorkspaceRoot, snapshot)
 			return nil, true, err
 		}
-		if _, err := runtime.Preflight(ctx, agentruntime.PreflightInput{ImplementationCommand: configuredRuntimeCommand(config), ReviewCommand: config.ReviewCommand}); err != nil {
+		if _, err := runtime.Preflight(ctx, agentruntime.PreflightInput{ImplementationCommand: config.RuntimeImplementationCommand(), ReviewCommand: config.ReviewCommand}); err != nil {
 			snapshot := runProgressForIssue(&candidate, workspace, "failed", progressStarted)
 			snapshot.Error = err.Error()
 			writeRunProgress(config.WorkspaceRoot, snapshot)
@@ -403,7 +403,7 @@ func executeReviewReadyAttemptContext(ctx context.Context, client linearClient, 
 	githubEnv, githubAuth, err := githubAppEnvFromEnvironment()
 	if err != nil {
 		now := time.Now()
-		writeRunRecordWithCommandStateContext(ctx, stateStore, claimed.Workspace, runRecordFor(candidate, claimed.Workspace, configuredRuntimeCommand(config), "github_app_error", now, now, nil, nil, claimed.SelectedPR.URL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
+		writeRunRecordWithCommandStateContext(ctx, stateStore, claimed.Workspace, runRecordFor(candidate, claimed.Workspace, config.RuntimeImplementationCommand(), "github_app_error", now, now, nil, nil, claimed.SelectedPR.URL, runAttemptStatusFailed, err.Error(), config.Budget.Active(), ""))
 		return true, err
 	}
 	return resumeReviewReadyRunContext(ctx, client, stateStore, config, candidate, states, claimed.Workspace, claimed.Branch, githubEnv, githubAuth, claimed.ProgressStarted, time.Now(), claimed.SelectedPR)

@@ -169,7 +169,7 @@ func prepareClaimedImplementationWorkerTask(ctx context.Context, client linearCl
 		writeRunProgress(config.WorkspaceRoot, snapshot)
 		return failTask("runtime_preflight_failed", err)
 	}
-	if _, err := runtime.Preflight(ctx, agentruntime.PreflightInput{ImplementationCommand: configuredRuntimeCommand(config), ReviewCommand: config.ReviewCommand}); err != nil {
+	if _, err := runtime.Preflight(ctx, agentruntime.PreflightInput{ImplementationCommand: config.RuntimeImplementationCommand(), ReviewCommand: config.ReviewCommand}); err != nil {
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhasePreflight, RuntimeErrorKind: "configuration", Error: err.Error()})
 		snapshot := runProgressForIssue(candidate, workspace, "failed", progressStarted)
 		snapshot.Error = err.Error()

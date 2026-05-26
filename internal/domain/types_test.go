@@ -93,3 +93,17 @@ func TestRunRecordJSONReadsLegacyPiFields(t *testing.T) {
 		t.Fatalf("legacy usage aliases not normalized: %+v", decoded)
 	}
 }
+
+func TestRunnerConfigRuntimeImplementationCommandPrefersRuntimeCommand(t *testing.T) {
+	config := RunnerConfig{RuntimeCommand: "codex exec", PiCommand: "pi --print"}
+	if got := config.RuntimeImplementationCommand(); got != "codex exec" {
+		t.Fatalf("RuntimeImplementationCommand() = %q, want runtime command", got)
+	}
+}
+
+func TestRunnerConfigRuntimeImplementationCommandFallsBackToLegacyPiCommand(t *testing.T) {
+	config := RunnerConfig{RuntimeCommand: "  ", PiCommand: "pi --print"}
+	if got := config.RuntimeImplementationCommand(); got != "pi --print" {
+		t.Fatalf("RuntimeImplementationCommand() = %q, want legacy pi command", got)
+	}
+}

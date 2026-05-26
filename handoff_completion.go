@@ -84,7 +84,7 @@ func executeAttemptHandoff(ctx context.Context, input handoffCompletion) (bool, 
 	if err != nil || handoffResult.Terminal {
 		return true, err
 	}
-	if err := writeRunRecordWithCommandStateContext(ctx, input.stateStore, input.workspace, runRecordFor(input.candidate, input.workspace, configuredRuntimeCommand(input.config), input.githubAuth, input.startedAt, time.Now(), input.runtimeUsage, input.review, input.prURL, runAttemptStatusSuccess, "", input.config.Budget.Active(), "")); err != nil {
+	if err := writeRunRecordWithCommandStateContext(ctx, input.stateStore, input.workspace, runRecordFor(input.candidate, input.workspace, input.config.RuntimeImplementationCommand(), input.githubAuth, input.startedAt, time.Now(), input.runtimeUsage, input.review, input.prURL, runAttemptStatusSuccess, "", input.config.Budget.Active(), "")); err != nil {
 		return true, err
 	}
 	return true, nil

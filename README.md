@@ -134,6 +134,12 @@ Check the resolved config without contacting Linear or GitHub:
 mise exec go -- go run . config print --config /path/to/target/am.yaml
 ```
 
+Check first-run readiness without contacting Linear or GitHub:
+
+```bash
+mise exec go -- go run . doctor --config /path/to/target/am.yaml
+```
+
 Inspect current runner status:
 
 ```bash
@@ -186,9 +192,11 @@ Run commands from this repository. `--config` defaults to `am.yaml`.
 | Command | Purpose |
 | --- | --- |
 | `go run . config print` | Print the resolved, redacted config. No Linear/code-host access required. |
+| `go run . doctor` | Check config, prompt, workspace, credentials, and runtime command readiness. No Linear/code-host access required. |
 | `go run . --version` | Print the binary version. No config or credentials required. |
 | `go run . status` | Print Linear, PR, workspace, SQLite, and artifact status. |
 | `go run . run-status CAG-123` | Print one local progress line for an issue. No Linear/code-host access required. |
+| `go run . run-ledger CAG-123` | Print the local append-only run timeline for an issue. `status CAG-123` is an alias. No Linear/code-host access required. |
 | `go run . explain` | Print the next scheduling decision, merge blockers, and cleanup eligibility without mutating state. |
 | `go run . start` | Run scheduler, cleanup, merge, handoff, review, and implementation lanes. |
 | `go run . worker implementation` | Run one selected implementation worker process. |
@@ -345,15 +353,33 @@ LIVE_LINEAR=1 mise exec go -- go run ./cmd/agent-machine-live-smoke \
 The harness writes a JSON report under `.am/live-smoke/`. Merge checks are
 disabled unless both controls are present:
 
+To also write a public Markdown evidence report under `docs/smoke/`, add
+`--public-report auto`. The report records the harness-controlled commands,
+their exit status, issue links, and the evidence boundary; it does not replace
+PR review, CI, Linear state inspection, or code-host merge evidence.
+See `docs/smoke/dogfood-evidence.md` for the current public evidence index and
+the evidence bar for future dogfood claims.
+
 ```bash
 LIVE_LINEAR=1 LIVE_SMOKE_APPLY=1 mise exec go -- go run ./cmd/agent-machine-live-smoke \
   --config am.yaml \
   --from-report .am/live-smoke/live-smoke-YYYYMMDDTHHMMSSZ.json \
-  --apply-merge
+  --apply-merge \
+  --public-report auto
 ```
 
 Use `--from-report` for follow-up merge checks so the harness reuses the
 original workspace root and artifact evidence.
+
+Render a public evidence report from an existing JSON report without contacting
+Linear:
+
+```bash
+mise exec go -- go run ./cmd/agent-machine-live-smoke \
+  --render-report \
+  --from-report .am/live-smoke/live-smoke-YYYYMMDDTHHMMSSZ.json \
+  --public-report auto
+```
 
 ## Dogfood Loop
 

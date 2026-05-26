@@ -1,8 +1,10 @@
 package livesmoke
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidateEnvironmentRequiresExplicitGates(t *testing.T) {
@@ -45,5 +47,59 @@ func TestSmokeMarkerContentTitleCasesUnicodeFilename(t *testing.T) {
 	content := SmokeMarkerContent("CAG-1", "docs/smoke/éclair-test.md")
 	if !strings.HasPrefix(content, "# Éclair Test\n") {
 		t.Fatalf("unexpected marker heading: %q", content)
+	}
+}
+
+func TestMarkdownReportRecordsIssuesCommandsAndBoundary(t *testing.T) {
+	report := Report{
+		StartedAt:        time.Date(2026, 5, 25, 16, 52, 52, 0, time.UTC),
+		ConfigPath:       "am.yaml",
+		SmokeConfig:      "/tmp/smoke/.am/am.live-smoke.yaml",
+		WorkspaceRoot:    "/tmp/smoke/.am/workspaces",
+		FakeAgent:        true,
+		ApplyMerge:       false,
+		ReportPath:       ".am/live-smoke/live-smoke-20260525T165252Z.json",
+		PublicReportPath: "docs/smoke/live-smoke-20260525T165252Z-evidence.md",
+		Issues: []IssueRef{{
+			Identifier: "CAG-186",
+			URL:        "https://linear.app/wessismore/issue/CAG-186/example",
+			Title:      "Agent Machine: disposable live smoke",
+			Path:       "docs/smoke/live-smoke-20260525T165252Z-01.md",
+		}},
+		CommandResults: []CommandResult{
+			{Command: "go run . worker implementation --config /tmp/smoke/.am/am.live-smoke.yaml", Success: true, ExitCode: 0},
+			{Command: "go run . status --config /tmp/smoke/.am/am.live-smoke.yaml", Success: false, ExitCode: 1, Error: "status failed"},
+		},
+	}
+
+	markdown := MarkdownReport(report)
+
+	for _, expected := range []string{
+		"# Agent Machine Live Smoke Evidence 20260525T165252Z",
+		"[CAG-186](https://linear.app/wessismore/issue/CAG-186/example)",
+		"`go run . worker implementation --config /tmp/smoke/.am/am.live-smoke.yaml` -> passed",
+		"`go run . status --config /tmp/smoke/.am/am.live-smoke.yaml` -> failed (exit 1): status failed",
+		"does not replace PR review, CI checks, Linear state inspection, or code-host merge evidence",
+	} {
+		if !strings.Contains(markdown, expected) {
+			t.Fatalf("expected %q in markdown:\n%s", expected, markdown)
+		}
+	}
+}
+
+func TestMarkdownReportDoesNotClaimLegacyCommandSuccess(t *testing.T) {
+	markdown := MarkdownReport(Report{Commands: []string{"go run . status"}})
+	if !strings.Contains(markdown, "`go run . status` -> recorded (legacy report; exit status unavailable)") {
+		t.Fatalf("legacy command should not be reported as passed:\n%s", markdown)
+	}
+	if !strings.Contains(markdown, "records harness-controlled commands but not their exit status") {
+		t.Fatalf("legacy boundary should not claim exit status evidence:\n%s", markdown)
+	}
+}
+
+func TestPublicReportPathUsesSmokeDocs(t *testing.T) {
+	path := PublicReportPath(filepath.Join(".am", "live-smoke", "live-smoke-20260525T165252Z.json"))
+	if path != filepath.Join("docs", "smoke", "live-smoke-20260525T165252Z-evidence.md") {
+		t.Fatalf("path = %q", path)
 	}
 }

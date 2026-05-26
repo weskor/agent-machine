@@ -95,7 +95,7 @@ func executeSemanticReview(ctx context.Context, w reviewWorker) (reviewWorkerRes
 	readiness := newReviewReadinessModule(w.config.WorkspaceRoot)
 	evidence, err := collectReviewEvidenceForWorker(ctx, w.config, w.candidate, w.workspace, w.prURL, w.scopeResult, w.validation)
 	if err != nil {
-		writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, nil, w.prURL, runAttemptStatusFailed, err.Error(), w.config.Budget.Active(), err.Error()))
+		writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, nil, w.prURL, runAttemptStatusFailed, err.Error(), w.config.Budget.Active(), err.Error()))
 		return reviewWorkerResult{Terminal: true}, err
 	}
 	if err := reviewEvidenceNotReadyError(evidence); err != nil {
@@ -105,7 +105,7 @@ func executeSemanticReview(ctx context.Context, w reviewWorker) (reviewWorkerRes
 			notReady = readiness.ResumeNotReadyProgress(w.candidate, w.workspace, w.branch, w.prURL, w.progressStarted, evidence)
 		}
 		writeRunProgress(w.config.WorkspaceRoot, notReady)
-		writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, nil, w.prURL, decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
+		writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, nil, w.prURL, decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
 		return reviewWorkerResult{Terminal: true}, nil
 	}
 
@@ -123,7 +123,7 @@ func executeSemanticReview(ctx context.Context, w reviewWorker) (reviewWorkerRes
 				log("failed to comment on %s: %v", w.candidate.Identifier, commentErr)
 			}
 		}
-		writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, review, w.prURL, status, err.Error(), w.config.Budget.Active(), err.Error()))
+		writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, review, w.prURL, status, err.Error(), w.config.Budget.Active(), err.Error()))
 		return reviewWorkerResult{Review: review, Terminal: true}, err
 	}
 	if exceeded := budgetExceeded(w.config.Budget, w.startedAt, w.runtimeUsage, review.Usage); exceeded != "" {
@@ -131,19 +131,19 @@ func executeSemanticReview(ctx context.Context, w reviewWorker) (reviewWorkerRes
 		if err := linearStatus.CommentContext(ctx, renderBudgetFailureComment(exceeded)); err != nil {
 			log("failed to comment on %s: %v", w.candidate.Identifier, err)
 		}
-		writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, review, w.prURL, decision.Status, exceeded, w.config.Budget.Active(), exceeded))
+		writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, review, w.prURL, decision.Status, exceeded, w.config.Budget.Active(), exceeded))
 		return reviewWorkerResult{Review: review, Terminal: true}, fmt.Errorf("%s", exceeded)
 	}
 	if review != nil && review.Status != "passed" && !reviewFailureRoutesToHumanHandoff(review, w.prURL) {
 		if _, err := linearStatus.MoveToContext(ctx, w.config.ReadyState); err != nil {
-			writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, review, w.prURL, runAttemptStatusReviewFailed, err.Error(), w.config.Budget.Active(), ""))
+			writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, review, w.prURL, runAttemptStatusReviewFailed, err.Error(), w.config.Budget.Active(), ""))
 			return reviewWorkerResult{Review: review, Terminal: true}, err
 		}
 		comment := fmt.Sprintf("Runtime review did not pass; moved back to %s.\n\nPR: %s\nReview status: %s\nFindings:\n%s", w.config.ReadyState, w.prURL, review.Status, review.Findings)
 		if err := linearStatus.CommentContext(ctx, comment); err != nil {
 			log("failed to comment on %s: %v", w.candidate.Identifier, err)
 		}
-		if err := writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, configuredRuntimeCommand(w.config), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, review, w.prURL, runAttemptStatusReviewFailed, "review did not pass", w.config.Budget.Active(), "")); err != nil {
+		if err := writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, review, w.prURL, runAttemptStatusReviewFailed, "review did not pass", w.config.Budget.Active(), "")); err != nil {
 			return reviewWorkerResult{Review: review, Terminal: true}, err
 		}
 		log("review did not pass for %s; moved back to %s", w.candidate.Identifier, w.config.ReadyState)

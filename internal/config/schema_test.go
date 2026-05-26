@@ -139,6 +139,28 @@ runtime:
 	}
 }
 
+func TestParseConfigExplicitClaudeProviderUsesClaudeCommandDefault(t *testing.T) {
+	config, err := ParseConfig(`tracker:
+  project_slug: CAG
+workspace:
+  root: /tmp/workspaces
+runtime:
+  provider: claude_cli
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Runtime.Provider != "claude_cli" || config.Agent.RuntimeProvider != "claude_cli" {
+		t.Fatalf("runtime provider = runtime %q agent %q, want claude_cli", config.Runtime.Provider, config.Agent.RuntimeProvider)
+	}
+	if config.Runtime.Command != "claude --print --no-session-persistence --permission-mode acceptEdits" {
+		t.Fatalf("runtime command = %q, want claude default", config.Runtime.Command)
+	}
+	if config.Runtime.ReviewCommand != "claude --print --no-session-persistence" {
+		t.Fatalf("runtime review command = %q, want claude review default", config.Runtime.ReviewCommand)
+	}
+}
+
 func TestParseConfigReviewGuidance(t *testing.T) {
 	config, err := ParseConfig(`tracker:
   project_slug: CAG

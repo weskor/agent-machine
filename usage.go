@@ -19,8 +19,9 @@ var prURLPattern = regexp.MustCompile(`https://[^\s"'<>]+/(?:pull|-/merge_reques
 var codexTokensUsedPattern = regexp.MustCompile(`(?im)^tokens used\s*\n\s*([0-9][0-9,]*)\s*$`)
 
 const (
-	runtimeProviderPiCLI    = "pi_cli"
-	runtimeProviderCodexCLI = "codex_cli"
+	runtimeProviderPiCLI     = "pi_cli"
+	runtimeProviderCodexCLI  = "codex_cli"
+	runtimeProviderClaudeCLI = "claude_cli"
 )
 
 func parseUsage(output string) *usage {
@@ -50,14 +51,26 @@ func newCodexCLIRuntime() agentruntime.AgentRuntime {
 	}
 }
 
+func newClaudeCLIRuntime() agentruntime.AgentRuntime {
+	return agentruntime.ClaudeCLIAdapter{
+		RunCommand:           captureAgentOutput,
+		FirstPRURL:           firstPRURL,
+		NeedsInfoQuestions:   needsInfoQuestionsToRuntime,
+		ReviewStatus:         reviewpolicy.Status,
+		ReviewClassification: reviewpolicy.Classification,
+	}
+}
+
 func newAgentRuntime(provider string) (agentruntime.AgentRuntime, error) {
 	switch strings.TrimSpace(provider) {
 	case "", runtimeProviderPiCLI:
 		return newPiCLIRuntime(), nil
 	case runtimeProviderCodexCLI:
 		return newCodexCLIRuntime(), nil
+	case runtimeProviderClaudeCLI:
+		return newClaudeCLIRuntime(), nil
 	default:
-		return nil, fmt.Errorf("unsupported runtime.provider %q; supported providers: %s, %s", provider, runtimeProviderPiCLI, runtimeProviderCodexCLI)
+		return nil, fmt.Errorf("unsupported runtime.provider %q; supported providers: %s, %s, %s", provider, runtimeProviderPiCLI, runtimeProviderCodexCLI, runtimeProviderClaudeCLI)
 	}
 }
 

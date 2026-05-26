@@ -30,6 +30,9 @@ agent:
   max_retry_backoff_ms: 300000
 runtime:
   provider: codex_cli
+# To opt into Claude Code:
+# runtime:
+#   provider: claude_cli
 # To opt into the legacy Pi CLI runtime:
 # runtime:
 #   provider: pi_cli

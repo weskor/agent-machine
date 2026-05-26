@@ -41,7 +41,7 @@ func TestCodexUsageToRuntimeParsesTokensUsedSummary(t *testing.T) {
 func TestNewAgentRuntimeRejectsUnsupportedProvider(t *testing.T) {
 	removedSessionProvider := "codex_" + "app_server"
 	_, err := newAgentRuntime(removedSessionProvider)
-	if err == nil || !strings.Contains(err.Error(), "unsupported runtime.provider") || !strings.Contains(err.Error(), "codex_cli") {
+	if err == nil || !strings.Contains(err.Error(), "unsupported runtime.provider") || !strings.Contains(err.Error(), "codex_cli") || !strings.Contains(err.Error(), "claude_cli") {
 		t.Fatalf("expected unsupported provider error, got %v", err)
 	}
 	supportedList := err.Error()
@@ -50,6 +50,16 @@ func TestNewAgentRuntimeRejectsUnsupportedProvider(t *testing.T) {
 	}
 	if strings.Contains(supportedList, removedSessionProvider) {
 		t.Fatalf("removed provider should not be advertised as supported, got %v", err)
+	}
+}
+
+func TestNewAgentRuntimeSupportsClaudeProvider(t *testing.T) {
+	runtime, err := newAgentRuntime("claude_cli")
+	if err != nil {
+		t.Fatalf("newAgentRuntime returned error: %v", err)
+	}
+	if runtime == nil {
+		t.Fatal("expected claude runtime")
 	}
 }
 

@@ -33,6 +33,9 @@ func TestRunDispatchesRepresentativeArgCombinations(t *testing.T) {
 		{name: "run ledger command", args: []string{"run-ledger", "CAG-119", "--config", configPath}, wantMode: modeRunLedger},
 		{name: "status issue prints ledger", args: []string{"status", "CAG-119", "--config", configPath}, wantMode: modeRunLedger},
 		{name: "explain", args: []string{"--explain", configPath}, wantMode: modeExplain},
+		{name: "tui command", args: []string{"tui", "--config", configPath}, wantMode: modeTUI},
+		{name: "tui flag", args: []string{"--tui", configPath}, wantMode: modeTUI},
+		{name: "default tui", args: []string{configPath}, wantMode: modeTUI},
 		{name: "doctor", args: []string{"doctor", "--config", configPath}, wantMode: modeDoctor},
 		{name: "doctor flag", args: []string{"--doctor", configPath}, wantMode: modeDoctor},
 		{name: "surface snapshot", args: []string{"surface", "snapshot", "--config", configPath}, wantMode: modeSurface},
@@ -135,21 +138,33 @@ func TestRunVersionDoesNotRequireConfigOrLinearClient(t *testing.T) {
 	}
 }
 
-func TestRunRejectsMissingModeWithoutLinearClient(t *testing.T) {
+func TestRunDefaultsToTUIWithoutLinearClient(t *testing.T) {
 	configPath := writeConfig(t, "tracker:\n  api_key: \"\"\n")
 	calledClient := false
+	calledTUI := false
+	var gotConfig Config
 	deps := testDeps(t, nil, nil, nil)
 	deps.NewLinearClient = func(apiKey, endpoint string) fakeClient {
 		calledClient = true
 		return fakeClient{}
 	}
+	deps.LaunchTUI = func(config Config) error {
+		calledTUI = true
+		gotConfig = config
+		return nil
+	}
 
-	err := Run([]string{configPath}, deps)
-	if err == nil || !strings.Contains(err.Error(), "no CLI mode selected") {
-		t.Fatalf("Run() error = %v, want missing mode error", err)
+	if err := Run([]string{configPath}, deps); err != nil {
+		t.Fatalf("Run() error = %v", err)
 	}
 	if calledClient {
-		t.Fatal("NewLinearClient called for missing mode")
+		t.Fatal("NewLinearClient called for default TUI mode")
+	}
+	if !calledTUI {
+		t.Fatal("LaunchTUI was not called for default mode")
+	}
+	if gotConfig.WorkspaceRoot != "/tmp/am-test-workspaces" || gotConfig.ProjectSlug != "CAG" {
+		t.Fatalf("LaunchTUI config = %+v", gotConfig)
 	}
 }
 
@@ -501,6 +516,10 @@ func testDeps(t *testing.T, gotMode *string, gotApply *bool, gotCycles *int) Dep
 		},
 		SurfaceSnapshot: func(Config) error {
 			setMode(modeSurface)
+			return nil
+		},
+		LaunchTUI: func(Config) error {
+			setMode(modeTUI)
 			return nil
 		},
 		Doctor: func(Config) error {

@@ -167,6 +167,12 @@ Inspect current runner status:
 mise exec go -- go run . status --config /path/to/target/am.yaml
 ```
 
+Open the operator dashboard:
+
+```bash
+mise exec go -- go run . --config /path/to/target/am.yaml
+```
+
 Run one controlled implementation worker:
 
 ```bash
@@ -212,6 +218,7 @@ Run commands from this repository. `--config` defaults to `am.yaml`.
 
 | Command | Purpose |
 | --- | --- |
+| `go run .` or `go run . tui` | Open the read-only TUI dashboard. |
 | `go run . config print` | Print the resolved, redacted config. No Linear/code-host access required. |
 | `go run . doctor` | Check config, prompt, workspace, credentials, and runtime command readiness. No Linear/code-host access required. |
 | `go run . --version` | Print the binary version. No config or credentials required. |
@@ -234,9 +241,15 @@ docs should prefer command forms.
 
 ## TUI
 
-The first product surface is a read-only OpenTUI dashboard over
+The default product surface is a read-only OpenTUI dashboard over
 `go run . surface snapshot`. It does not contact Linear or GitHub directly and
 does not mutate workspaces, merge, repair, or clean up.
+
+```bash
+mise exec go -- go run . --config /path/to/target/am.yaml
+```
+
+You can also run the TUI package directly:
 
 ```bash
 cd tui
@@ -248,7 +261,7 @@ Layout:
 
 - Header: project, SQLite health, and snapshot timestamp or refresh error.
 - Summary: issue, active-lock, lane, task, and reconciliation counts.
-- Views rail: Overview, Issues, Lanes, Tasks, and Events.
+- Views rail: Overview, Issues, Lanes, Tasks, and Logs.
 - List: rows for the selected view.
 - Details: the selected row's key fields.
 
@@ -256,12 +269,14 @@ Controls:
 
 - `tab`, `h`/`l`, or left/right arrows: switch views.
 - `j`/`k` or up/down arrows: move the selected row.
-- `1`-`5`: jump to Overview, Issues, Lanes, Tasks, or Events.
+- `1`-`5`: jump to Overview, Issues, Lanes, Tasks, or Logs.
 - `r`: refresh the local snapshot.
 - `q`: quit.
 
 The TUI shells out to the local runner by default. Set `AM_BIN` to use an
-already-built binary instead of `go run .`.
+already-built binary instead of `go run .`. The Logs view shows typed worker
+results and recent orchestration events; raw Agent output stays in capped debug
+artifacts and is not streamed into the dashboard.
 
 ## Runtime Providers
 

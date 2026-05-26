@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 
 	"github.com/weskor/agent-machine/internal/cli"
 	cfg "github.com/weskor/agent-machine/internal/config"
@@ -65,6 +68,9 @@ func orchestratorRunner() orchestrator.Runner[linearClient, runnerConfig] {
 		SnapshotFunc: func(config runnerConfig) error {
 			return printSurfaceSnapshot(config)
 		},
+		TUIFunc: func(config runnerConfig) error {
+			return launchTUI(config)
+		},
 		DoctorFunc: func(config runnerConfig) error {
 			return printDoctor(config)
 		},
@@ -112,6 +118,43 @@ func runnerConfigFromCLI(config cli.Config) runnerConfig {
 		GitLabProject:          config.GitLabProject,
 		GitLabPRAuthorOverride: config.GitLabPRAuthorOverride,
 	}
+}
+
+func launchTUI(config runnerConfig) error {
+	tuiDir, err := findTUIDir()
+	if err != nil {
+		return err
+	}
+	configPath, err := filepath.Abs(config.ConfigPath)
+	if err != nil {
+		return fmt.Errorf("launch TUI: resolve config path: %w", err)
+	}
+	if _, err := exec.LookPath("bun"); err != nil {
+		return fmt.Errorf("launch TUI: bun is required; install Bun or run `go run . status --config %s`: %w", configPath, err)
+	}
+	command := exec.Command("bun", "run", "start", "--", "--config", configPath)
+	command.Dir = tuiDir
+	command.Stdin = os.Stdin
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	return command.Run()
+}
+
+func findTUIDir() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	candidates := []string{
+		filepath.Join(cwd, "tui"),
+		filepath.Join(filepath.Dir(cwd), "tui"),
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(filepath.Join(candidate, "package.json")); err == nil {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("launch TUI: could not find tui/package.json from %s", cwd)
 }
 
 func printDoctor(config runnerConfig) error {

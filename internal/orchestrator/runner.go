@@ -27,6 +27,7 @@ type ModeRunner[Client any, Config any] interface {
 	RunLedger(string, string) error
 	Explain(Client, Config) error
 	SurfaceSnapshot(Config) error
+	TUI(Config) error
 	Doctor(Config) error
 	Merge(Client, Config) error
 	Continuous(Client, cfg.Project, Config, int) error
@@ -46,6 +47,7 @@ type ModeOperationFuncs[Client any, Config any] struct {
 	RunLedgerFunc  func(string, string) error
 	ExplainFunc    func(Client, Config) error
 	SnapshotFunc   func(Config) error
+	TUIFunc        func(Config) error
 	DoctorFunc     func(Config) error
 	MergeFunc      func(Client, Config) error
 	ContinuousFunc func(Client, cfg.Project, Config, int) error
@@ -84,6 +86,10 @@ func (m ModeOperationFuncs[Client, Config]) Explain(client Client, config Config
 
 func (m ModeOperationFuncs[Client, Config]) SurfaceSnapshot(config Config) error {
 	return m.SnapshotFunc(config)
+}
+
+func (m ModeOperationFuncs[Client, Config]) TUI(config Config) error {
+	return m.TUIFunc(config)
 }
 
 func (m ModeOperationFuncs[Client, Config]) Doctor(config Config) error {
@@ -142,6 +148,9 @@ func (r runner[Client, Config]) CLIDependencies() cli.Dependencies[Client] {
 		},
 		SurfaceSnapshot: func(config cli.Config) error {
 			return r.modes.SurfaceSnapshot(r.fromCLIConfig(config))
+		},
+		LaunchTUI: func(config cli.Config) error {
+			return r.modes.TUI(r.fromCLIConfig(config))
 		},
 		Doctor: func(config cli.Config) error {
 			return r.modes.Doctor(r.fromCLIConfig(config))

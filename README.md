@@ -280,8 +280,8 @@ permission mode, model, or settings source:
 ```yaml
 runtime:
   provider: claude_cli
-  command: claude --print --no-session-persistence --permission-mode acceptEdits
-  review_command: claude --print --no-session-persistence
+  command: claude --print --no-session-persistence --output-format json --permission-mode acceptEdits
+  review_command: claude --print --no-session-persistence --output-format json
 ```
 
 The selected implementation and review commands are preflighted before the

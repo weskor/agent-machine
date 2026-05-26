@@ -17,6 +17,8 @@ type ClaudeCLIAdapter struct {
 	ParseUsage           func(string) *AttemptUsage
 	FirstPRURL           func(string) string
 	NeedsInfoQuestions   func(string) []string
+	ParseOutcomeEnvelope func(string) (AttemptOutcomeEnvelope, bool, error)
+	ReviewFindings       func(string) string
 	ReviewStatus         func(string) string
 	ReviewClassification func(string, string) string
 	Now                  func() time.Time
@@ -61,6 +63,8 @@ func (a ClaudeCLIAdapter) shell() ShellCLIAdapter {
 		ParseUsage:           a.ParseUsage,
 		FirstPRURL:           a.FirstPRURL,
 		NeedsInfoQuestions:   a.NeedsInfoQuestions,
+		ParseOutcomeEnvelope: a.ParseOutcomeEnvelope,
+		ReviewFindings:       a.ReviewFindings,
 		ReviewStatus:         a.ReviewStatus,
 		ReviewClassification: a.ReviewClassification,
 		BuildCommand:         claudePrintCommand,

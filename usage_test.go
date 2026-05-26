@@ -38,6 +38,45 @@ func TestCodexUsageToRuntimeParsesTokensUsedSummary(t *testing.T) {
 	}
 }
 
+func TestClaudeUsageToRuntimeParsesResultJSON(t *testing.T) {
+	output := `{"type":"result","result":"done","total_cost_usd":0.1234,"usage":{"input_tokens":100,"output_tokens":25,"cache_creation_input_tokens":7,"cache_read_input_tokens":11}}`
+	got := claudeUsageToRuntime(output)
+	if got == nil {
+		t.Fatal("expected claude usage")
+	}
+	if got.Input != 100 || got.Output != 25 || got.CacheWrite != 7 || got.CacheRead != 11 || got.TotalTokens != 143 || got.CostTotal != 0.1234 {
+		t.Fatalf("unexpected claude usage: %+v", got)
+	}
+}
+
+func TestClaudeResultTextDrivesMarkersFromJSON(t *testing.T) {
+	output := `{"type":"result","result":"NEEDS_INFO\n1. Which tenant?\n\nREVIEW_FAIL\nREVIEW_CLASSIFICATION: missing_evidence_only\nhttps://github.com/weskor/agent-machine/pull/123"}`
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
+	if got := firstPRURLFromClaudeOutput(output); got != "https://github.com/weskor/agent-machine/pull/123" {
+		t.Fatalf("unexpected PR URL: %q", got)
+	}
+	if got := claudeNeedsInfoQuestionsToRuntime(output); len(got) != 1 || got[0] != "1. Which tenant?" {
+		t.Fatalf("unexpected needs-info questions: %#v", got)
+	}
+	if got := claudeReviewStatus(output); got != "failed" {
+		t.Fatalf("unexpected review status: %q", got)
+	}
+	if got := claudeReviewClassification("failed", output); got != "missing_evidence_only" {
+		t.Fatalf("unexpected review classification: %q", got)
+	}
+}
+
+func TestClaudeParseOutcomeEnvelopeReadsResultText(t *testing.T) {
+	output := `{"type":"result","result":"done\nAM_OUTCOME: {\"runtime_outcome\":\"needs_info\",\"needs_info_questions\":[\"Which tenant?\"]}"}`
+	envelope, ok, err := claudeParseOutcomeEnvelope(output)
+	if err != nil {
+		t.Fatalf("unexpected envelope error: %v", err)
+	}
+	if !ok || envelope.RuntimeOutcome != "needs_info" || len(envelope.NeedsInfoQuestions) != 1 || envelope.NeedsInfoQuestions[0] != "Which tenant?" {
+		t.Fatalf("unexpected envelope: ok=%v %+v", ok, envelope)
+	}
+}
+
 func TestNewAgentRuntimeRejectsUnsupportedProvider(t *testing.T) {
 	removedSessionProvider := "codex_" + "app_server"
 	_, err := newAgentRuntime(removedSessionProvider)

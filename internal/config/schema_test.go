@@ -153,10 +153,10 @@ runtime:
 	if config.Runtime.Provider != "claude_cli" || config.Agent.RuntimeProvider != "claude_cli" {
 		t.Fatalf("runtime provider = runtime %q agent %q, want claude_cli", config.Runtime.Provider, config.Agent.RuntimeProvider)
 	}
-	if config.Runtime.Command != "claude --print --no-session-persistence --permission-mode acceptEdits" {
+	if config.Runtime.Command != "claude --print --no-session-persistence --output-format json --permission-mode acceptEdits" {
 		t.Fatalf("runtime command = %q, want claude default", config.Runtime.Command)
 	}
-	if config.Runtime.ReviewCommand != "claude --print --no-session-persistence" {
+	if config.Runtime.ReviewCommand != "claude --print --no-session-persistence --output-format json" {
 		t.Fatalf("runtime review command = %q, want claude review default", config.Runtime.ReviewCommand)
 	}
 }

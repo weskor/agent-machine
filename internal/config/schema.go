@@ -13,8 +13,8 @@ const (
 	claudeRuntime              = "claude_cli"
 	defaultCodexCommand        = "codex --ask-for-approval never exec --ignore-user-config --ignore-rules --ephemeral --sandbox workspace-write"
 	defaultCodexReviewCommand  = "codex --ask-for-approval never exec --ignore-user-config --ignore-rules --ephemeral --sandbox read-only"
-	defaultClaudeCommand       = "claude --print --no-session-persistence --permission-mode acceptEdits"
-	defaultClaudeReviewCommand = "claude --print --no-session-persistence"
+	defaultClaudeCommand       = "claude --print --no-session-persistence --output-format json --permission-mode acceptEdits"
+	defaultClaudeReviewCommand = "claude --print --no-session-persistence --output-format json"
 	defaultPiCommand           = "pi --print --no-session --thinking low"
 	defaultPiReviewCommand     = "pi --print --no-session --thinking xhigh"
 )

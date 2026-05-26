@@ -24,6 +24,34 @@ state, credentials, or scope are unclear.
 - Merges only when conservative gates pass: expected branch/base/repository,
   approval, green checks, review evidence, app/author ownership, and clean state.
 
+## Product Boundary
+
+Agent Machine is a local issue-to-PR runner with durable evidence. Features
+belong in the core runner only when they help one configured repository move one
+well-scoped Linear issue to one reviewable PR/MR with trustworthy local and
+code-host evidence.
+
+Current core behavior is intentionally narrow:
+
+- select one runnable Linear issue;
+- prepare one isolated workspace;
+- run one bounded implementation attempt;
+- produce or update one owned PR/MR;
+- record the run, review, handoff, status, and ledger evidence needed to audit
+  what happened.
+
+Safety and operations features support that core. Review, scope guards,
+branch/PR ownership checks, merge gates, reconciliation, cleanup, doctor,
+status, and live smoke evidence should remain runner-owned policy or local
+observability. They should not become separate products with their own lifecycle
+rules.
+
+Future surfaces such as TUI, web UI, MCP, ACP/editor adapters, or cloud runners
+must stay thin adapters over the runner modules. They may present status, accept
+operator intent, or trigger existing runner modes, but they should not duplicate
+issue selection, handoff, review, merge, retry, cleanup, or reconciliation
+policy.
+
 ## Current Status
 
 This repo owns the runner implementation, tests, specs, code-host/Linear

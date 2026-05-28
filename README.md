@@ -152,37 +152,37 @@ private keys, absolute credential paths, or copied local env files.
 Check the resolved config without contacting Linear or GitHub:
 
 ```bash
-mise exec go -- go run . config print --config /path/to/target/am.yaml
+am config print
 ```
 
 Check first-run readiness without contacting Linear or GitHub:
 
 ```bash
-mise exec go -- go run . doctor --config /path/to/target/am.yaml
+am doctor
 ```
 
 Inspect current runner status:
 
 ```bash
-mise exec go -- go run . status --config /path/to/target/am.yaml
+am status
 ```
 
 Open the operator dashboard:
 
 ```bash
-mise exec go -- go run . --config /path/to/target/am.yaml
+am
 ```
 
 Run one controlled implementation worker:
 
 ```bash
-mise exec go -- go run . worker implementation --config /path/to/target/am.yaml
+am worker implementation
 ```
 
 Run the production loop:
 
 ```bash
-mise exec go -- go run . start --config /path/to/target/am.yaml
+am start
 ```
 
 ## Project Files
@@ -214,7 +214,9 @@ Use `agent.prompt_path` when the prompt file has a different name.
 
 ## Commands
 
-Run commands from this repository. `--config` defaults to `am.yaml`.
+Run commands from a repository containing `am.yaml` or from any subdirectory
+under it. Agent Machine discovers the nearest ancestor `am.yaml`; pass
+`--config` only for a non-standard config name or path.
 
 | Command | Purpose |
 | --- | --- |
@@ -246,7 +248,7 @@ The default product surface is a read-only OpenTUI dashboard over
 does not mutate workspaces, merge, repair, or clean up.
 
 ```bash
-mise exec go -- go run . --config /path/to/target/am.yaml
+am
 ```
 
 You can also run the TUI package directly:

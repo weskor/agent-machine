@@ -168,6 +168,54 @@ func TestRunDefaultsToTUIWithoutLinearClient(t *testing.T) {
 	}
 }
 
+func TestRunDiscoversDefaultConfigFromParentDirectory(t *testing.T) {
+	configPath := writeConfig(t, "tracker:\n  api_key: \"\"\n")
+	childDir := filepath.Join(filepath.Dir(configPath), "docs", "nested")
+	if err := os.MkdirAll(childDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chdir(t, childDir)
+
+	calledClient := false
+	var gotConfig Config
+	deps := testDeps(t, nil, nil, nil)
+	deps.NewLinearClient = func(apiKey, endpoint string) fakeClient {
+		calledClient = true
+		return fakeClient{}
+	}
+	deps.LaunchTUI = func(config Config) error {
+		gotConfig = config
+		return nil
+	}
+
+	if err := Run(nil, deps); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if calledClient {
+		t.Fatal("NewLinearClient called for default TUI mode")
+	}
+	if gotConfig.ConfigPath != configPath {
+		t.Fatalf("ConfigPath = %q, want %q", gotConfig.ConfigPath, configPath)
+	}
+	if gotConfig.PromptPath != filepath.Join(filepath.Dir(configPath), "am.agent.md") {
+		t.Fatalf("PromptPath = %q, want prompt next to discovered config", gotConfig.PromptPath)
+	}
+}
+
+func TestRunDoesNotDiscoverParentConfigWhenPathIsExplicit(t *testing.T) {
+	configPath := writeConfig(t, "")
+	childDir := filepath.Join(filepath.Dir(configPath), "docs")
+	if err := os.MkdirAll(childDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chdir(t, childDir)
+
+	err := Run([]string{"config", "print", "--config", cfg.DefaultConfigPath}, testDeps(t, nil, nil, nil))
+	if err == nil || !strings.Contains(err.Error(), "am.yaml") {
+		t.Fatalf("Run() error = %v, want explicit local am.yaml error", err)
+	}
+}
+
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	original := os.Stdout
@@ -187,6 +235,22 @@ func captureStdout(t *testing.T, fn func()) string {
 		t.Fatal(err)
 	}
 	return output.String()
+}
+
+func chdir(t *testing.T, dir string) {
+	t.Helper()
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(original); err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func TestRunStatusDoesNotRequireLinearClient(t *testing.T) {

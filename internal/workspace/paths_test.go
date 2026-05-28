@@ -46,6 +46,52 @@ func TestAssertSafeDeletePathRejectsUnsafeTargetsTable(t *testing.T) {
 	}
 }
 
+func TestEnsureRootCreatesMissingRootUnderExistingAncestor(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), ".am")
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(parent, "workspaces")
+
+	got, err := EnsureRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != root {
+		t.Fatalf("EnsureRoot() = %q, want %q", got, root)
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("created workspace root is not a directory: %s", root)
+	}
+}
+
+func TestEnsureRootRejectsUnsafeRoots(t *testing.T) {
+	dir := t.TempDir()
+	fileRoot := filepath.Join(dir, "workspaces")
+	if err := os.WriteFile(fileRoot, []byte("not a directory\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureRoot(fileRoot); err == nil || !strings.Contains(err.Error(), "workspace root is not a directory") {
+		t.Fatalf("EnsureRoot(file) error = %v, want non-directory rejection", err)
+	}
+
+	target := filepath.Join(dir, "target")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	linkRoot := filepath.Join(dir, "linked-workspaces")
+	if err := os.Symlink(target, linkRoot); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := EnsureRoot(linkRoot); err == nil || !strings.Contains(err.Error(), "workspace root is a symlink") {
+		t.Fatalf("EnsureRoot(symlink) error = %v, want symlink rejection", err)
+	}
+}
+
 func TestHasChangesIgnoresFalseScratchMarkers(t *testing.T) {
 	workspace := initGitWorkspace(t)
 	if err := os.WriteFile(filepath.Join(workspace, "false"), nil, 0o600); err != nil {

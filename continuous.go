@@ -17,6 +17,9 @@ import (
 func runContinuous(client linearClient, proj project, config runnerConfig, maxCycles int) error {
 	maxConcurrentAgents := configuredMaxConcurrentAgents(proj)
 	log("mode=continuous; lanes=scheduler,cleanup,merge,handoff,review,implementation; project=%s; states=%s; max_concurrent_agents=%d", config.ProjectSlug, strings.Join(config.ActiveStates, ", "), maxConcurrentAgents)
+	if _, err := ensureWorkspaceRoot(config.WorkspaceRoot); err != nil {
+		return fmt.Errorf("workspace root preflight failed for continuous mode: %w", err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	stateStore, stateDBPath := commandScopedStateStore(ctx, config.WorkspaceRoot, "continuous")

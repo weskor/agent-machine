@@ -1,13 +1,15 @@
 # Agent Machine
 
-Agent Machine is a local-first runner for moving well-scoped Linear issues through
-an isolated workspace, an Agent implementation pass, optional review, and a
-GitHub PR / GitLab MR handoff.
+Agent Machine is a local-first runner for operators and contributors who want
+well-scoped Linear issues turned into small, reviewable GitHub PRs or GitLab
+MRs. It selects runnable issues, claims work, creates isolated workspaces, runs
+a configured Agent runtime, validates the result, optionally runs a separate
+review pass, and hands branches to the code host for human review.
 
-The project is preparing for a v0.1 open-source release and currently dogfoods
-itself. The design goal is conservative automation: Agent Machine should make
-small, reviewable PRs, record useful evidence, and fail closed when ownership,
-state, credentials, or scope are unclear.
+The runner is intentionally conservative: it records local evidence, keeps
+runtime state under the configured workspace root, and fails closed when scope,
+ownership, state, credentials, or merge readiness are unclear. The project is
+preparing for a v0.1 open-source release and currently dogfoods itself.
 
 ## What It Does
 
@@ -43,6 +45,34 @@ flowchart TD
     Merge --> Cleanup["Cleanup eligible workspace"]
 ```
 
+## Product Boundary
+
+Agent Machine is a local issue-to-PR runner with durable evidence. Features
+belong in the core runner only when they help one configured repository move one
+well-scoped Linear issue to one reviewable PR/MR with trustworthy local and
+code-host evidence.
+
+Current core behavior is intentionally narrow:
+
+- select one runnable Linear issue;
+- prepare one isolated workspace;
+- run one bounded implementation attempt;
+- produce or update one owned PR/MR;
+- record the run, review, handoff, status, and ledger evidence needed to audit
+  what happened.
+
+Safety and operations features support that core. Review, scope guards,
+branch/PR ownership checks, merge gates, reconciliation, cleanup, doctor,
+status, and live smoke evidence should remain runner-owned policy or local
+observability. They should not become separate products with their own lifecycle
+rules.
+
+Future surfaces such as TUI, web UI, MCP, ACP/editor adapters, or cloud runners
+must stay thin adapters over the runner modules. They may present status, accept
+operator intent, or trigger existing runner modes, but they should not duplicate
+issue selection, handoff, review, merge, retry, cleanup, or reconciliation
+policy.
+
 ## Current Status
 
 This repo owns the runner implementation, tests, specs, code-host/Linear
@@ -50,32 +80,8 @@ integrations, CLI, release packaging, and dogfood configuration. Consumer repos
 should keep only their `am.yaml`, `am.agent.md`, and ignored
 `.am/` runtime state.
 
-Agent Machine is released under the MIT License.
-
-See `docs/release/v0.1-readiness.md` for the current release checklist.
-
-## Install
-
-For local development:
-
-```bash
-mise install
-mise exec go -- go run . --version
-```
-
-Tagged releases publish macOS and Linux archives for `amd64` and `arm64`.
-Download the archive for your platform, verify it against `checksums.txt`, and
-put the `am` binary on `PATH`.
-
-When the Homebrew tap is configured:
-
-```bash
-brew install --cask weskor/tap/agent-machine
-am --version
-```
-
-The Homebrew cask is a convenience install path for macOS. Linux users should use
-the release archives unless and until Linux packages are added.
+Agent Machine is released under the MIT License. See
+`docs/release/v0.1-readiness.md` for the current release checklist.
 
 ## Requirements
 
@@ -89,13 +95,28 @@ the release archives unless and until Linux packages are added.
   `GITHUB_TOKEN` / `GH_TOKEN` or GitHub App credentials for GitHub, or
   `GITLAB_TOKEN` / `GL_TOKEN` for GitLab.
 
-## Quick Start
+## Install
 
-Install tool versions:
+Tagged releases publish macOS and Linux archives for `amd64` and `arm64`.
+Download the archive for your platform, verify it against `checksums.txt`, and
+put the `am` binary on `PATH`.
+
+When the Homebrew tap is configured, macOS users can install the cask:
+
+```bash
+brew install --cask weskor/tap/agent-machine
+am --version
+```
+
+Linux users should use the release archives unless and until Linux packages are
+added. For local development, run:
 
 ```bash
 mise install
+mise exec go -- go run . --version
 ```
+
+## Quick Start
 
 Create the two project files in the target repository:
 
@@ -104,16 +125,14 @@ cp am.example.yaml /path/to/target/am.yaml
 cp am.agent.example.md /path/to/target/am.agent.md
 ```
 
-Edit `/path/to/target/am.yaml`:
+Edit `/path/to/target/am.yaml` for the target repository:
 
 - `repository.remote`: clone URL for new workspaces.
-- `repository.provider`: `github` by default; use `gitlab` for GitLab merge
-  request handoff.
+- `repository.provider`: `github` by default; use `gitlab` for GitLab MRs.
 - `tracker.project_slug`: Linear project slug.
 - `workspace.root`: workspace directory, usually `.am/workspaces`.
-- `workspace.base_branch`: PR base branch, for example `main` or `develop`.
-- `runtime.provider`: usually `codex_cli`; use `claude_cli` for Claude Code or
-  `pi_cli` for the legacy Pi CLI runtime.
+- `workspace.base_branch`: PR/MR base branch, for example `main` or `develop`.
+- `runtime.provider`: `codex_cli`, `claude_cli`, or `pi_cli`.
 - `workflow.*`: Linear lane names for running, handoff, needs-info, and done.
 
 Put secrets in the process environment, an explicit `--env-file`, or
@@ -125,6 +144,29 @@ GITHUB_TOKEN=ghp_...
 # For GitLab:
 # GITLAB_TOKEN=glpat-...
 ```
+
+Process environment values win over `.env.local` values. Do not commit tokens,
+private keys, absolute credential paths, copied env files, or generated `.am/`
+runtime state.
+
+Check the resolved config, first-run readiness, and current runner status:
+
+```bash
+am config print
+am doctor
+am status
+```
+
+Open the operator dashboard, run one controlled implementation worker, or start
+the production loop:
+
+```bash
+am
+am worker implementation
+am start
+```
+
+### Credential Details
 
 For GitHub App auth, use:
 
@@ -144,45 +186,6 @@ gitlab:
   endpoint: https://gitlab.com
   project: OWNER/REPO
   pr_author_override: agent-machine-bot
-```
-
-Process environment values win over `.env.local` values. Do not commit tokens,
-private keys, absolute credential paths, or copied local env files.
-
-Check the resolved config without contacting Linear or GitHub:
-
-```bash
-am config print
-```
-
-Check first-run readiness without contacting Linear or GitHub:
-
-```bash
-am doctor
-```
-
-Inspect current runner status:
-
-```bash
-am status
-```
-
-Open the operator dashboard:
-
-```bash
-am
-```
-
-Run one controlled implementation worker:
-
-```bash
-am worker implementation
-```
-
-Run the production loop:
-
-```bash
-am start
 ```
 
 ## Project Files
@@ -259,21 +262,9 @@ bun install
 bun run start -- --config ../am.yaml
 ```
 
-Layout:
-
-- Header: project, SQLite health, and snapshot timestamp or refresh error.
-- Summary: issue, active-lock, lane, task, and reconciliation counts.
-- Views rail: Overview, Issues, Lanes, Tasks, and Logs.
-- List: rows for the selected view.
-- Details: the selected row's key fields.
-
-Controls:
-
-- `tab`, `h`/`l`, or left/right arrows: switch views.
-- `j`/`k` or up/down arrows: move the selected row.
-- `1`-`5`: jump to Overview, Issues, Lanes, Tasks, or Logs.
-- `r`: refresh the local snapshot.
-- `q`: quit.
+The dashboard includes Overview, Issues, Lanes, Tasks, and Logs views. Use
+`tab`, `h`/`l`, or left/right arrows to switch views; `j`/`k` or up/down arrows
+to move; `1`-`5` to jump between views; `r` to refresh; and `q` to quit.
 
 When launched through `am`, the TUI first looks for a compiled
 `agent-machine-tui` helper beside the runner binary, from `AM_TUI_BIN`, or under
@@ -359,19 +350,6 @@ Start with the project docs before changing behavior or architecture:
   expectations.
 - `docs/specs/` and `docs/adr/` for behavior contracts and durable decisions.
 
-Validation:
-
-```bash
-make fmt        # apply gofmt/goimports
-make fmt-check  # verify gofmt/goimports formatting
-make vet        # run go vet ./...
-make lint       # run golangci-lint with the repository baseline
-mise exec go -- go test ./...
-make test       # run go test ./...
-mise exec go -- make ci
-git diff --check
-```
-
 Before handoff, run:
 
 ```bash
@@ -379,7 +357,7 @@ mise exec go -- make ci
 git diff --check
 ```
 
-For config or status changes, also run a safe local smoke:
+For config or status changes, also run a safe local smoke such as:
 
 ```bash
 mise exec go -- go run . config print --config am.yaml
@@ -389,7 +367,9 @@ mise exec go -- go run . config print --config am.yaml
 
 `cmd/agent-machine-live-smoke` is an opt-in operator harness. It creates or reuses
 disposable Linear issues, generates an isolated config and prompt file, and runs
-them with a deterministic fake Agent. It is not part of `make ci`.
+them with a deterministic fake Agent. It is not part of `make ci`; see
+`docs/smoke/README.md` and `docs/smoke/dogfood-evidence.md` for public evidence
+expectations and current dogfood evidence.
 
 Required gates:
 
@@ -397,17 +377,13 @@ Required gates:
 - `LINEAR_API_KEY`
 - GitHub credentials accepted by the runner
 
-Create one disposable issue and run the fake-agent path:
+Common commands:
 
 ```bash
 LIVE_LINEAR=1 mise exec go -- go run ./cmd/agent-machine-live-smoke \
   --config am.yaml \
   --count 1
-```
 
-Run a concurrency-oriented smoke without merge:
-
-```bash
 LIVE_LINEAR=1 mise exec go -- go run ./cmd/agent-machine-live-smoke \
   --config am.yaml \
   --count 2 \
@@ -415,14 +391,10 @@ LIVE_LINEAR=1 mise exec go -- go run ./cmd/agent-machine-live-smoke \
 ```
 
 The harness writes a JSON report under `.am/live-smoke/`. Merge checks are
-disabled unless both controls are present:
-
-To also write a public Markdown evidence report under `docs/smoke/`, add
-`--public-report auto`. The report records the harness-controlled commands,
-their exit status, issue links, and the evidence boundary; it does not replace
-PR review, CI, Linear state inspection, or code-host merge evidence.
-See `docs/smoke/dogfood-evidence.md` for the current public evidence index and
-the evidence bar for future dogfood claims.
+disabled unless both controls are present. Add `--public-report auto` to write a
+public Markdown evidence report under `docs/smoke/`; the report records evidence
+but does not replace PR review, CI, Linear inspection, or code-host merge
+evidence.
 
 ```bash
 LIVE_LINEAR=1 LIVE_SMOKE_APPLY=1 mise exec go -- go run ./cmd/agent-machine-live-smoke \
@@ -433,17 +405,8 @@ LIVE_LINEAR=1 LIVE_SMOKE_APPLY=1 mise exec go -- go run ./cmd/agent-machine-live
 ```
 
 Use `--from-report` for follow-up merge checks so the harness reuses the
-original workspace root and artifact evidence.
-
-Render a public evidence report from an existing JSON report without contacting
-Linear:
-
-```bash
-mise exec go -- go run ./cmd/agent-machine-live-smoke \
-  --render-report \
-  --from-report .am/live-smoke/live-smoke-YYYYMMDDTHHMMSSZ.json \
-  --public-report auto
-```
+original workspace root and artifact evidence. Add `--render-report` to render
+public evidence from an existing JSON report without contacting Linear.
 
 ## Dogfood Loop
 
@@ -471,23 +434,8 @@ Tagged releases are built by `.github/workflows/release.yml` with GoReleaser.
 The workflow runs `make ci`, builds `am` for macOS and Linux on `amd64`
 and `arm64`, attaches archives and `checksums.txt` to the GitHub release, and
 publishes a Homebrew cask when `HOMEBREW_TAP_GITHUB_TOKEN` can write to
-`weskor/homebrew-tap`.
-
-Preflight a release locally:
-
-```bash
-mise exec go -- make ci
-git diff --check
-mise exec go -- make release-check
-mise exec go -- make release-snapshot
-```
-
-Tag a rename patch release after the checklist is complete:
-
-```bash
-git tag v0.1.1
-git push origin v0.1.1
-```
+`weskor/homebrew-tap`. See `docs/release/v0.1-readiness.md` for the release
+checklist and local preflight commands.
 
 ## Repository Map
 

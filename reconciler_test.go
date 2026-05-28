@@ -523,12 +523,12 @@ func TestReconcileIssueDistinguishesPRAuthorFromCommitAuthor(t *testing.T) {
 	}
 }
 
-func TestReconcileIssueDerivesPRAuthorFromConfiguredAppSlug(t *testing.T) {
+func TestReconcileIssueDerivesGitHubAppIdentityFromConfiguredAppSlug(t *testing.T) {
 	root := t.TempDir()
 	config := testRunnerConfig(root)
 	config.HandoffState = "Human Review"
 	config.BaseBranch = "develop"
-	config.GitHubAppSlug = "agent-machine-bot"
+	config.GitHubAppSlug = "custom-bot"
 	workspace := filepath.Join(root, "CAG-84")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
@@ -543,7 +543,8 @@ func TestReconcileIssueDerivesPRAuthorFromConfiguredAppSlug(t *testing.T) {
 		URL:               "https://github.com/weskor/agent-machine/pull/84",
 		BaseRefName:       "develop",
 		HeadRefName:       expectedWorkspaceBranch("CAG-84"),
-		Author:            prAuthor{Login: "agent-machine-bot[bot]"},
+		Author:            prAuthor{Login: "custom-bot[bot]"},
+		Commits:           []prCommit{{Author: prCommitAuthor{Name: "custom-bot[bot]", Email: "custom-bot[bot]@users.noreply.github.com"}}},
 		ReviewDecision:    "APPROVED",
 		Mergeable:         "MERGEABLE",
 		StatusCheckRollup: []statusCheck{{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS", Name: "build"}},
@@ -554,22 +555,31 @@ func TestReconcileIssueDerivesPRAuthorFromConfiguredAppSlug(t *testing.T) {
 	}
 
 	appPR := validPR
-	appPR.Author = prAuthor{Login: "app/agent-machine-bot"}
+	appPR.Author = prAuthor{Login: "app/custom-bot"}
 	if decision := reconcileIssue(config, testIssue("CAG-84", "Human Review"), &appPR); !decision.CanMerge {
 		t.Fatalf("expected configured GitHub App REST PR author to be merge-ready, got %#v", decision)
+	}
+
+	wrongCommitAuthorPR := validPR
+	wrongCommitAuthorPR.Commits = []prCommit{{Author: prCommitAuthor{Name: "agent-machine-bot[bot]", Email: "agent-machine-bot[bot]@users.noreply.github.com"}}}
+	decision := reconcileIssue(config, testIssue("CAG-84", "Human Review"), &wrongCommitAuthorPR)
+	if !decision.ShouldQuarantine || !strings.Contains(strings.Join(decision.Blockers, "; "), "expected custom-bot[bot] <custom-bot[bot]@users.noreply.github.com>") {
+		t.Fatalf("expected non-custom commit author to be rejected, got %#v", decision)
 	}
 
 	missingIdentityConfig := config
 	missingIdentityConfig.GitHubAppSlug = ""
 	t.Setenv("GITHUB_APP_SLUG", "")
-	decision := reconcileIssue(missingIdentityConfig, testIssue("CAG-84", "Human Review"), &validPR)
+	decision = reconcileIssue(missingIdentityConfig, testIssue("CAG-84", "Human Review"), &validPR)
 	if !decision.ShouldQuarantine || !strings.Contains(strings.Join(decision.Blockers, "; "), "no expected GitHub App PR author could be derived") {
 		t.Fatalf("expected missing app identity to fail closed, got %#v", decision)
 	}
 
 	overrideConfig := missingIdentityConfig
-	overrideConfig.GitHubPRAuthorOverride = "agent-machine-bot[bot]"
-	if decision := reconcileIssue(overrideConfig, testIssue("CAG-84", "Human Review"), &validPR); !decision.CanMerge {
+	overrideConfig.GitHubPRAuthorOverride = "custom-bot[bot]"
+	overridePR := validPR
+	overridePR.Commits = nil
+	if decision := reconcileIssue(overrideConfig, testIssue("CAG-84", "Human Review"), &overridePR); !decision.CanMerge {
 		t.Fatalf("expected explicit PR author override to pass, got %#v", decision)
 	}
 }

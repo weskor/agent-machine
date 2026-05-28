@@ -28,4 +28,4 @@ Read the Linear issue by identifier, including description, state, priority, lab
 
 ## GitHub’s role
 
-GitHub is the code review and CI surface. Agent Machine opens PRs from `am/<issue>-workspace` branches into the configured base branch and posts deterministic handoff comments.
+GitHub is the code review and CI surface. Agent Machine opens PRs from `am/<issue>-workspace` branches into the configured base branch and writes deterministic handoff evidence to the PR body.

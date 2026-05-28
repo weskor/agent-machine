@@ -22,6 +22,7 @@ type fakeGitHubAPI struct {
 	mergedPRs           map[int]bool
 	deletedBranches     map[string]bool
 	updatedPRs          map[int]bool
+	updatedPRBodies     map[int]string
 	mergeErr            error
 	deleteErr           error
 }
@@ -102,16 +103,26 @@ func (f fakeGitHubAPI) PullRequestHandoffDetails(_ context.Context, prURL string
 	if f.handoffErr != nil {
 		return prHandoffDetails{}, f.handoffErr
 	}
+	var number int
+	if _, err := fmt.Sscanf(prURL, "https://github.com/weskor/agent-machine/pull/%d", &number); err == nil && number != 0 {
+		return prHandoffDetails{Number: number, URL: prURL, BaseRefName: "main", HeadRefName: expectedWorkspaceBranch("CAG-119"), Author: prAuthor{Login: "app/agent-machine-bot"}}, nil
+	}
 	return f.details, nil
 }
 
 func (f fakeGitHubAPI) CreatePullRequest(_ context.Context, title, body, head, base string) (prHandoffDetails, error) {
+	if f.updatedPRBodies != nil {
+		f.updatedPRBodies[900] = body
+	}
 	return prHandoffDetails{Number: 900, URL: "https://github.com/weskor/agent-machine/pull/900", BaseRefName: base, HeadRefName: head, Author: prAuthor{Login: "app/agent-machine-bot"}}, nil
 }
 
 func (f fakeGitHubAPI) UpdatePullRequest(_ context.Context, number int, title, body, base string) (prHandoffDetails, error) {
 	if f.updatedPRs != nil {
 		f.updatedPRs[number] = true
+	}
+	if f.updatedPRBodies != nil {
+		f.updatedPRBodies[number] = body
 	}
 	url := fmt.Sprintf("https://github.com/weskor/agent-machine/pull/%d", number)
 	if f.handoffDetailsByURL != nil {

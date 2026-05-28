@@ -16,7 +16,7 @@ Phase 1 inventory plus Phase 2/3 parity notes for replacing core `gh` CLI behavi
 - [x] Merge conflicts block merge when `mergeable=CONFLICTING` or `mergeStateStatus=DIRTY`, write repair feedback, and move the Linear issue back to Ready.
 - [x] `CHANGES_REQUESTED` captures review, issue comment, and inline review comment feedback, writes `.am-feedback.md`, and moves the Linear issue back to Ready unless already addressed.
 - [x] Review feedback preserves the former `gh pr view <number> --json reviews,comments` plus `gh api repos/:owner/:repo/pulls/<number>/comments` shapes through the typed GitHub API client.
-- [x] PR handoff comments keep a stable issue-comment identity by finding the `<!-- am-summary -->` marker via the typed GitHub API client and updating `issues/comments/<id>`; absent marker creates an issue comment through the typed client.
+- [x] PR handoff evidence is written to the runner-owned PR body via the typed GitHub API client; Agent Machine no longer creates a separate deterministic PR summary comment.
 - [x] Artifact repair preserves the former `gh pr view <url> --json state,mergedAt` semantics through the typed GitHub API client and treats `MERGED` or non-null `mergedAt` as manually merged.
 - [x] Approved PR merge uses the typed GitHub API client to squash merge after reconciliation, review, checks, conflict, artifact, and workspace gates pass.
 - [x] Post-merge branch deletion uses the typed GitHub API client only after squash merge confirms `merged=true`, and still refuses non-CAG/Agent Machine branch names.

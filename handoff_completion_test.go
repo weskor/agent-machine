@@ -25,7 +25,7 @@ func TestCompleteAttemptHandoffWritesPendingProgressBeforeSideEffects(t *testing
 	candidate := &issue{ID: "issue-169", Identifier: "CAG-169", Title: "Handoff pending", URL: "https://linear.app/acme/issue/CAG-169"}
 	prURL := "https://github.com/acme/repo/pull/169"
 	sawPending := false
-	postOrUpdatePRHandoffCommentForWorker = func(handoffSummary) error {
+	updatePRHandoffBodyForWorker = func(handoffSummary) error {
 		snapshot, err := readRunProgress(root, candidate.Identifier)
 		if err != nil {
 			t.Fatal(err)
@@ -99,7 +99,7 @@ func TestCompleteAttemptHandoffExecutesPersistedPayloadBoundary(t *testing.T) {
 		return payload, nil
 	}
 	var postedSummary handoffSummary
-	postOrUpdatePRHandoffCommentForWorker = func(summary handoffSummary) error {
+	updatePRHandoffBodyForWorker = func(summary handoffSummary) error {
 		postedSummary = summary
 		return nil
 	}
@@ -185,7 +185,7 @@ func TestResumeReviewReadyRunUsesPendingProgressBeforeHandoff(t *testing.T) {
 	runReviewForWorker = func(context.Context, string, string, string, *issue, string, map[string]string, time.Duration, *reviewEvidence) (*reviewResult, error) {
 		return &reviewResult{Status: "passed"}, nil
 	}
-	postOrUpdatePRHandoffCommentForWorker = func(handoffSummary) error {
+	updatePRHandoffBodyForWorker = func(handoffSummary) error {
 		snapshot, err := readRunProgress(root, candidate.Identifier)
 		if err != nil {
 			t.Fatal(err)

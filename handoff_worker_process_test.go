@@ -331,7 +331,7 @@ func TestRunHandoffPendingAttemptConsumesPayloadAndCompletesHandoff(t *testing.T
 
 	var postedSummary handoffSummary
 	var commentIssueID, commentBody string
-	postOrUpdatePRHandoffCommentForWorker = func(summary handoffSummary) error {
+	updatePRHandoffBodyForWorker = func(summary handoffSummary) error {
 		postedSummary = summary
 		return nil
 	}
@@ -388,7 +388,7 @@ func TestRunHandoffPendingAttemptSkipsNonPendingProgress(t *testing.T) {
 	if err := writeRunProgressResult(root, progress); err != nil {
 		t.Fatal(err)
 	}
-	postOrUpdatePRHandoffCommentForWorker = func(handoffSummary) error {
+	updatePRHandoffBodyForWorker = func(handoffSummary) error {
 		t.Fatal("handoff worker should skip non-pending progress")
 		return nil
 	}
@@ -433,7 +433,7 @@ func TestRunHandoffPendingAttemptSkipsPendingProgressWithActiveRunLock(t *testin
 		t.Fatal(err)
 	}
 	defer releaseLock()
-	postOrUpdatePRHandoffCommentForWorker = func(handoffSummary) error {
+	updatePRHandoffBodyForWorker = func(handoffSummary) error {
 		t.Fatal("handoff worker should not consume a pending handoff with an active run lock")
 		return nil
 	}

@@ -13,7 +13,7 @@ import (
 	"github.com/weskor/agent-machine/internal/state"
 )
 
-func TestHandoffWorkerPostsCommentsAndMovesToHandoffState(t *testing.T) {
+func TestHandoffWorkerUpdatesPRBodyAndMovesToHandoffState(t *testing.T) {
 	t.Cleanup(resetHandoffWorkerHooks)
 	root := t.TempDir()
 	workspace := filepath.Join(root, "CAG-157")
@@ -25,7 +25,7 @@ func TestHandoffWorkerPostsCommentsAndMovesToHandoffState(t *testing.T) {
 	var postedSummary handoffSummary
 	var updatedIssueID, updatedStateID string
 	var commentIssueID, commentBody string
-	postOrUpdatePRHandoffCommentForWorker = func(summary handoffSummary) error {
+	updatePRHandoffBodyForWorker = func(summary handoffSummary) error {
 		postedSummary = summary
 		return nil
 	}
@@ -79,7 +79,7 @@ func TestHandoffWorkerHonorsCanceledContextBeforeSideEffects(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var posted bool
-	postOrUpdatePRHandoffCommentForWorker = func(handoffSummary) error {
+	updatePRHandoffBodyForWorker = func(handoffSummary) error {
 		posted = true
 		return nil
 	}
@@ -99,7 +99,7 @@ func TestHandoffWorkerHonorsCanceledContextBeforeSideEffects(t *testing.T) {
 		t.Fatalf("result = %+v; want terminal canceled result", result)
 	}
 	if posted {
-		t.Fatal("handoff posted PR comment after context cancellation")
+		t.Fatal("handoff updated PR body after context cancellation")
 	}
 }
 
@@ -117,7 +117,7 @@ func TestHandoffWorkerRecordsFailedRunWhenHandoffTransitionFails(t *testing.T) {
 	defer store.Close()
 
 	transitionErr := errors.New("linear transition failed")
-	postOrUpdatePRHandoffCommentForWorker = func(handoffSummary) error { return nil }
+	updatePRHandoffBodyForWorker = func(handoffSummary) error { return nil }
 	updateIssueStateForLinearStatusWorker = func(context.Context, linearClient, string, string) error { return transitionErr }
 	createCommentForLinearStatusWorker = func(context.Context, linearClient, string, string) error {
 		t.Fatal("Linear handoff comment should not be created after transition failure")
@@ -154,5 +154,41 @@ func TestHandoffWorkerRecordsFailedRunWhenHandoffTransitionFails(t *testing.T) {
 	}
 	if record.Status != runAttemptStatusFailed || record.Error != transitionErr.Error() || record.PRURL != prURL {
 		t.Fatalf("run record = %+v; want failed transition record", record)
+	}
+}
+
+func TestHandoffWorkerFailsBeforeLinearSideEffectsWhenPRBodyUpdateFails(t *testing.T) {
+	t.Cleanup(resetHandoffWorkerHooks)
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-160")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	bodyErr := errors.New("body update failed")
+	updatePRHandoffBodyForWorker = func(handoffSummary) error { return bodyErr }
+	updateIssueStateForLinearStatusWorker = func(context.Context, linearClient, string, string) error {
+		t.Fatal("Linear state should not move when PR body evidence update fails")
+		return nil
+	}
+	createCommentForLinearStatusWorker = func(context.Context, linearClient, string, string) error {
+		t.Fatal("Linear handoff comment should not be created when PR body evidence update fails")
+		return nil
+	}
+
+	result, err := handoffWorker{
+		config:    runnerConfig{PiCommand: "pi run", HandoffState: "Human Review"},
+		candidate: &issue{ID: "issue-160", Identifier: "CAG-160", Title: "PR body evidence"},
+		states:    []workflowState{{ID: "human-review-id", Name: "Human Review"}},
+		workspace: workspace,
+		startedAt: time.Now().Add(-time.Minute),
+		review:    &reviewResult{Status: "passed"},
+		prURL:     "https://github.com/acme/repo/pull/160",
+	}.Execute(context.Background())
+	if !errors.Is(err, bodyErr) {
+		t.Fatalf("Execute() error = %v; want PR body update error", err)
+	}
+	if !result.Terminal {
+		t.Fatalf("result = %+v; want terminal body update failure", result)
 	}
 }

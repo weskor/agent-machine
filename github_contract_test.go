@@ -86,43 +86,41 @@ func TestGitHubContractFixtureCoversChecksConflictsAndChangesRequested(t *testin
 	}
 }
 
-func TestGitHubContractStableIssueCommentIDUpdatesExistingSummary(t *testing.T) {
-	updated := map[int64]string{}
-	created := map[int]string{}
-	withFakeGitHubAPI(t, fakeGitHubAPI{comments: map[string][]githubIssueComment{
-		"501": {{ID: 9001, Body: "older summary\n" + prSummaryMarker + "\nkept stable"}},
-		"502": {},
-	}, updatedComments: updated, createdComments: created})
+func TestGitHubContractHandoffEvidenceUpdatesPRBodyOnly(t *testing.T) {
+	updatedBodies := map[int]string{}
+	updatedComments := map[int64]string{}
+	createdComments := map[int]string{}
+	withFakeGitHubAPI(t, fakeGitHubAPI{
+		handoffDetailsByURL: map[string]prHandoffDetails{
+			"https://github.com/acme/widget/pull/501": {Number: 501, URL: "https://github.com/acme/widget/pull/501", BaseRefName: "main", ChangedFiles: 4, Additions: 30, Deletions: 8},
+		},
+		updatedPRBodies: updatedBodies,
+		updatedComments: updatedComments,
+		createdComments: createdComments,
+	})
 
-	baseSummary := handoffSummary{
+	summary := handoffSummary{
 		IssueIdentifier: "CAG-39",
 		IssueTitle:      "GitHub behavior contract",
 		IssueURL:        "https://linear.app/wessismore/issue/CAG-39/agent-machine-github-api-phase-1-behavior-contract-and-fixtures",
+		PRURL:           "https://github.com/acme/widget/pull/501",
 		Validation:      []string{"bun run am:pi:test"},
 	}
-	updateSummary := baseSummary
-	updateSummary.PRURL = "https://github.com/acme/widget/pull/501"
-	if err := postOrUpdatePRHandoffComment(updateSummary); err != nil {
-		t.Fatal(err)
-	}
-	createSummary := baseSummary
-	createSummary.PRURL = "https://github.com/acme/widget/pull/502"
-	if err := postOrUpdatePRHandoffComment(createSummary); err != nil {
+	if err := updatePRHandoffBody(summary); err != nil {
 		t.Fatal(err)
 	}
 
-	patchBody := updated[9001]
-	for _, want := range []string{prSummaryMarker, "CAG-39", "GitHub behavior contract"} {
+	patchBody := updatedBodies[501]
+	for _, want := range []string{"## Agent Machine handoff", "CAG-39", "GitHub behavior contract", "### Behavior Contract Evidence", "Files changed: 4"} {
 		if !strings.Contains(patchBody, want) {
-			t.Fatalf("updated comment body missing %q:\n%s", want, patchBody)
+			t.Fatalf("updated PR body missing %q:\n%s", want, patchBody)
 		}
 	}
-	if _, ok := created[501]; ok {
-		t.Fatalf("existing summary should be updated, not recreated: %#v", created)
+	if strings.Contains(patchBody, "<!-- am-summary -->") {
+		t.Fatalf("updated PR body should not include retired comment marker:\n%s", patchBody)
 	}
-	createBody := created[502]
-	if !strings.Contains(createBody, prSummaryMarker) || !strings.Contains(createBody, "CAG-39") {
-		t.Fatalf("created comment body missing stable marker or issue id:\n%s", createBody)
+	if len(updatedComments) != 0 || len(createdComments) != 0 {
+		t.Fatalf("handoff evidence should not create or update PR comments; updated=%#v created=%#v", updatedComments, createdComments)
 	}
 }
 
@@ -135,6 +133,7 @@ func TestGitHubContractInventoryDocumentsGhParityChecklist(t *testing.T) {
 	for _, want := range []string{
 		"former `gh pr list --state open --json number,url,baseRefName,headRefName,author,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup` shape through the typed GitHub API client",
 		"former `gh pr view <number> --json reviews,comments` plus `gh api repos/:owner/:repo/pulls/<number>/comments` shapes through the typed GitHub API client",
+		"PR handoff evidence is written to the runner-owned PR body via the typed GitHub API client",
 		"Approved PR merge uses the typed GitHub API client to squash merge",
 		"Post-merge branch deletion uses the typed GitHub API client only after squash merge confirms `merged=true`",
 		"app/agent-machine-bot",

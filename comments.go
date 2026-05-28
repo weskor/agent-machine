@@ -1,20 +1,10 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	"net/url"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
-
-	"github.com/weskor/agent-machine/internal/codehost"
 )
-
-const prSummaryMarker = "<!-- am-summary -->"
-
-var prNumberFromURLPattern = regexp.MustCompile(`/(?:pull|merge_requests)/([0-9]+)(?:$|[/?#])`)
 
 type handoffSummary struct {
 	IssueIdentifier string
@@ -27,11 +17,13 @@ type handoffSummary struct {
 	Validation      []string
 	FollowUps       []string
 	Classification  *runClassification
+	PRDetails       *prHandoffDetails
+	Progress        *runProgressSnapshot
 }
 
-func renderPRHandoffComment(summary handoffSummary) string {
+func renderPRHandoffBody(summary handoffSummary) string {
 	var builder strings.Builder
-	fmt.Fprintf(&builder, "%s\n## Agent Machine handoff\n\n", prSummaryMarker)
+	fmt.Fprintf(&builder, "## Agent Machine handoff\n\n")
 	fmt.Fprintf(&builder, "- Issue: %s — %s\n", markdownLink(summary.IssueIdentifier, summary.IssueURL), sanitizeMarkdownLine(summary.IssueTitle))
 	fmt.Fprintf(&builder, "- PR: %s\n", markdownLink(summary.PRURL, summary.PRURL))
 	fmt.Fprintf(&builder, "- Review: %s\n", sanitizeMarkdownLine(reviewSummary(summary.Review)))
@@ -43,6 +35,15 @@ func renderPRHandoffComment(summary handoffSummary) string {
 
 	builder.WriteString("\n### Behavior Contract Evidence\n")
 	writeBoundedBullets(&builder, behaviorContractEvidenceNotes(summary), "No behavior-contract evidence recorded.", 5)
+
+	builder.WriteString("\n### Changed files\n")
+	writeBoundedBullets(&builder, changedFilesNotes(summary), "Changed file summary not recorded.", 3)
+
+	builder.WriteString("\n### Risks and out of scope\n")
+	writeBoundedBullets(&builder, riskAndScopeNotes(summary), "No known risks or out-of-scope follow-up recorded.", 5)
+
+	builder.WriteString("\n### Progress status\n")
+	writeBoundedBullets(&builder, progressStatusNotes(summary), "Progress snapshot not recorded.", 4)
 
 	builder.WriteString("\n### Remaining follow-up\n")
 	writeBoundedBullets(&builder, summary.FollowUps, "No follow-up recorded.", 4)
@@ -62,6 +63,43 @@ func behaviorContractEvidenceNotes(summary handoffSummary) []string {
 	return notes
 }
 
+func changedFilesNotes(summary handoffSummary) []string {
+	if summary.PRDetails == nil {
+		return nil
+	}
+	details := summary.PRDetails
+	return []string{
+		fmt.Sprintf("Files changed: %d; additions: %d; deletions: %d.", details.ChangedFiles, details.Additions, details.Deletions),
+	}
+}
+
+func riskAndScopeNotes(summary handoffSummary) []string {
+	notes := []string{
+		"Out of scope: merge gate policy, Linear handoff comments, and implementation-agent code-host ownership.",
+	}
+	if summary.PRDetails != nil && summary.PRDetails.ChangedFiles > 80 {
+		notes = append(notes, fmt.Sprintf("Risk: PR changes %d files, above the scoped-run warning threshold.", summary.PRDetails.ChangedFiles))
+	}
+	return notes
+}
+
+func progressStatusNotes(summary handoffSummary) []string {
+	if summary.Progress == nil {
+		return nil
+	}
+	progress := summary.Progress
+	notes := []string{
+		"Phase: " + emptyAsNA(progress.Phase) + "; status: " + emptyAsNA(progress.Status) + "; next: " + emptyAsNA(progress.NextAction) + ".",
+	}
+	if progress.PRURL != "" {
+		notes = append(notes, "Progress PR: "+progress.PRURL+".")
+	}
+	if progress.ProgressPath != "" {
+		notes = append(notes, "Progress artifact: "+progress.ProgressPath+".")
+	}
+	return notes
+}
+
 func reviewClassificationSummary(review *reviewResult) string {
 	if review == nil || strings.TrimSpace(review.Classification) == "" {
 		return "not recorded"
@@ -73,57 +111,30 @@ func renderLinearHandoffComment(summary handoffSummary) string {
 	return truncateMarkdown(fmt.Sprintf("Runtime run completed.\n\nPR: %s\nUsage: %s\nReview: %s\nDuration: %s", summary.PRURL, usageSummary(summary.RuntimeUsage), reviewSummary(summary.Review), summary.Duration.Round(time.Second)), 1000)
 }
 
-func postOrUpdatePRHandoffComment(summary handoffSummary) error {
-	prNumber := prNumberFromURL(summary.PRURL)
-	if prNumber == "" {
-		return nil
-	}
-	number, err := strconv.Atoi(prNumber)
-	if err != nil {
-		return fmt.Errorf("invalid code-host PR number %q: %w", prNumber, err)
-	}
+func updatePRHandoffBody(summary handoffSummary) error {
 	github, ctx, cancel, err := codeHostClientForPRURLWithTimeout(summary.PRURL, defaultGitHubCommandTimeout)
 	if err != nil {
 		return err
 	}
 	defer cancel()
-	body := renderPRHandoffComment(summary)
-	existingID, err := findExistingPRSummaryComment(github, ctx, prNumber)
-	if err != nil {
-		return err
-	}
-	if existingID != 0 {
-		return github.UpdateIssueComment(ctx, existingID, body)
-	}
-	return github.CreateIssueComment(ctx, number, body)
-}
 
-func findExistingPRSummaryComment(github githubAPI, ctx context.Context, prNumber string) (int64, error) {
-	comments, err := github.IssueComments(ctx, prNumber)
+	details, err := github.PullRequestHandoffDetails(ctx, summary.PRURL)
 	if err != nil {
-		return 0, fmt.Errorf("code-host API handoff comment lookup failed for PR #%s: %w", prNumber, err)
+		return fmt.Errorf("code-host PR handoff body lookup failed for %s: %w", summary.PRURL, err)
 	}
-	for _, comment := range comments {
-		if strings.Contains(comment.Body, prSummaryMarker) {
-			return comment.ID, nil
-		}
+	if details.URL != "" {
+		summary.PRURL = details.URL
 	}
-	return 0, nil
-}
-
-func prNumberFromURL(raw string) string {
-	if parsed, ok := codehost.ParsePullRequestURL(raw); ok {
-		return strconv.Itoa(parsed.Number)
+	summary.PRDetails = &details
+	title, _ := handoffPRTitleBody(&issue{Identifier: summary.IssueIdentifier, Title: summary.IssueTitle})
+	base := details.BaseRefName
+	if strings.TrimSpace(base) == "" {
+		base = "main"
 	}
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.Host != "github.com" || parsed.Path == "" {
-		return ""
+	if _, err := github.UpdatePullRequest(ctx, details.Number, title, renderPRHandoffBody(summary), base); err != nil {
+		return fmt.Errorf("code-host PR handoff body update failed for %s: %w", summary.PRURL, err)
 	}
-	matches := prNumberFromURLPattern.FindStringSubmatch(parsed.Path)
-	if len(matches) < 2 {
-		return ""
-	}
-	return matches[1]
+	return nil
 }
 
 func validationLines(output string) []string {

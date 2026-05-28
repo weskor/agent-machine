@@ -70,7 +70,7 @@ These seams still rely too much on Agent or reviewer interpretation and should b
 
 ## Configuration loading
 
-- The CLI defaults to `am.yaml` unless another config path is supplied with `--config` or `-c`.
+- The CLI defaults to the nearest `am.yaml` in the current directory or an ancestor directory unless another config path is supplied with `--config` or `-c`.
 - The runner loads explicit `--env-file` paths first, then `.env.local` next to the selected `am.yaml`; environment files only fill missing variables, so process environment values win.
 - `LINEAR_API_KEY` is required.
 - `tracker.project_slug` and `workspace.root` are required in the project config.

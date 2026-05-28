@@ -85,7 +85,10 @@ Agent Machine is released under the MIT License. See
 
 ## Requirements
 
-- Go through `mise` (`mise install`, then `mise exec go -- ...`).
+- Go through `mise` for source-checkout development (`mise install`, then
+  `mise exec go -- ...`).
+- A released or locally built `am` binary. Running the binary itself does not
+  require `mise`.
 - `codex` CLI on `PATH` for the default `codex_cli` runtime.
 - Optional: `pi` CLI on `PATH` when `runtime.provider: pi_cli` is configured.
 - Optional: `claude` CLI on `PATH` when `runtime.provider: claude_cli` is
@@ -109,11 +112,23 @@ am --version
 ```
 
 Linux users should use the release archives unless and until Linux packages are
-added. For local development, run:
+added.
+
+For local development from a source checkout, `make build` produces `dist/am`.
+If you rely on this repo's pinned toolchain, install it once and run the target
+through `mise`:
 
 ```bash
 mise install
-mise exec go -- go run . --version
+mise exec go -- make build
+./dist/am --version
+```
+
+Optionally install that local binary on `PATH`:
+
+```bash
+mise exec go -- make install-local
+am --version
 ```
 
 ## Quick Start
@@ -152,18 +167,18 @@ runtime state.
 Check the resolved config, first-run readiness, and current runner status:
 
 ```bash
-am config print
-am doctor
-am status
+am config print --config am.yaml
+am doctor --config am.yaml
+am status --config am.yaml
 ```
 
 Open the operator dashboard, run one controlled implementation worker, or start
 the production loop:
 
 ```bash
-am
-am worker implementation
-am start
+am --config am.yaml
+am worker implementation --config am.yaml
+am start --config am.yaml
 ```
 
 ### Credential Details
@@ -223,31 +238,38 @@ under it. Agent Machine discovers the nearest ancestor `am.yaml`; pass
 
 | Command | Purpose |
 | --- | --- |
-| `go run .` or `go run . tui` | Open the read-only TUI dashboard. |
-| `go run . config print` | Print the resolved, redacted config. No Linear/code-host access required. |
-| `go run . doctor` | Check config, prompt, workspace, credentials, and runtime command readiness. No Linear/code-host access required. |
-| `go run . --version` | Print the binary version. No config or credentials required. |
-| `go run . status` | Print Linear, PR, workspace, SQLite, and artifact status. |
-| `go run . run-status CAG-123` | Print one local progress line for an issue. No Linear/code-host access required. |
-| `go run . run-ledger CAG-123` | Print the local append-only run timeline for an issue. `status CAG-123` is an alias. No Linear/code-host access required. |
-| `go run . explain` | Print the next scheduling decision, merge blockers, and cleanup eligibility without mutating state. |
-| `go run . start` | Run scheduler, cleanup, merge, handoff, review, and implementation lanes. |
-| `go run . worker implementation` | Run one selected implementation worker process. |
-| `go run . worker review` | Run one selected review worker process. |
-| `go run . worker handoff` | Run one selected handoff worker process. |
-| `go run . merge-approved` | Merge eligible Agent Machine-owned PRs whose gates pass. |
-| `go run . cleanup-workspaces` | Inspect cleanup eligibility. Add `--apply` to delete eligible workspaces. |
-| `go run . repair-artifacts` | Repair local Agent Machine artifacts. |
-| `go run . surface snapshot` | Print the read-only JSON snapshot used by product surfaces. |
+| `am` or `am tui` | Open the read-only TUI dashboard. |
+| `am config print` | Print the resolved, redacted config. No Linear/code-host access required. |
+| `am doctor` | Check config, prompt, workspace, credentials, and runtime command readiness. No Linear/code-host access required. |
+| `am --version` | Print the binary version. No config or credentials required. |
+| `am status` | Print Linear, PR, workspace, SQLite, and artifact status. |
+| `am run-status CAG-123` | Print one local progress line for an issue. No Linear/code-host access required. |
+| `am run-ledger CAG-123` | Print the local append-only run timeline for an issue. `status CAG-123` is an alias. No Linear/code-host access required. |
+| `am explain` | Print the next scheduling decision, merge blockers, and cleanup eligibility without mutating state. |
+| `am start` | Run scheduler, cleanup, merge, handoff, review, and implementation lanes. |
+| `am worker implementation` | Run one selected implementation worker process. |
+| `am worker review` | Run one selected review worker process. |
+| `am worker handoff` | Run one selected handoff worker process. |
+| `am merge-approved` | Merge eligible Agent Machine-owned PRs whose gates pass. |
+| `am cleanup-workspaces` | Inspect cleanup eligibility. Add `--apply` to delete eligible workspaces. |
+| `am repair-artifacts` | Repair local Agent Machine artifacts. |
+| `am surface snapshot` | Print the read-only JSON snapshot used by product surfaces. |
 
 Legacy flag forms such as `--status`, `--explain`, `--continuous`,
 `--worker=implementation`, and `--merge-approved` are still accepted, but new
 docs should prefer command forms.
 
+In a source checkout without a built binary, prefix the same command with
+`mise exec go -- go run .`, for example:
+
+```bash
+mise exec go -- go run . status --config am.yaml
+```
+
 ## TUI
 
 The default product surface is a read-only OpenTUI dashboard over
-`go run . surface snapshot`. It does not contact Linear or GitHub directly and
+`am surface snapshot`. It does not contact Linear or GitHub directly and
 does not mutate workspaces, merge, repair, or clean up.
 
 ```bash
@@ -360,8 +382,14 @@ git diff --check
 For config or status changes, also run a safe local smoke such as:
 
 ```bash
-mise exec go -- go run . config print --config am.yaml
+./dist/am config print --config am.yaml
 ```
+
+Repository hooks are configured by each `am.yaml`. This repo keeps
+`mise exec go -- go test ./...` in `am.yaml` so dogfood workers use the pinned
+toolchain, but target repos may use plain `go test ./...` when they do not
+standardize on `mise`. That hook choice does not affect whether a released or
+locally built `am` binary can run.
 
 ## Live Smoke Harness
 
@@ -416,8 +444,8 @@ or another target repository.
 1. Write tickets with `Goal`, `Scope`, `Requirements`, `Acceptance Criteria`,
    and `Validation`.
 2. Move exactly one ticket into `Ready for Agent` when it is safe to run.
-3. Run `go run . start --config am.yaml`, or use
-   `go run . worker implementation --config am.yaml` for a controlled
+3. Run `am start --config am.yaml`, or use
+   `am worker implementation --config am.yaml` for a controlled
    single-worker pass.
 4. Review the PR before activating the next ticket.
 5. Move unclear, unsafe, or credential-blocked work to `Needs Info` instead of

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +75,40 @@ func TestStatusWorkerProcessClaimsTaskRecordsHeartbeatAndReleasesLease(t *testin
 	}
 	if !ok || lease.ReleasedAt.IsZero() || lease.ReleaseReason != "worker task completed" {
 		t.Fatalf("lease = %+v ok=%t; want released worker task lease", lease, ok)
+	}
+}
+
+func TestRunSelectedCleanupWorkerCreatesMissingWorkspaceRoot(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), ".am")
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(parent, "workspaces")
+	oldIssueIdentifiers := issueIdentifiersByStateForCleanupWorker
+	oldCleanup := cleanupWorkspacesForWorker
+	t.Cleanup(func() {
+		issueIdentifiersByStateForCleanupWorker = oldIssueIdentifiers
+		cleanupWorkspacesForWorker = oldCleanup
+	})
+	issueIdentifiersByStateForCleanupWorker = func(context.Context, linearClient, string, string) (map[string]bool, error) {
+		return map[string]bool{}, nil
+	}
+	cleanupWorkspacesForWorker = func(ctx context.Context, workspaceRoot string, options cleanupOptions) error {
+		if workspaceRoot != root {
+			t.Fatalf("workspaceRoot = %q, want %q", workspaceRoot, root)
+		}
+		info, err := os.Stat(root)
+		if err != nil {
+			t.Fatalf("workspace root was not created before selected cleanup worker: %v", err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("workspace root exists but is not a directory: %s", root)
+		}
+		return nil
+	}
+
+	if err := runSelectedWorkerContext(context.Background(), linearClient{}, project{}, runnerConfig{ConfigPath: "am.yaml", ProjectSlug: "CAG", WorkspaceRoot: root, DoneState: "Done"}, cleanupWorkerRole); err != nil {
+		t.Fatal(err)
 	}
 }
 

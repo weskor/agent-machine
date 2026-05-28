@@ -22,6 +22,41 @@ func init() {
 	}
 }
 
+func TestTUIBinaryCandidatePathsPreferOverrideAndReleaseSibling(t *testing.T) {
+	candidates := tuiBinaryCandidatePaths("/repo", "/opt/agent-machine/am", "/custom/tui")
+	want := []string{
+		"/custom/tui",
+		filepath.Join("/opt/agent-machine", tuiExecutableName()),
+		filepath.Join("/repo", tuiExecutableName()),
+		filepath.Join("/repo", "bin", tuiExecutableName()),
+		filepath.Join("/repo", "dist", "tui", tuiDistExecutableName()),
+		filepath.Join("/repo", "tui", "dist", tuiExecutableName()),
+	}
+	if !reflect.DeepEqual(candidates, want) {
+		t.Fatalf("candidates = %#v, want %#v", candidates, want)
+	}
+}
+
+func TestTUIEnvironmentSetsAMBinWhenMissing(t *testing.T) {
+	env := tuiEnvironment([]string{"PATH=/bin"})
+	found := false
+	for _, value := range env {
+		if strings.HasPrefix(value, "AM_BIN=") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("AM_BIN missing from env %#v", env)
+	}
+}
+
+func TestTUIEnvironmentPreservesExistingAMBin(t *testing.T) {
+	env := tuiEnvironment([]string{"AM_BIN=/custom/am"})
+	if !reflect.DeepEqual(env, []string{"AM_BIN=/custom/am"}) {
+		t.Fatalf("env = %#v, want existing AM_BIN preserved", env)
+	}
+}
+
 func TestHasUnresolvedReviewFailure(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "CAG-1")

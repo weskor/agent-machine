@@ -42,12 +42,14 @@ Agent Machine is a runner harness with an AgentRuntime Adapter seam. The default
 local production provider is `codex_cli`, which shells to a clean local
 `codex exec` command. That means current users need `codex` installed on `PATH`
 and configured for auth, provider, model, and quota outside Agent Machine. The
-legacy `pi_cli` provider remains available as an explicit opt-in, but neither
-provider is the runner architecture itself.
+`claude_cli` provider shells to Claude Code when selected. The legacy `pi_cli`
+provider remains available as an explicit opt-in, but none of these providers is
+the runner architecture itself.
 
 Supported vocabulary:
 
 - `codex_cli`: default local shell Adapter for clean `codex exec` sessions.
+- `claude_cli`: local shell Adapter for non-interactive Claude Code sessions.
 - `pi_cli`: legacy local shell Adapter for the Pi CLI, selected explicitly with
   `runtime.provider: pi_cli` or by legacy `pi.command`-only configs.
 - `fake`: deterministic fake/test Adapter for parity tests and contract coverage.

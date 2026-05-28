@@ -80,7 +80,7 @@ type SurfaceSnapshot = {
   }>
 }
 
-type SectionID = "overview" | "issues" | "lanes" | "tasks" | "events"
+type SectionID = "overview" | "issues" | "lanes" | "tasks" | "logs"
 
 type RowItem = {
   label: string
@@ -94,7 +94,7 @@ const sections: Array<{ id: SectionID; label: string }> = [
   { id: "issues", label: "Issues" },
   { id: "lanes", label: "Lanes" },
   { id: "tasks", label: "Tasks" },
-  { id: "events", label: "Events" },
+  { id: "logs", label: "Logs" },
 ]
 
 const moduleRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
@@ -319,8 +319,8 @@ function rowsForSection(snapshot: SurfaceSnapshot, section: SectionID): RowItem[
       return laneRows(snapshot)
     case "tasks":
       return taskRows(snapshot)
-    case "events":
-      return eventRows(snapshot)
+    case "logs":
+      return logRows(snapshot)
   }
 }
 
@@ -415,11 +415,27 @@ function taskRows(snapshot: SurfaceSnapshot): RowItem[] {
   }))
 }
 
-function eventRows(snapshot: SurfaceSnapshot): RowItem[] {
-  return snapshot.recent_events.map((event) => ({
+function logRows(snapshot: SurfaceSnapshot): RowItem[] {
+  const results = snapshot.worker_results.map((result) => ({
+    label: result.role,
+    value: result.status,
+    tone: result.error ? "bad" as const : result.status.includes("failed") || result.status.includes("reconciliation") ? "warn" as const : "muted" as const,
+    details: [
+      `task: ${result.task_key}`,
+      `role: ${result.role}`,
+      `lane: ${result.lane_name || "n/a"}`,
+      `issue: ${result.issue_key || "n/a"}`,
+      `status: ${result.status}`,
+      `did work: ${result.did_work ? "yes" : "no"}`,
+      `reason: ${result.reason || "n/a"}`,
+      `error: ${result.error || "none"}`,
+      `updated: ${formatTime(result.updated_at) || "n/a"}`,
+    ],
+  }))
+  const events = snapshot.recent_events.map((event) => ({
     label: `#${event.sequence}`,
     value: event.type,
-    tone: event.type.includes("failed") || event.type.includes("reconciliation") ? "warn" : "muted",
+    tone: event.type.includes("failed") || event.type.includes("reconciliation") ? "warn" as const : "muted" as const,
     details: [
       `sequence: ${event.sequence}`,
       `type: ${event.type}`,
@@ -428,6 +444,7 @@ function eventRows(snapshot: SurfaceSnapshot): RowItem[] {
       `at: ${formatTime(event.occurred_at) || "n/a"}`,
     ],
   }))
+  return [...results, ...events]
 }
 
 function activeSection(): SectionID {
@@ -444,7 +461,7 @@ function sectionColor(section: SectionID) {
       return "#38d996"
     case "tasks":
       return "#e6b450"
-    case "events":
+    case "logs":
       return "#d0d7de"
   }
 }

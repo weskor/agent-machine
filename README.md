@@ -24,6 +24,25 @@ state, credentials, or scope are unclear.
 - Merges only when conservative gates pass: expected branch/base/repository,
   approval, green checks, review evidence, app/author ownership, and clean state.
 
+```mermaid
+flowchart TD
+    Config["Project config<br/>am.yaml + am.agent.md"] --> Doctor["doctor / preflight"]
+    Doctor --> Candidate["Select runnable Linear candidate"]
+    Candidate --> Claim["Claim issue<br/>lock + SQLite task state"]
+    Claim --> Workspace["Create isolated workspace<br/>.am/workspaces/&lt;issue&gt;"]
+    Workspace --> Implement["Run implementation Agent<br/>configured runtime provider"]
+    Implement --> Validate["Run validation hooks<br/>capture evidence"]
+    Validate --> Review{"Review pass<br/>enabled?"}
+    Review -- yes --> AgentReview["Run review Agent<br/>classify result"]
+    Review -- no --> Handoff["Runner-owned PR/MR handoff"]
+    AgentReview --> Handoff
+    Handoff --> HumanReview["Move Linear issue<br/>to Human Review"]
+    HumanReview --> MergeGate{"Merge gates pass?"}
+    MergeGate -- yes --> Merge["Merge PR/MR<br/>and record outcome"]
+    MergeGate -- no --> Blocked["Explain blocker<br/>retry, Needs Info, or reconciliation-needed"]
+    Merge --> Cleanup["Cleanup eligible workspace"]
+```
+
 ## Product Boundary
 
 Agent Machine is a local issue-to-PR runner with durable evidence. Features
@@ -91,6 +110,8 @@ the release archives unless and until Linux packages are added.
 - Go through `mise` (`mise install`, then `mise exec go -- ...`).
 - `codex` CLI on `PATH` for the default `codex_cli` runtime.
 - Optional: `pi` CLI on `PATH` when `runtime.provider: pi_cli` is configured.
+- Optional: `claude` CLI on `PATH` when `runtime.provider: claude_cli` is
+  configured.
 - A Linear API token.
 - Code-host credentials for the configured repository provider:
   `GITHUB_TOKEN` / `GH_TOKEN` or GitHub App credentials for GitHub, or
@@ -119,8 +140,8 @@ Edit `/path/to/target/am.yaml`:
 - `tracker.project_slug`: Linear project slug.
 - `workspace.root`: workspace directory, usually `.am/workspaces`.
 - `workspace.base_branch`: PR base branch, for example `main` or `develop`.
-- `runtime.provider`: usually `codex_cli`; use `pi_cli` only for the legacy Pi
-  CLI runtime.
+- `runtime.provider`: usually `codex_cli`; use `claude_cli` for Claude Code or
+  `pi_cli` for the legacy Pi CLI runtime.
 - `workflow.*`: Linear lane names for running, handoff, needs-info, and done.
 
 Put secrets in the process environment, an explicit `--env-file`, or
@@ -174,6 +195,12 @@ Inspect current runner status:
 mise exec go -- go run . status --config /path/to/target/am.yaml
 ```
 
+Open the operator dashboard:
+
+```bash
+mise exec go -- go run . --config /path/to/target/am.yaml
+```
+
 Run one controlled implementation worker:
 
 ```bash
@@ -219,6 +246,7 @@ Run commands from this repository. `--config` defaults to `am.yaml`.
 
 | Command | Purpose |
 | --- | --- |
+| `go run .` or `go run . tui` | Open the read-only TUI dashboard. |
 | `go run . config print` | Print the resolved, redacted config. No Linear/code-host access required. |
 | `go run . doctor` | Check config, prompt, workspace, credentials, and runtime command readiness. No Linear/code-host access required. |
 | `go run . --version` | Print the binary version. No config or credentials required. |
@@ -241,9 +269,15 @@ docs should prefer command forms.
 
 ## TUI
 
-The first product surface is a read-only OpenTUI dashboard over
+The default product surface is a read-only OpenTUI dashboard over
 `go run . surface snapshot`. It does not contact Linear or GitHub directly and
 does not mutate workspaces, merge, repair, or clean up.
+
+```bash
+mise exec go -- go run . --config /path/to/target/am.yaml
+```
+
+You can also run the TUI package directly:
 
 ```bash
 cd tui
@@ -255,7 +289,7 @@ Layout:
 
 - Header: project, SQLite health, and snapshot timestamp or refresh error.
 - Summary: issue, active-lock, lane, task, and reconciliation counts.
-- Views rail: Overview, Issues, Lanes, Tasks, and Events.
+- Views rail: Overview, Issues, Lanes, Tasks, and Logs.
 - List: rows for the selected view.
 - Details: the selected row's key fields.
 
@@ -263,12 +297,22 @@ Controls:
 
 - `tab`, `h`/`l`, or left/right arrows: switch views.
 - `j`/`k` or up/down arrows: move the selected row.
-- `1`-`5`: jump to Overview, Issues, Lanes, Tasks, or Events.
+- `1`-`5`: jump to Overview, Issues, Lanes, Tasks, or Logs.
 - `r`: refresh the local snapshot.
 - `q`: quit.
 
-The TUI shells out to the local runner by default. Set `AM_BIN` to use an
-already-built binary instead of `go run .`.
+When launched through `am`, the TUI first looks for a compiled
+`agent-machine-tui` helper beside the runner binary, from `AM_TUI_BIN`, or under
+`dist/tui/` for the current platform. Source checkouts fall back to `bun run`.
+Build a local helper with:
+
+```bash
+mise exec go -- make tui-build
+```
+
+Set `AM_BIN` when running the TUI directly against an already-built runner. The
+Logs view shows typed worker results and recent orchestration events; raw Agent
+output stays in capped debug artifacts and is not streamed into the dashboard.
 
 ## Runtime Providers
 
@@ -283,6 +327,14 @@ runtime:
   provider: pi_cli
 ```
 
+The `claude_cli` runtime shells out to Claude Code in non-interactive print mode
+and passes the prepared prompt through stdin:
+
+```yaml
+runtime:
+  provider: claude_cli
+```
+
 Runtime command overrides are available when a repository needs them:
 
 ```yaml
@@ -290,6 +342,16 @@ runtime:
   provider: codex_cli
   command: codex --ask-for-approval never exec --sandbox workspace-write
   review_command: codex --ask-for-approval never exec --sandbox read-only
+```
+
+For Claude Code, override the command when your environment needs a different
+permission mode, model, or settings source:
+
+```yaml
+runtime:
+  provider: claude_cli
+  command: claude --print --no-session-persistence --output-format json --permission-mode acceptEdits
+  review_command: claude --print --no-session-persistence --output-format json
 ```
 
 The selected implementation and review commands are preflighted before the

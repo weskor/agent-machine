@@ -73,6 +73,7 @@ type Dependencies[Client any] struct {
 	PrintRunLedger                      func(string, string) error
 	Explain                             func(Client, Config) error
 	SurfaceSnapshot                     func(Config) error
+	LaunchTUI                           func(Config) error
 	Doctor                              func(Config) error
 	MergeApprovedPRs                    func(Client, Config) error
 	RunContinuous                       func(Client, cfg.Project, Config, int) error
@@ -102,6 +103,7 @@ const (
 	modeRunLedger   = "run-ledger"
 	modeExplain     = "explain"
 	modeSurface     = "surface-snapshot"
+	modeTUI         = "tui"
 	modeDoctor      = "doctor"
 	modeContinuous  = "continuous"
 	modeWorker      = "worker"
@@ -164,6 +166,12 @@ func Run[Client any](args []string, deps Dependencies[Client]) error {
 	if parsed.mode == modeSurface {
 		return deps.SurfaceSnapshot(config)
 	}
+	if parsed.mode == "" || parsed.mode == modeTUI {
+		if deps.LaunchTUI == nil {
+			return errors.New("TUI launcher is unavailable")
+		}
+		return deps.LaunchTUI(config)
+	}
 	if parsed.mode == modeDoctor {
 		return deps.Doctor(config)
 	}
@@ -172,9 +180,6 @@ func Run[Client any](args []string, deps Dependencies[Client]) error {
 			return errors.New("--repair-worker-task requires a task key")
 		}
 		return deps.RepairWorkerTask(config.WorkspaceRoot, parsed.repairTaskKey)
-	}
-	if parsed.mode == "" {
-		return errors.New("no CLI mode selected; use --continuous for the production loop, --status, --explain, or --worker=<role>")
 	}
 	if parsed.mode == modeRemoved {
 		return errors.New("--once has been removed; use --continuous for production or --worker=implementation for one implementation worker process")
@@ -250,6 +255,8 @@ func parseArgs(args []string) parsedArgs {
 			}
 		case "explain":
 			setMode(modeExplain, 7)
+		case "tui":
+			setMode(modeTUI, 7)
 		case "doctor":
 			setMode(modeDoctor, 9)
 		case "snapshot":
@@ -302,6 +309,8 @@ func parseArgs(args []string) parsedArgs {
 			}
 		case "--explain", "--dry-run":
 			setMode(modeExplain, 7)
+		case "--tui":
+			setMode(modeTUI, 7)
 		case "--doctor":
 			setMode(modeDoctor, 9)
 		case "--surface-snapshot":

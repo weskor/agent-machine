@@ -13,7 +13,13 @@ MCP, ACP, app, and dashboard surfaces should use the same typed contract shape.
 - The snapshot is read-only and must not claim issues, move Linear state, mutate
   workspaces, merge PRs, repair tasks, or clean up.
 - The TUI is an Adapter over this snapshot. It may render state, refresh state,
-  and show command hints, but it must not own orchestration policy.
+  show typed logs, and show command hints, but it must not own orchestration
+  policy.
+- The no-mode CLI entrypoint launches the TUI by default. Mutating work remains
+  behind explicit runner commands such as `start`, `worker`, `merge-approved`,
+  `repair-artifacts`, and `cleanup-workspaces --apply`.
+- The runner may launch a compiled `agent-machine-tui` helper when present.
+  Source checkouts may fall back to Bun for local development.
 
 ## TUI Adapter
 
@@ -23,9 +29,11 @@ The OpenTUI Adapter renders the snapshot into an operator dashboard:
   errors.
 - Summary: counts for issues, active locks, lanes, worker tasks, and
   reconciliation-needed worker tasks.
-- Views rail: Overview, Issues, Lanes, Tasks, and Events.
+- Views rail: Overview, Issues, Lanes, Tasks, and Logs.
 - List pane: rows for the active view.
 - Details pane: stable key/value fields for the selected row.
+- Logs view: typed worker results and recent orchestration events from the
+  snapshot. It must not stream raw Agent output or daemon stdout directly.
 
 The Adapter owns only presentation state: active view, selected row, local
 refresh state, and terminal key handling. It must not infer scheduler,
@@ -35,7 +43,7 @@ Keyboard controls are local UI controls only:
 
 - `tab`, `h`/`l`, or left/right arrows switch views.
 - `j`/`k` or up/down arrows move the selected row.
-- `1`-`5` jump to Overview, Issues, Lanes, Tasks, or Events.
+- `1`-`5` jump to Overview, Issues, Lanes, Tasks, or Logs.
 - `r` refreshes the snapshot.
 - `q` exits.
 
@@ -55,7 +63,9 @@ The snapshot includes:
 The snapshot intentionally excludes secrets and raw agent output.
 
 Product surfaces may use `AM_BIN` to call a built runner binary. The command
-contract remains `surface snapshot --config <path>`.
+contract remains `surface snapshot --config <path>`. The runner may use
+`AM_TUI_BIN` or a sibling `agent-machine-tui` executable to launch a compiled
+TUI helper before falling back to a source-checkout Bun command.
 
 ## Future commands
 

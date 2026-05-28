@@ -88,6 +88,13 @@ func TestCLIDependenciesAdaptsModeOperationsThroughRunnerFacade(t *testing.T) {
 			calls = append(calls, "snapshot")
 			return nil
 		},
+		TUIFunc: func(config testConfig) error {
+			if config.project != "CAG" {
+				t.Fatalf("tui project = %q, want CAG", config.project)
+			}
+			calls = append(calls, "tui")
+			return nil
+		},
 		DoctorFunc: func(config testConfig) error {
 			if config.project != "CAG" {
 				t.Fatalf("doctor project = %q, want CAG", config.project)
@@ -148,6 +155,9 @@ func TestCLIDependenciesAdaptsModeOperationsThroughRunnerFacade(t *testing.T) {
 	if err := deps.SurfaceSnapshot(cliConfig); err != nil {
 		t.Fatalf("SurfaceSnapshot returned error: %v", err)
 	}
+	if err := deps.LaunchTUI(cliConfig); err != nil {
+		t.Fatalf("LaunchTUI returned error: %v", err)
+	}
 	if err := deps.Doctor(cliConfig); err != nil {
 		t.Fatalf("Doctor returned error: %v", err)
 	}
@@ -161,7 +171,7 @@ func TestCLIDependenciesAdaptsModeOperationsThroughRunnerFacade(t *testing.T) {
 		t.Fatalf("RunWorker returned error: %v", err)
 	}
 
-	wantCalls := []string{"backfill", "repair", "repair-task", "cleanup", "status", "run-status", "run-ledger", "explain", "snapshot", "doctor", "merge", "continuous", "worker"}
+	wantCalls := []string{"backfill", "repair", "repair-task", "cleanup", "status", "run-status", "run-ledger", "explain", "snapshot", "tui", "doctor", "merge", "continuous", "worker"}
 	if !reflect.DeepEqual(calls, wantCalls) {
 		t.Fatalf("calls = %#v, want %#v", calls, wantCalls)
 	}

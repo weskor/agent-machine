@@ -19,8 +19,9 @@ var prURLPattern = regexp.MustCompile(`https://[^\s"'<>]+/(?:pull|-/merge_reques
 var codexTokensUsedPattern = regexp.MustCompile(`(?im)^tokens used\s*\n\s*([0-9][0-9,]*)\s*$`)
 
 const (
-	runtimeProviderPiCLI    = "pi_cli"
-	runtimeProviderCodexCLI = "codex_cli"
+	runtimeProviderPiCLI     = "pi_cli"
+	runtimeProviderCodexCLI  = "codex_cli"
+	runtimeProviderClaudeCLI = "claude_cli"
 )
 
 func parseUsage(output string) *usage {
@@ -50,14 +51,29 @@ func newCodexCLIRuntime() agentruntime.AgentRuntime {
 	}
 }
 
+func newClaudeCLIRuntime() agentruntime.AgentRuntime {
+	return agentruntime.ClaudeCLIAdapter{
+		RunCommand:           captureAgentOutput,
+		ParseUsage:           claudeUsageToRuntime,
+		FirstPRURL:           firstPRURLFromClaudeOutput,
+		NeedsInfoQuestions:   claudeNeedsInfoQuestionsToRuntime,
+		ParseOutcomeEnvelope: claudeParseOutcomeEnvelope,
+		ReviewFindings:       claudeResultText,
+		ReviewStatus:         claudeReviewStatus,
+		ReviewClassification: claudeReviewClassification,
+	}
+}
+
 func newAgentRuntime(provider string) (agentruntime.AgentRuntime, error) {
 	switch strings.TrimSpace(provider) {
 	case "", runtimeProviderPiCLI:
 		return newPiCLIRuntime(), nil
 	case runtimeProviderCodexCLI:
 		return newCodexCLIRuntime(), nil
+	case runtimeProviderClaudeCLI:
+		return newClaudeCLIRuntime(), nil
 	default:
-		return nil, fmt.Errorf("unsupported runtime.provider %q; supported providers: %s, %s", provider, runtimeProviderPiCLI, runtimeProviderCodexCLI)
+		return nil, fmt.Errorf("unsupported runtime.provider %q; supported providers: %s, %s, %s", provider, runtimeProviderPiCLI, runtimeProviderCodexCLI, runtimeProviderClaudeCLI)
 	}
 }
 
@@ -82,6 +98,121 @@ func codexUsageToRuntime(output string) *agentruntime.AttemptUsage {
 		return nil
 	}
 	return &agentruntime.AttemptUsage{TotalTokens: total}
+}
+
+type claudeUsagePayload struct {
+	InputTokens              float64 `json:"input_tokens"`
+	OutputTokens             float64 `json:"output_tokens"`
+	CacheCreationInputTokens float64 `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     float64 `json:"cache_read_input_tokens"`
+	TotalTokens              float64 `json:"total_tokens"`
+}
+
+type claudeResultPayload struct {
+	Result       string             `json:"result"`
+	TotalCostUSD float64            `json:"total_cost_usd"`
+	Usage        claudeUsagePayload `json:"usage"`
+}
+
+func claudeUsageToRuntime(output string) *agentruntime.AttemptUsage {
+	var parsed *agentruntime.AttemptUsage
+	forEachClaudeResult(output, func(result claudeResultPayload) {
+		usage := result.Usage
+		total := usage.TotalTokens
+		if total == 0 {
+			total = usage.InputTokens + usage.OutputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens
+		}
+		if total == 0 && result.TotalCostUSD == 0 {
+			return
+		}
+		parsed = &agentruntime.AttemptUsage{
+			Input:       usage.InputTokens,
+			Output:      usage.OutputTokens,
+			CacheRead:   usage.CacheReadInputTokens,
+			CacheWrite:  usage.CacheCreationInputTokens,
+			TotalTokens: total,
+			CostTotal:   result.TotalCostUSD,
+		}
+	})
+	return parsed
+}
+
+func claudeResultText(output string) string {
+	var resultText string
+	forEachClaudeResult(output, func(result claudeResultPayload) {
+		if strings.TrimSpace(result.Result) != "" {
+			resultText = result.Result
+		}
+	})
+	return resultText
+}
+
+func firstPRURLFromClaudeOutput(output string) string {
+	if text := claudeResultText(output); text != "" {
+		if prURL := firstPRURL(text); prURL != "" {
+			return prURL
+		}
+	}
+	return firstPRURL(output)
+}
+
+func claudeNeedsInfoQuestionsToRuntime(output string) []string {
+	if text := claudeResultText(output); text != "" {
+		return needsInfoQuestionsToRuntime(text)
+	}
+	return needsInfoQuestionsToRuntime(output)
+}
+
+func claudeReviewStatus(output string) string {
+	if text := claudeResultText(output); text != "" {
+		return reviewpolicy.Status(text)
+	}
+	return reviewpolicy.Status(output)
+}
+
+func claudeReviewClassification(status, output string) string {
+	if text := claudeResultText(output); text != "" {
+		return reviewpolicy.Classification(status, text)
+	}
+	return reviewpolicy.Classification(status, output)
+}
+
+func claudeParseOutcomeEnvelope(output string) (agentruntime.AttemptOutcomeEnvelope, bool, error) {
+	if text := claudeResultText(output); text != "" {
+		envelope, ok, err := agentruntime.ParseAttemptOutcomeEnvelope(text)
+		if ok || err != nil {
+			return envelope, ok, err
+		}
+	}
+	return agentruntime.ParseAttemptOutcomeEnvelope(output)
+}
+
+func forEachClaudeResult(output string, visit func(claudeResultPayload)) {
+	decoder := json.NewDecoder(strings.NewReader(output))
+	decoded := false
+	for {
+		var result claudeResultPayload
+		if err := decoder.Decode(&result); err != nil {
+			break
+		}
+		if result.Result != "" || result.Usage != (claudeUsagePayload{}) || result.TotalCostUSD != 0 {
+			decoded = true
+			visit(result)
+		}
+	}
+	if decoded {
+		return
+	}
+	forEachJSONLLine(output, func(line string) {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "{") {
+			return
+		}
+		var result claudeResultPayload
+		if err := json.Unmarshal([]byte(line), &result); err == nil && (result.Result != "" || result.Usage != (claudeUsagePayload{}) || result.TotalCostUSD != 0) {
+			visit(result)
+		}
+	})
 }
 
 func usageToRuntimeUsage(u *usage) *agentruntime.AttemptUsage {

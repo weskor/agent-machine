@@ -2,7 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
 
 	"github.com/weskor/agent-machine/internal/cli"
 	cfg "github.com/weskor/agent-machine/internal/config"
@@ -65,6 +70,9 @@ func orchestratorRunner() orchestrator.Runner[linearClient, runnerConfig] {
 		SnapshotFunc: func(config runnerConfig) error {
 			return printSurfaceSnapshot(config)
 		},
+		TUIFunc: func(config runnerConfig) error {
+			return launchTUI(config)
+		},
 		DoctorFunc: func(config runnerConfig) error {
 			return printDoctor(config)
 		},
@@ -112,6 +120,124 @@ func runnerConfigFromCLI(config cli.Config) runnerConfig {
 		GitLabProject:          config.GitLabProject,
 		GitLabPRAuthorOverride: config.GitLabPRAuthorOverride,
 	}
+}
+
+func launchTUI(config runnerConfig) error {
+	configPath, err := filepath.Abs(config.ConfigPath)
+	if err != nil {
+		return fmt.Errorf("launch TUI: resolve config path: %w", err)
+	}
+	if tuiBin, ok := findTUIBinary(); ok {
+		return runTUICommand(tuiBin, []string{"--config", configPath}, "")
+	}
+	tuiDir, err := findTUIDir()
+	if err != nil {
+		return err
+	}
+	if _, err := exec.LookPath("bun"); err != nil {
+		return fmt.Errorf("launch TUI: no compiled agent-machine-tui binary found and bun is unavailable; put a compiled TUI helper beside am, set AM_TUI_BIN, install Bun for source checkouts, or run `go run . status --config %s`: %w", configPath, err)
+	}
+	return runTUICommand("bun", []string{"run", "start", "--", "--config", configPath}, tuiDir)
+}
+
+func runTUICommand(name string, args []string, dir string) error {
+	command := exec.Command(name, args...)
+	command.Dir = dir
+	command.Env = tuiEnvironment(os.Environ())
+	command.Stdin = os.Stdin
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	return command.Run()
+}
+
+func tuiEnvironment(env []string) []string {
+	if envHasKey(env, "AM_BIN") {
+		return env
+	}
+	executable, err := os.Executable()
+	if err != nil || strings.TrimSpace(executable) == "" {
+		return env
+	}
+	return append(env, "AM_BIN="+executable)
+}
+
+func envHasKey(env []string, key string) bool {
+	prefix := key + "="
+	for _, value := range env {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func findTUIBinary() (string, bool) {
+	for _, candidate := range tuiBinaryCandidates() {
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func tuiBinaryCandidates() []string {
+	cwd, _ := os.Getwd()
+	executable, _ := os.Executable()
+	return tuiBinaryCandidatePaths(cwd, executable, os.Getenv("AM_TUI_BIN"))
+}
+
+func tuiBinaryCandidatePaths(cwd, executable, override string) []string {
+	name := tuiExecutableName()
+	distName := tuiDistExecutableName()
+	var candidates []string
+	if strings.TrimSpace(override) != "" {
+		candidates = append(candidates, override)
+	}
+	if strings.TrimSpace(executable) != "" {
+		candidates = append(candidates, filepath.Join(filepath.Dir(executable), name))
+	}
+	if strings.TrimSpace(cwd) != "" {
+		candidates = append(candidates,
+			filepath.Join(cwd, name),
+			filepath.Join(cwd, "bin", name),
+			filepath.Join(cwd, "dist", "tui", distName),
+			filepath.Join(cwd, "tui", "dist", name),
+		)
+	}
+	return candidates
+}
+
+func tuiExecutableName() string {
+	if runtime.GOOS == "windows" {
+		return "agent-machine-tui.exe"
+	}
+	return "agent-machine-tui"
+}
+
+func tuiDistExecutableName() string {
+	name := fmt.Sprintf("agent-machine-tui_%s_%s", runtime.GOOS, runtime.GOARCH)
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return name
+}
+
+func findTUIDir() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	candidates := []string{
+		filepath.Join(cwd, "tui"),
+		filepath.Join(filepath.Dir(cwd), "tui"),
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(filepath.Join(candidate, "package.json")); err == nil {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("launch TUI: could not find tui/package.json from %s", cwd)
 }
 
 func printDoctor(config runnerConfig) error {

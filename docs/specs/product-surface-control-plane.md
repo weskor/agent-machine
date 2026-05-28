@@ -29,9 +29,12 @@ The OpenTUI Adapter renders the snapshot into an operator dashboard:
   errors.
 - Summary: counts for issues, active locks, lanes, worker tasks, and
   reconciliation-needed worker tasks.
-- Views rail: Overview, Issues, Lanes, Tasks, and Logs.
-- List pane: rows for the active view.
-- Details pane: stable key/value fields for the selected row.
+- Views rail: Issues, Overview, Lanes, Tasks, and Logs. Issues is the
+  issue-centric default view.
+- List pane: a flat prioritized issue work queue for the Issues view, or rows
+  for the active secondary view.
+- Details pane: stable key/value fields for the selected row. In the Issues
+  view this is the selected-issue evidence pane.
 - Logs view: typed worker results and recent orchestration events from the
   snapshot. It must not stream raw Agent output or daemon stdout directly.
 
@@ -43,7 +46,7 @@ Keyboard controls are local UI controls only:
 
 - `tab`, `h`/`l`, or left/right arrows switch views.
 - `j`/`k` or up/down arrows move the selected row.
-- `1`-`5` jump to Overview, Issues, Lanes, Tasks, or Logs.
+- `1`-`5` jump to Issues, Overview, Lanes, Tasks, or Logs.
 - `r` refreshes the snapshot.
 - `q` exits.
 
@@ -61,6 +64,118 @@ The snapshot includes:
 - recent event summaries.
 
 The snapshot intentionally excludes secrets and raw agent output.
+
+## Issue-centric work queue
+
+The default TUI model is a single flat issue work queue ordered by runner-owned
+priority. The default navigation must not group issues into lanes as the primary
+operator path. Lane, role, status, assignee, and repository filters may be added
+as secondary views or local presentation controls, but they must not replace the
+flat prioritized list as the default issue surface.
+
+Each issue queue row must expose these stable fields:
+
+- `issue_identifier`: Linear issue key such as `CAG-197`.
+- `title`: current Linear issue title when available.
+- `am_status`: synthesized Agent Machine status from runner-owned state, such
+  as `reconciliation_needed`, `running`, `review_blocked`, `mergeable`,
+  `queued`, `needs_info`, `done`, or `cleanup_only`.
+- `lane_role_hint`: the runner lane or role most likely to act next, such as
+  `work-lane`, `review`, `handoff`, `merge-lane`, `cleanup`, `linear-status`,
+  `reconciliation`, or `operator`.
+- `age`: how long the issue has been visible to Agent Machine or how long the
+  current attempt has existed when an attempt is active.
+- `updated_at`: latest relevant runner-owned or external observation timestamp
+  used for this row.
+- `attention`: a compact attention/blocker indicator with a stable code, for
+  example `none`, `blocked`, `failed`, `stale`, `needs_info`,
+  `reconciliation_needed`, or `operator_review`.
+
+The initial flat priority order is:
+
+1. `reconciliation_needed`: local, SQLite, Linear, GitHub, workspace, or
+   artifact facts conflict and automation must not guess.
+2. `failed_or_blocked_active_work`: active or recently claimed work is failed,
+   blocked, stale, timed out, over budget, or missing required evidence.
+3. `running_work`: currently claimed or running attempts, reviews, handoffs, or
+   lane tasks with fresh ownership evidence.
+4. `review_or_merge_blockers`: Human Review, review-not-ready, failed checks,
+   changes-requested, ownership, merge-gate, or handoff blockers.
+5. `mergeable`: Agent Machine-owned PRs that currently satisfy merge-lane gates
+   or are waiting for the merge lane to act.
+6. `queued_runnable`: runnable Linear issues or durable worker tasks waiting
+   for capacity/backoff to clear.
+7. `cleanup_only_or_done`: Done, terminal, cleaned, or cleanup-only work that is
+   no longer blocking forward progress.
+
+Rows in the same priority bucket should use deterministic tie-breakers from the
+runner snapshot, such as explicit worker priority, active lease age, issue
+priority, then oldest relevant timestamp. A surface must display the runner
+provided order instead of recomputing scheduling, retry, merge, or cleanup
+policy.
+
+## Selected-issue evidence pane
+
+Selecting an issue opens an evidence pane that answers four operator questions:
+what is happening, why this issue is visible, what happens next, and what
+evidence backs that up. The pane must be derived from the same read-only
+snapshot and must not call Linear, GitHub, SQLite, or workspace files directly.
+
+The selected issue contract includes these fields:
+
+- `header`: issue identifier, title, `am_status`, current Linear workflow state,
+  attempt number when known, PR/MR URL when mapped, and workspace path when
+  relevant.
+- `next_action`: runner-owned next action code and short display text, such as
+  `wait_for_checks`, `run_review`, `handoff_pr`, `merge_pr`, `repair_state`,
+  `ask_needs_info`, `retry_after_backoff`, `cleanup_workspace`, or
+  `operator_review`.
+- `blocker_reason`: concise runner-owned blocker or reason text. This should
+  cite deterministic blocker codes when present, such as merge gate codes,
+  stale lease reasons, scope guard failures, missing PR mapping, or
+  reconciliation-needed causes.
+- `current_activity`: active lane, worker task key, lease owner, heartbeat
+  freshness, command phase, or idle/backoff state.
+- `external_state`: current Linear state and relevant GitHub/GitLab PR/MR
+  state, review decision, checks, mergeability, branch/base, and author
+  ownership facts when the snapshot includes them.
+- `agent_evidence_summary`: short bounded summary of recent AgentRuntime,
+  implementation, review, validation, or handoff output. This field is evidence
+  only and must not override runner-owned facts.
+- `recent_events`: append-ordered recent orchestration events for the selected
+  issue, including event type, timestamp, source component, stable reason code
+  when present, and artifact pointer when detailed evidence is external.
+
+The pane may include links or pointers to run records, evaluation artifacts,
+debug artifacts, PR comments, Linear comments, and capped logs. These pointers
+are evidence and diagnostics; they are not independent authority for current
+status when runner-owned state is available.
+
+## Fact authority
+
+Product surfaces must preserve the runner and Agent responsibility boundary from
+the harness behavior spec. The snapshot should label facts by source or make the
+source precedence explicit enough that a renderer can avoid presenting raw text
+as a decision.
+
+Runner-owned synthesized facts include:
+
+- `am_status`, `next_action`, priority bucket, attention code, blocker codes,
+  retry/backoff decision, merge eligibility, cleanup eligibility, review
+  readiness, reconciliation-needed state, lease/heartbeat ownership, and
+  source precedence.
+- Runner-owned facts come from core runner Modules and durable state/read-model
+  logic. Product surfaces may render them but must not derive substitute policy
+  from local presentation state, raw logs, or agent prose.
+
+Raw or bounded Agent output includes:
+
+- implementation summaries, review summaries, validation excerpts, advisory PR
+  hints, terminal output summaries, and pointers to capped debug logs.
+- These fields are secondary evidence. Raw logs, daemon stdout, runtime JSONL,
+  or Agent prose must not replace deterministic runner facts, must not be used
+  as the only source for issue visibility or next action, and must not drive
+  scheduling, retry, merge, cleanup, repair, or Linear/GitHub transitions.
 
 Product surfaces may use `AM_BIN` to call a built runner binary. The command
 contract remains `surface snapshot --config <path>`. The runner may use

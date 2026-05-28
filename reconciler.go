@@ -505,7 +505,7 @@ func prInvariantBlockReason(config runnerConfig, candidate issue, pr pullRequest
 		reasons = append(reasons, fmt.Sprintf("PR author is %q; expected %s", emptyAsUnknown(pr.AuthorLogin()), ownership.ExpectedPRAuthorSource()))
 	}
 	if codeHostProvider(config) != "gitlab" {
-		if reason := commitAuthorInvariantBlockReason(pr); reason != "" {
+		if reason := commitAuthorInvariantBlockReason(config, pr); reason != "" {
 			reasons = append(reasons, reason)
 		}
 	}

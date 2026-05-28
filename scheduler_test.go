@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -195,8 +197,79 @@ func TestContinuousLanesSplitCleanupMergeReviewAndImplementationWork(t *testing.
 
 func TestRunContinuousRequiresStateStore(t *testing.T) {
 	err := runContinuous(linearClient{}, project{}, runnerConfig{}, 1)
-	if err == nil || !strings.Contains(err.Error(), "SQLite state store unavailable for continuous mode") {
-		t.Fatalf("error = %v; want SQLite state store unavailable", err)
+	if err == nil || !strings.Contains(err.Error(), "workspace root is empty") {
+		t.Fatalf("error = %v; want workspace root preflight failure", err)
+	}
+}
+
+func TestRunContinuousCreatesMissingSafeWorkspaceRootBeforeLanes(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), ".am")
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(parent, "workspaces")
+	oldScheduleWorkerTasks := scheduleWorkerTasksForContinuous
+	oldRunCleanupWorkerTask := runCleanupWorkerTaskForContinuous
+	oldRunMergeWorkerTask := runMergeWorkerTaskForContinuous
+	oldRunHandoffPendingAttempt := runHandoffPendingAttemptForContinuous
+	oldRunReviewReadyAttempt := runReviewReadyAttemptForWorker
+	oldRunImplementationBatch := runImplementationAttemptBatchForContinuous
+	t.Cleanup(func() {
+		scheduleWorkerTasksForContinuous = oldScheduleWorkerTasks
+		runCleanupWorkerTaskForContinuous = oldRunCleanupWorkerTask
+		runMergeWorkerTaskForContinuous = oldRunMergeWorkerTask
+		runHandoffPendingAttemptForContinuous = oldRunHandoffPendingAttempt
+		runReviewReadyAttemptForWorker = oldRunReviewReadyAttempt
+		runImplementationAttemptBatchForContinuous = oldRunImplementationBatch
+	})
+	assertRootExists := func() {
+		t.Helper()
+		info, err := os.Stat(root)
+		if err != nil {
+			t.Fatalf("workspace root was not created before lane execution: %v", err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("workspace root exists but is not a directory: %s", root)
+		}
+	}
+	scheduleWorkerTasksForContinuous = func(context.Context, linearClient, runnerConfig, *state.Store, int) (bool, error) {
+		assertRootExists()
+		return false, nil
+	}
+	runCleanupWorkerTaskForContinuous = func(context.Context, linearClient, runnerConfig, *state.Store) (bool, error) {
+		assertRootExists()
+		return false, nil
+	}
+	runMergeWorkerTaskForContinuous = func(context.Context, linearClient, runnerConfig, *state.Store) (bool, error) {
+		assertRootExists()
+		return false, nil
+	}
+	runHandoffPendingAttemptForContinuous = func(context.Context, linearClient, runnerConfig, *state.Store) (bool, error) {
+		assertRootExists()
+		return false, nil
+	}
+	runReviewReadyAttemptForWorker = func(context.Context, linearClient, project, runnerConfig, *state.Store) (bool, error) {
+		assertRootExists()
+		return false, nil
+	}
+	runImplementationAttemptBatchForContinuous = func(context.Context, linearClient, project, runnerConfig, *state.Store, int) (bool, error) {
+		assertRootExists()
+		return false, nil
+	}
+
+	if err := runContinuous(linearClient{}, project{}, runnerConfig{ProjectSlug: "CAG", WorkspaceRoot: root}, 1); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunContinuousRejectsNonDirectoryWorkspaceRootBeforeLanes(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "workspaces")
+	if err := os.WriteFile(root, []byte("not a directory\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := runContinuous(linearClient{}, project{}, runnerConfig{ProjectSlug: "CAG", WorkspaceRoot: root}, 1)
+	if err == nil || !strings.Contains(err.Error(), "workspace root is not a directory") {
+		t.Fatalf("error = %v; want non-directory workspace root preflight failure", err)
 	}
 }
 

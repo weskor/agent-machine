@@ -24,6 +24,9 @@ func SafeRoot(root string) (string, error) {
 	if clean == string(filepath.Separator) || clean == filepath.Dir(clean) {
 		return "", fmt.Errorf("unsafe workspace root %q", root)
 	}
+	if info, err := os.Lstat(clean); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("workspace root is a symlink: %s", clean)
+	}
 	info, err := os.Stat(clean)
 	if err != nil {
 		return "", err
@@ -32,6 +35,54 @@ func SafeRoot(root string) (string, error) {
 		return "", fmt.Errorf("workspace root is not a directory: %s", clean)
 	}
 	return clean, nil
+}
+
+// EnsureRoot creates a missing workspace root when it is safely creatable under
+// an existing non-symlink ancestor, then returns the safe absolute root path.
+func EnsureRoot(root string) (string, error) {
+	if strings.TrimSpace(root) == "" {
+		return "", fmt.Errorf("workspace root is empty")
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	clean := filepath.Clean(abs)
+	if clean == string(filepath.Separator) || clean == filepath.Dir(clean) {
+		return "", fmt.Errorf("unsafe workspace root %q", root)
+	}
+	if existing, err := SafeRoot(clean); err == nil {
+		return existing, nil
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	ancestor, err := nearestExistingSafeDir(clean)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(clean, 0o755); err != nil {
+		return "", fmt.Errorf("create workspace root %s under existing ancestor %s: %w", clean, ancestor, err)
+	}
+	return SafeRoot(clean)
+}
+
+func nearestExistingSafeDir(path string) (string, error) {
+	for current := filepath.Clean(path); current != string(filepath.Separator) && current != filepath.Dir(current); current = filepath.Dir(current) {
+		info, err := os.Lstat(current)
+		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return "", fmt.Errorf("%s does not exist and ancestor %s is a symlink", path, current)
+			}
+			if !info.IsDir() {
+				return "", fmt.Errorf("%s does not exist and ancestor %s is not a directory", path, current)
+			}
+			return current, nil
+		}
+		if !os.IsNotExist(err) {
+			return "", fmt.Errorf("%s cannot be inspected through ancestor %s: %w", path, current, err)
+		}
+	}
+	return string(filepath.Separator), nil
 }
 
 // SafePath resolves a single workspace name under root and rejects traversal,

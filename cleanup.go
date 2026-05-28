@@ -552,6 +552,10 @@ func safeWorkspaceRoot(root string) (string, error) {
 	return ws.SafeRoot(root)
 }
 
+func ensureWorkspaceRoot(root string) (string, error) {
+	return ws.EnsureRoot(root)
+}
+
 func safeWorkspacePath(root, name string) (string, error) {
 	return ws.SafePath(root, name)
 }

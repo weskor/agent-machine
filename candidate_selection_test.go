@@ -280,6 +280,8 @@ func upsertRepairableReviewFailedAttempt(t *testing.T, store *state.Store, candi
 		PRURL:                prURL,
 		ReviewStatus:         "failed",
 		ReviewClassification: reviewClassificationBehaviorSpecBlocker,
+		RetryReason:          "out_of_scope_diff",
+		RetryNextState:       repairReviewFindingsNextAction,
 		UpdatedAt:            time.Now().UTC(),
 	}); err != nil {
 		t.Fatalf("UpsertAttemptResult(review_failed) error = %v", err)

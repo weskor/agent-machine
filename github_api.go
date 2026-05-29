@@ -14,6 +14,14 @@ import (
 
 type githubAPI = codehost.Client
 
+type pullRequestSummary = ghapi.PullRequestSummary
+type prAuthor = ghapi.PRAuthor
+type prCommit = ghapi.PRCommit
+type prCommitAuthor = ghapi.PRCommitAuthor
+type statusCheck = ghapi.StatusCheck
+type prFeedback = ghapi.PRFeedback
+type prHandoffDetails = ghapi.PRHandoffDetails
+
 const githubAppPRAuthorLogin = ghapi.AppPRAuthorLogin
 const githubAppRESTPRAuthorLogin = ghapi.AppRESTPRAuthorLogin
 const githubAppBotName = ghapi.AppBotName

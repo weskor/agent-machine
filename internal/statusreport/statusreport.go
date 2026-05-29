@@ -8,6 +8,7 @@ import (
 	"time"
 
 	cleanuppolicy "github.com/weskor/agent-machine/internal/cleanup"
+	mergegate "github.com/weskor/agent-machine/internal/mergegate"
 	"github.com/weskor/agent-machine/internal/state"
 )
 
@@ -98,6 +99,16 @@ type ArtifactSummary struct {
 	ShouldRetry       bool
 	OperatorAttention bool
 	TicketContract    []string
+}
+
+type PullRequestSummary struct {
+	Number            int
+	URL               string
+	HeadRefName       string
+	Mergeable         string
+	MergeStateStatus  string
+	ReviewDecision    string
+	StatusCheckRollup []mergegate.StatusCheck
 }
 
 func SummarizeSnapshotStateStore(workspaceRoot string, snapshot Snapshot) []string {
@@ -299,11 +310,54 @@ func SummarizeRecurringFriction(artifacts []ArtifactSummary, limit int) []string
 	return []string{fmt.Sprintf("Recurring friction: %s", strings.Join(parts, ", "))}
 }
 
+func SummarizePullRequest(pr PullRequestSummary, artifact *ArtifactSummary) string {
+	checks := "pending/failing"
+	if mergegate.ChecksPassed(pr.StatusCheckRollup) {
+		checks = "green"
+	}
+	merge := "mergeable"
+	reason := ""
+	prGate := mergegate.EvaluatePullRequest(mergegate.PullRequest{
+		Subject:          firstNonEmpty(pr.URL, pr.HeadRefName),
+		HeadRefName:      pr.HeadRefName,
+		Mergeable:        pr.Mergeable,
+		MergeStateStatus: pr.MergeStateStatus,
+		StatusChecks:     pr.StatusCheckRollup,
+	})
+	if containsString(prGate.Codes(), "merge_conflict") {
+		merge = "conflicting"
+		reason = fmt.Sprintf(" reason=%s", prGate.Reason())
+	}
+	gate := "artifact_gate=unknown"
+	if artifact != nil && artifact.HasEvaluation {
+		gate = fmt.Sprintf("artifact_gate=outcome:%s merge_eligible:%t retry:%t attention:%t next:%s", emptyAsNA(artifact.Outcome), artifact.MergeEligible, artifact.ShouldRetry, artifact.OperatorAttention, emptyAsNA(artifact.NextAction))
+	}
+	return fmt.Sprintf("#%d %s review=%s checks=%s merge=%s branch=%s %s%s", pr.Number, pr.URL, pr.ReviewDecision, checks, merge, pr.HeadRefName, gate, reason)
+}
+
 func summarizeFrictionSignals(signals []string) string {
 	if len(signals) == 0 {
 		return "none"
 	}
 	return strings.Join(signals, ",")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func FormatStateCounts(counts state.Counts) string {

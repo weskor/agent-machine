@@ -6,7 +6,9 @@ import (
 	artifactio "github.com/weskor/agent-machine/internal/artifacts"
 	"github.com/weskor/agent-machine/internal/attemptlifecycle"
 	"github.com/weskor/agent-machine/internal/attemptoutcome"
+	cleanuppolicy "github.com/weskor/agent-machine/internal/cleanup"
 	"github.com/weskor/agent-machine/internal/domain"
+	gatepkg "github.com/weskor/agent-machine/internal/gate"
 	"github.com/weskor/agent-machine/internal/runprogress"
 	"github.com/weskor/agent-machine/internal/runtimeadapter"
 	"github.com/weskor/agent-machine/internal/scopeguard"
@@ -29,6 +31,8 @@ type usageCost = domain.UsageCost
 type evaluationArtifact = artifactio.EvaluationArtifact
 
 type runProgressSnapshot = runprogress.Snapshot
+
+type cleanupResult = cleanuppolicy.Decision
 
 type issue = domain.Issue
 
@@ -91,6 +95,22 @@ type attemptLifecycleDecision = attemptlifecycle.Decision
 
 func decideAttemptLifecycle(input attemptLifecycleInput) attemptLifecycleDecision {
 	return attemptlifecycle.Decide(input)
+}
+
+func cleanupGateResult(decision cleanupResult) gatepkg.Result {
+	return cleanuppolicy.GateResult(decision)
+}
+
+func cleanupDeletionResult(decision cleanupResult, fallback string) string {
+	return cleanuppolicy.DeletionResult(decision, fallback)
+}
+
+func cleanupCategoryForTerminalStatus(status string) string {
+	return cleanuppolicy.CategoryForTerminalStatus(status)
+}
+
+func terminalRunStatus(status string) bool {
+	return cleanuppolicy.TerminalRunStatus(status)
 }
 
 func runRecordFor(candidate *issue, workspace, runtimeCommand, githubAuth string, startedAt, endedAt time.Time, runtimeUsage *usage, review *reviewResult, prURL, status, errorMessage string, budget *runBudget, budgetExceeded string) runRecord {

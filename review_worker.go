@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/weskor/agent-machine/internal/runbudget"
 	sh "github.com/weskor/agent-machine/internal/shell"
 	"github.com/weskor/agent-machine/internal/state"
 )
@@ -126,16 +127,16 @@ func executeSemanticReview(ctx context.Context, w reviewWorker) (reviewWorkerRes
 		status := runAttemptStatusReviewFailed
 		if errors.Is(err, sh.ErrCommandTimeout) {
 			status = runAttemptStatusTimeout
-			if commentErr := linearStatus.CommentContext(ctx, renderBudgetFailureComment(err.Error())); commentErr != nil {
+			if commentErr := linearStatus.CommentContext(ctx, runbudget.FailureComment(err.Error())); commentErr != nil {
 				log("failed to comment on %s: %v", w.candidate.Identifier, commentErr)
 			}
 		}
 		writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, review, w.prURL, status, err.Error(), w.config.Budget.Active(), err.Error()))
 		return reviewWorkerResult{Review: review, Terminal: true}, err
 	}
-	if exceeded := budgetExceeded(w.config.Budget, w.startedAt, w.runtimeUsage, review.Usage); exceeded != "" {
+	if exceeded := runbudget.Exceeded(w.config.Budget, w.startedAt, w.runtimeUsage, review.Usage); exceeded != "" {
 		decision := budgetLifecycleDecision(attemptLifecyclePhaseReview, w.prURL, exceeded)
-		if err := linearStatus.CommentContext(ctx, renderBudgetFailureComment(exceeded)); err != nil {
+		if err := linearStatus.CommentContext(ctx, runbudget.FailureComment(exceeded)); err != nil {
 			log("failed to comment on %s: %v", w.candidate.Identifier, err)
 		}
 		writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, review, w.prURL, decision.Status, exceeded, w.config.Budget.Active(), exceeded))

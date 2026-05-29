@@ -246,22 +246,7 @@ func (index artifactIndex) matchPR(pr pullRequestSummary) *artifactSummary {
 }
 
 func summarizePR(pr pullRequestSummary, artifact *artifactSummary) string {
-	checks := "pending/failing"
-	if checksPassed(pr.StatusCheckRollup) {
-		checks = "green"
-	}
-	merge := "mergeable"
-	reason := ""
-	prGate := evaluatePullRequestMergeGate(pr)
-	if hasString(prGate.Codes(), "merge_conflict") {
-		merge = "conflicting"
-		reason = fmt.Sprintf(" reason=%s", prGate.Reason())
-	}
-	gate := "artifact_gate=unknown"
-	if artifact != nil && artifact.HasEvaluation {
-		gate = fmt.Sprintf("artifact_gate=outcome:%s merge_eligible:%t retry:%t attention:%t next:%s", emptyAsNA(artifact.Outcome), artifact.MergeEligible, artifact.ShouldRetry, artifact.OperatorAttention, emptyAsNA(artifact.NextAction))
-	}
-	return fmt.Sprintf("#%d %s review=%s checks=%s merge=%s branch=%s %s%s", pr.Number, pr.URL, pr.ReviewDecision, checks, merge, pr.HeadRefName, gate, reason)
+	return statusreport.SummarizePullRequest(statusreport.PullRequestSummary{Number: pr.Number, URL: pr.URL, HeadRefName: pr.HeadRefName, Mergeable: pr.Mergeable, MergeStateStatus: pr.MergeStateStatus, ReviewDecision: pr.ReviewDecision, StatusCheckRollup: mergegateStatusChecks(pr.StatusCheckRollup)}, artifact)
 }
 
 func summarizeReadyReconciliation(issues []issue, artifacts map[string]artifactSummary, readyState string) []string {

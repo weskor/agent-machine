@@ -27,16 +27,6 @@ func TestStatusIssueStatesIncludesHandoffState(t *testing.T) {
 	}
 }
 
-func TestSummarizePRAnnotatesArtifactGate(t *testing.T) {
-	artifact := artifactSummary{HasEvaluation: true, Outcome: "review_failed", NextAction: "repair_review_findings_before_handoff", ShouldRetry: true, OperatorAttention: true}
-	line := summarizePR(pullRequestSummary{Number: 402, URL: "https://github.com/weskor/agent-machine/pull/402", HeadRefName: "am/CAG-12-workspace", Mergeable: "MERGEABLE", ReviewDecision: "CHANGES_REQUESTED"}, &artifact)
-	for _, expected := range []string{"#402", "artifact_gate=outcome:review_failed", "merge_eligible:false", "retry:true", "attention:true", "next:repair_review_findings_before_handoff"} {
-		if !strings.Contains(line, expected) {
-			t.Fatalf("expected %q in %q", expected, line)
-		}
-	}
-}
-
 func TestSummarizeReadyReconciliationReportsTerminalReadyArtifacts(t *testing.T) {
 	var ready issue
 	ready.Identifier = "CAG-12"

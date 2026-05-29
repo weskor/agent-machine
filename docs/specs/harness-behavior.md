@@ -268,7 +268,7 @@ retry decisions, or review classification.
 - Before handoff, the runner validates PR/MR details through the configured code-host API.
 - Handoff requires the PR/MR to belong to the expected repository, branch, base branch, and issue identifier context.
 - Before final handoff side effects, the runner writes a durable SQLite `handoff_pending` payload ref and a bounded handoff payload with the PR URL, review result, validation evidence, usage, issue identity, workspace/branch, and GitHub auth evidence. Progress output is compatibility evidence. Inline execution completes handoff by re-reading that persisted payload, and the selected `handoff` worker consumes the same payload boundary when a pending handoff is left for another process.
-- On successful handoff, the runner posts or updates deterministic PR/Linear comments and moves the Linear issue to the configured handoff state, usually `Human Review`.
+- On successful handoff, the runner creates or updates deterministic handoff evidence in the runner-owned PR/MR body, posts or updates Linear handoff comments, and moves the Linear issue to the configured handoff state, usually `Human Review`.
 
 ## Merge gates
 

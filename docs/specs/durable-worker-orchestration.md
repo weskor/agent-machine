@@ -105,8 +105,9 @@ review queues `handoff_pending` output for the handoff worker.
 
 ### Handoff worker
 
-Owns commit/push/PR create-update, PR URL validation, deterministic PR and
-Linear handoff comments, and movement to Human Review or Needs Info.
+Owns commit/push/PR create-update, PR URL validation, deterministic PR/MR body
+handoff evidence, Linear handoff comments, and movement to Human Review or Needs
+Info.
 
 It must not run implementation or semantic review. It consumes durable attempt,
 validation, review, and PR facts. The inline runner writes a durable

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -103,6 +105,17 @@ func (h *scenarioHarness) assertNoMutations() {
 	h.t.Helper()
 	if len(h.mutations) > 0 {
 		h.t.Fatalf("unexpected mutations: %v", h.mutations)
+	}
+}
+
+func writeJSON(t *testing.T, path string, value any) {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

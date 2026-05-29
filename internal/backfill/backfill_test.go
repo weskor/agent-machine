@@ -1,4 +1,4 @@
-package main
+package backfill
 
 import (
 	"database/sql"
@@ -9,12 +9,14 @@ import (
 	"testing"
 	"time"
 
-	backfillstate "github.com/weskor/agent-machine/internal/backfill"
+	"github.com/weskor/agent-machine/internal/artifacts"
+	"github.com/weskor/agent-machine/internal/domain"
+	"github.com/weskor/agent-machine/internal/stateprojection"
 
 	_ "modernc.org/sqlite"
 )
 
-func TestBackfillStateFromArtifactsSeedsSQLiteIdempotently(t *testing.T) {
+func TestStateFromArtifactsSeedsSQLiteIdempotently(t *testing.T) {
 	root := t.TempDir()
 	workspaceRoot := filepath.Join(root, ".am", "workspaces")
 	workspace := filepath.Join(workspaceRoot, "CAG-66")
@@ -28,7 +30,7 @@ func TestBackfillStateFromArtifactsSeedsSQLiteIdempotently(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
-	record := runRecord{
+	record := domain.RunRecord{
 		IssueIdentifier:      "CAG-66",
 		IssueID:              "issue-id",
 		Workspace:            workspace,
@@ -43,11 +45,11 @@ func TestBackfillStateFromArtifactsSeedsSQLiteIdempotently(t *testing.T) {
 		FeedbackHash:         "feedback-hash",
 		Status:               "success",
 	}
-	writeJSON(t, filepath.Join(workspace, ".am-run.json"), record)
-	writeJSON(t, filepath.Join(workspace, evaluationArtifactName), evaluationForRun(workspace, record))
+	writeJSON(t, filepath.Join(workspace, artifacts.RunRecordName), record)
+	writeJSON(t, filepath.Join(workspace, artifacts.EvaluationName), testEvaluation(record))
 
 	for i := 0; i < 2; i++ {
-		summary, err := backfillstate.StateFromArtifacts(workspaceRoot, artifactManager(), stateProjectionCore())
+		summary, err := StateFromArtifacts(workspaceRoot, testManager(), testProjection())
 		if err != nil {
 			t.Fatalf("backfill run %d error = %v", i+1, err)
 		}
@@ -66,7 +68,7 @@ func TestBackfillStateFromArtifactsSeedsSQLiteIdempotently(t *testing.T) {
 	assertCount(t, db, "external_fact_snapshots", 2)
 }
 
-func TestBackfillStateFromArtifactsSkipsMalformedAndHiddenWorkspaces(t *testing.T) {
+func TestStateFromArtifactsSkipsMalformedAndHiddenWorkspaces(t *testing.T) {
 	root := t.TempDir()
 	workspaceRoot := filepath.Join(root, ".am", "workspaces")
 	valid := filepath.Join(workspaceRoot, "CAG-67")
@@ -77,13 +79,13 @@ func TestBackfillStateFromArtifactsSkipsMalformedAndHiddenWorkspaces(t *testing.
 			t.Fatal(err)
 		}
 	}
-	writeJSON(t, filepath.Join(valid, ".am-run.json"), runRecord{IssueIdentifier: "CAG-67", Workspace: valid, WorkspaceRoot: workspaceRoot, Status: "review_failed", PRURL: "https://github.com/acme/repo/pull/67"})
-	if err := os.WriteFile(filepath.Join(malformed, ".am-run.json"), []byte(`{"issue_identifier":`), 0o600); err != nil {
+	writeJSON(t, filepath.Join(valid, artifacts.RunRecordName), domain.RunRecord{IssueIdentifier: "CAG-67", Workspace: valid, WorkspaceRoot: workspaceRoot, Status: "review_failed", PRURL: "https://github.com/acme/repo/pull/67"})
+	if err := os.WriteFile(filepath.Join(malformed, artifacts.RunRecordName), []byte(`{"issue_identifier":`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	writeJSON(t, filepath.Join(hidden, ".am-run.json"), runRecord{IssueIdentifier: "CAG-hidden", Status: "success"})
+	writeJSON(t, filepath.Join(hidden, artifacts.RunRecordName), domain.RunRecord{IssueIdentifier: "CAG-hidden", Status: "success"})
 
-	summary, err := backfillstate.StateFromArtifacts(workspaceRoot, artifactManager(), stateProjectionCore())
+	summary, err := StateFromArtifacts(workspaceRoot, testManager(), testProjection())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +101,7 @@ func TestBackfillStateFromArtifactsSkipsMalformedAndHiddenWorkspaces(t *testing.
 	assertCount(t, db, "issue_attempts", 1)
 }
 
-func TestBackfillStateFromArtifactsMarksConflictingIssueArtifactsForReconciliation(t *testing.T) {
+func TestStateFromArtifactsMarksConflictingIssueArtifactsForReconciliation(t *testing.T) {
 	root := t.TempDir()
 	workspaceRoot := filepath.Join(root, ".am", "workspaces")
 	newer := filepath.Join(workspaceRoot, "CAG-69-newer")
@@ -109,10 +111,10 @@ func TestBackfillStateFromArtifactsMarksConflictingIssueArtifactsForReconciliati
 			t.Fatal(err)
 		}
 	}
-	writeJSON(t, filepath.Join(newer, ".am-run.json"), runRecord{IssueIdentifier: "CAG-69", Workspace: newer, WorkspaceRoot: workspaceRoot, Status: "review_failed", PRURL: "https://github.com/acme/repo/pull/69", EndedAt: time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)})
-	writeJSON(t, filepath.Join(older, ".am-run.json"), runRecord{IssueIdentifier: "CAG-69", Workspace: older, WorkspaceRoot: workspaceRoot, Status: "success", PRURL: "https://github.com/acme/repo/pull/69", EndedAt: time.Date(2026, 5, 19, 11, 0, 0, 0, time.UTC)})
+	writeJSON(t, filepath.Join(newer, artifacts.RunRecordName), domain.RunRecord{IssueIdentifier: "CAG-69", Workspace: newer, WorkspaceRoot: workspaceRoot, Status: "review_failed", PRURL: "https://github.com/acme/repo/pull/69", EndedAt: time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)})
+	writeJSON(t, filepath.Join(older, artifacts.RunRecordName), domain.RunRecord{IssueIdentifier: "CAG-69", Workspace: older, WorkspaceRoot: workspaceRoot, Status: "success", PRURL: "https://github.com/acme/repo/pull/69", EndedAt: time.Date(2026, 5, 19, 11, 0, 0, 0, time.UTC)})
 
-	summary, err := backfillstate.StateFromArtifacts(workspaceRoot, artifactManager(), stateProjectionCore())
+	summary, err := StateFromArtifacts(workspaceRoot, testManager(), testProjection())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,6 +140,37 @@ func TestBackfillStateFromArtifactsMarksConflictingIssueArtifactsForReconciliati
 	}
 }
 
+func testManager() artifacts.Manager {
+	return artifacts.Manager{Evaluate: func(_ string, record domain.RunRecord) artifacts.EvaluationArtifact {
+		return testEvaluation(record)
+	}}
+}
+
+func testEvaluation(record domain.RunRecord) artifacts.EvaluationArtifact {
+	return artifacts.EvaluationArtifact{
+		IssueIdentifier: record.IssueIdentifier,
+		PRURL:           record.PRURL,
+		FinalStatus:     record.Status,
+		ReviewStatus:    record.ReviewStatus,
+		Outcome:         record.Status,
+		NextAction:      "test_next_action",
+	}
+}
+
+func testProjection() stateprojection.Projection {
+	return stateprojection.Projection{
+		BaseBranch: func(string) string { return "integration" },
+		TerminalStatus: func(status string) bool {
+			switch status {
+			case "success", "review_failed", "failed":
+				return true
+			default:
+				return false
+			}
+		},
+	}
+}
+
 func writeJSON(t *testing.T, path string, value any) {
 	t.Helper()
 	data, err := json.Marshal(value)
@@ -156,4 +189,15 @@ func openBackfillDB(t *testing.T, root string) *sql.DB {
 		t.Fatal(err)
 	}
 	return db
+}
+
+func assertCount(t *testing.T, db *sql.DB, table string, want int) {
+	t.Helper()
+	var got int
+	if err := db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&got); err != nil {
+		t.Fatalf("count %s: %v", table, err)
+	}
+	if got != want {
+		t.Fatalf("%s count = %d, want %d", table, got, want)
+	}
 }

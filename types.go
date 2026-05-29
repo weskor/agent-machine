@@ -1,6 +1,9 @@
 package main
 
-import "github.com/weskor/agent-machine/internal/domain"
+import (
+	"github.com/weskor/agent-machine/internal/domain"
+	"github.com/weskor/agent-machine/internal/scopeguard"
+)
 
 type runBudget = domain.Budget
 
@@ -21,3 +24,5 @@ type issue = domain.Issue
 type workflowState = domain.WorkflowState
 
 type runnerConfig = domain.RunnerConfig
+
+type scopeGuardResult = scopeguard.Result

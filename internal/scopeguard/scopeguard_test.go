@@ -1,4 +1,4 @@
-package main
+package scopeguard
 
 import (
 	"strings"
@@ -18,7 +18,7 @@ Out of scope:
 * ` + "`docs/product.md`" + `
 `
 
-	result := evaluateScopeGuard(description, []string{"run_one.go", "internal/state/store.go"})
+	result := Evaluate(description, []string{"run_one.go", "internal/state/store.go"})
 	if result.Blocks() || !result.Checked {
 		t.Fatalf("unexpected scope result: %+v", result)
 	}
@@ -38,7 +38,7 @@ Out of scope:
 * ` + "`state_projection.go`" + `
 `
 
-	result := evaluateScopeGuard(description, []string{"state_projection.go", "internal/workspace/locks.go"})
+	result := Evaluate(description, []string{"state_projection.go", "internal/workspace/locks.go"})
 	if !result.Blocks() {
 		t.Fatalf("expected scope guard to block state_projection.go drift: %+v", result)
 	}
@@ -51,7 +51,7 @@ Out of scope:
 }
 
 func TestEvaluateScopeGuardWarnsWhenContractMissing(t *testing.T) {
-	result := evaluateScopeGuard("## Scope\n\nRefactor carefully.", []string{"run_one.go"})
+	result := Evaluate("## Scope\n\nRefactor carefully.", []string{"run_one.go"})
 	if result.Blocks() || result.Checked || len(result.Warnings) == 0 {
 		t.Fatalf("expected non-blocking missing-contract warning, got %+v", result)
 	}
@@ -66,7 +66,7 @@ Out-of-scope paths:
 * secrets/*
 `
 
-	result := evaluateScopeGuard(description, []string{"docs/specs/harness-behavior.md", "secrets/local.env", "runner.go"})
+	result := Evaluate(description, []string{"docs/specs/harness-behavior.md", "secrets/local.env", "runner.go"})
 	if !result.Blocks() {
 		t.Fatalf("expected mixed diff to block: %+v", result)
 	}

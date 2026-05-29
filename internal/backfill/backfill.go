@@ -1,4 +1,4 @@
-package main
+package backfill
 
 import (
 	"context"
@@ -9,35 +9,38 @@ import (
 	"strings"
 	"time"
 
-	orchstate "github.com/weskor/agent-machine/internal/state"
+	"github.com/weskor/agent-machine/internal/artifacts"
+	"github.com/weskor/agent-machine/internal/domain"
+	"github.com/weskor/agent-machine/internal/state"
+	"github.com/weskor/agent-machine/internal/stateprojection"
 )
 
-type backfillSummary struct {
+type Summary struct {
 	Scanned              int
 	Seeded               int
 	ReconciliationNeeded int
-	Skipped              []backfillSkip
+	Skipped              []Skip
 }
 
-type backfillSkip struct {
+type Skip struct {
 	Workspace string
 	Reason    string
 }
 
-type backfillCandidate struct {
+type candidate struct {
 	Workspace    string
-	Record       runRecord
-	Evaluation   evaluationArtifact
+	Record       domain.RunRecord
+	Evaluation   artifacts.EvaluationArtifact
 	ArtifactTime time.Time
 }
 
-func backfillStateFromArtifacts(workspaceRoot string) (backfillSummary, error) {
-	var summary backfillSummary
-	dbPath := orchstate.DefaultDBPath(workspaceRoot)
+func StateFromArtifacts(workspaceRoot string, manager artifacts.Manager, projection stateprojection.Projection) (Summary, error) {
+	var summary Summary
+	dbPath := state.DefaultDBPath(workspaceRoot)
 	if dbPath == "" {
 		return summary, fmt.Errorf("workspace.root is required")
 	}
-	store, err := orchstate.Open(context.Background(), dbPath)
+	store, err := state.Open(context.Background(), dbPath)
 	if err != nil {
 		return summary, err
 	}
@@ -47,30 +50,30 @@ func backfillStateFromArtifacts(workspaceRoot string) (backfillSummary, error) {
 	if err != nil {
 		return summary, err
 	}
-	candidatesByIssue := map[string][]backfillCandidate{}
+	candidatesByIssue := map[string][]candidate{}
 	for _, entry := range entries {
 		if !entry.IsDir() || ignoredWorkspaceDir(entry.Name()) {
 			continue
 		}
 		workspace := filepath.Join(workspaceRoot, entry.Name())
 		summary.Scanned++
-		candidate, err := readBackfillArtifacts(workspace, workspaceRoot)
+		candidate, err := readArtifacts(manager, workspace, workspaceRoot)
 		if err != nil {
-			summary.Skipped = append(summary.Skipped, backfillSkip{Workspace: workspace, Reason: err.Error()})
+			summary.Skipped = append(summary.Skipped, Skip{Workspace: workspace, Reason: err.Error()})
 			continue
 		}
 		candidatesByIssue[candidate.Record.IssueIdentifier] = append(candidatesByIssue[candidate.Record.IssueIdentifier], candidate)
 	}
-	for _, issueKey := range sortedBackfillIssueKeys(candidatesByIssue) {
-		selected, conflictReason := selectBackfillCandidate(candidatesByIssue[issueKey])
-		snapshot := stateProjection{}.RunArtifact(selected.Workspace, selected.Record, selected.Evaluation)
+	for _, issueKey := range sortedIssueKeys(candidatesByIssue) {
+		selected, conflictReason := selectCandidate(candidatesByIssue[issueKey])
+		snapshot := projection.RunArtifact(selected.Workspace, selected.Record, selected.Evaluation)
 		if conflictReason != "" {
 			snapshot.Status = "reconciliation-needed"
 			snapshot.TerminalOutcome = "reconciliation-needed"
 			snapshot.TerminalReason = conflictReason
 		}
 		if err := store.UpsertRunArtifact(context.Background(), snapshot); err != nil {
-			summary.Skipped = append(summary.Skipped, backfillSkip{Workspace: selected.Workspace, Reason: err.Error()})
+			summary.Skipped = append(summary.Skipped, Skip{Workspace: selected.Workspace, Reason: err.Error()})
 			continue
 		}
 		if conflictReason != "" {
@@ -86,15 +89,15 @@ func ignoredWorkspaceDir(name string) bool {
 	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
 }
 
-func readBackfillArtifacts(workspace, workspaceRoot string) (backfillCandidate, error) {
-	record, evaluation, artifactTime, err := artifactManager().ReadBackfill(workspace, workspaceRoot)
+func readArtifacts(manager artifacts.Manager, workspace, workspaceRoot string) (candidate, error) {
+	record, evaluation, artifactTime, err := manager.ReadBackfill(workspace, workspaceRoot)
 	if err != nil {
-		return backfillCandidate{}, err
+		return candidate{}, err
 	}
-	return backfillCandidate{Workspace: workspace, Record: record, Evaluation: evaluation, ArtifactTime: artifactTime}, nil
+	return candidate{Workspace: workspace, Record: record, Evaluation: evaluation, ArtifactTime: artifactTime}, nil
 }
 
-func sortedBackfillIssueKeys(candidatesByIssue map[string][]backfillCandidate) []string {
+func sortedIssueKeys(candidatesByIssue map[string][]candidate) []string {
 	keys := make([]string, 0, len(candidatesByIssue))
 	for key := range candidatesByIssue {
 		keys = append(keys, key)
@@ -103,7 +106,7 @@ func sortedBackfillIssueKeys(candidatesByIssue map[string][]backfillCandidate) [
 	return keys
 }
 
-func selectBackfillCandidate(candidates []backfillCandidate) (backfillCandidate, string) {
+func selectCandidate(candidates []candidate) (candidate, string) {
 	sort.Slice(candidates, func(i, j int) bool {
 		if candidates[i].ArtifactTime.Equal(candidates[j].ArtifactTime) {
 			return candidates[i].Workspace < candidates[j].Workspace
@@ -111,16 +114,16 @@ func selectBackfillCandidate(candidates []backfillCandidate) (backfillCandidate,
 		return candidates[i].ArtifactTime.After(candidates[j].ArtifactTime)
 	})
 	selected := candidates[0]
-	fingerprint := backfillFingerprint(selected)
-	for _, candidate := range candidates[1:] {
-		if backfillFingerprint(candidate) != fingerprint {
+	selectedFingerprint := fingerprint(selected)
+	for _, next := range candidates[1:] {
+		if fingerprint(next) != selectedFingerprint {
 			return selected, fmt.Sprintf("conflicting artifacts for %s require reconciliation", selected.Record.IssueIdentifier)
 		}
 	}
 	return selected, ""
 }
 
-func backfillFingerprint(candidate backfillCandidate) string {
+func fingerprint(candidate candidate) string {
 	return strings.Join([]string{
 		candidate.Record.Status,
 		candidate.Record.PRURL,
@@ -130,4 +133,13 @@ func backfillFingerprint(candidate backfillCandidate) string {
 		candidate.Evaluation.Outcome,
 		candidate.Evaluation.NextAction,
 	}, "\x00")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }

@@ -23,13 +23,6 @@ func TestWorkerContextBoundariesDoNotUseBackgroundContext(t *testing.T) {
 			"cleanupDecisionFromSQLite",
 			"currentGitBranchContext",
 		},
-		"cleanup_task.go": {
-			"scheduleCleanupWorkerTasks",
-			"enqueueCleanupWorkerTask",
-			"claimNextQueuedCleanupWorkerTask",
-			"runQueuedCleanupWorkerTaskContext",
-			"completeClaimedCleanupWorkerTask",
-		},
 		"candidate_selection.go": {
 			"nextRunnableCandidateContext",
 			"nextRunnableCandidateWithOptionsContext",
@@ -94,6 +87,13 @@ func TestWorkerContextBoundariesDoNotUseBackgroundContext(t *testing.T) {
 			"MirrorRenewContext",
 			"MirrorReleaseContext",
 			"withStateStoreContext",
+		},
+		"internal/cleanupworker/task.go": {
+			"Schedule",
+			"Enqueue",
+			"Claim",
+			"RunQueued",
+			"Complete",
 		},
 		"linear.go": {
 			"candidatesContext",

@@ -12,10 +12,31 @@ import (
 	"testing"
 	"time"
 
+	gatepkg "github.com/weskor/agent-machine/internal/gate"
 	sh "github.com/weskor/agent-machine/internal/shell"
 	"github.com/weskor/agent-machine/internal/state"
 	"github.com/weskor/agent-machine/internal/terminalpr"
 )
+
+func TestMergeGateUsesDeterministicGateResult(t *testing.T) {
+	pr := pullRequestSummary{URL: "https://github.com/acme/repo/pull/7", HeadRefName: "am/CAG-7-workspace", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"}
+
+	gate := evaluatePullRequestMergeGate(pr)
+
+	if gate.Eligible || gate.Status != gatepkg.StatusBlocked {
+		t.Fatalf("gate status = eligible %t status %q, want blocked", gate.Eligible, gate.Status)
+	}
+	if !hasString(gate.Codes(), "merge_conflict") {
+		t.Fatalf("gate codes = %+v, want merge_conflict", gate.Codes())
+	}
+	if !strings.Contains(gate.Reason(), "conflicts with the base branch") {
+		t.Fatalf("gate reason = %q, want conflict reason", gate.Reason())
+	}
+	payload := gate.Payload()
+	if payload["domain"] != "merge" || payload["status"] != gatepkg.StatusBlocked || payload["subject"] != pr.URL {
+		t.Fatalf("gate payload = %+v, want merge blocked payload for PR", payload)
+	}
+}
 
 func TestIssueIdentifierFromBranch(t *testing.T) {
 	tests := map[string]string{

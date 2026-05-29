@@ -10,9 +10,33 @@ import (
 	"testing"
 	"time"
 
+	gatepkg "github.com/weskor/agent-machine/internal/gate"
 	sh "github.com/weskor/agent-machine/internal/shell"
 	"github.com/weskor/agent-machine/internal/state"
 )
+
+func TestCleanupGateResultUsesDeterministicStatuses(t *testing.T) {
+	deleteDecision := cleanupResult{Delete: true, IssueIdentifier: "CAG-1", Category: "completed", Reason: "SQLite issue CAG-1 is Done and durable status is success"}
+	deleteGate := cleanupGateResult(deleteDecision)
+	if !deleteGate.Passed() || deleteGate.Status != gatepkg.StatusPassed || deleteGate.NextAction != "delete_workspace" {
+		t.Fatalf("delete gate = %+v, want passed delete gate", deleteGate)
+	}
+	if deleteGate.Reason() != deleteDecision.Reason {
+		t.Fatalf("delete gate reason = %q, want %q", deleteGate.Reason(), deleteDecision.Reason)
+	}
+
+	reconcileDecision := cleanupResult{IssueIdentifier: "CAG-2", Category: "reconciliation-needed", Reason: "SQLite has no issue attempt row for workspace CAG-2"}
+	reconcileGate := cleanupGateResult(reconcileDecision)
+	if reconcileGate.Status != gatepkg.StatusReconciliationNeeded || reconcileGate.Passed() {
+		t.Fatalf("reconcile gate = %+v, want reconciliation_needed", reconcileGate)
+	}
+	if !hasString(reconcileGate.Codes(), "cleanup_reconciliation_needed") {
+		t.Fatalf("reconcile codes = %+v, want cleanup_reconciliation_needed", reconcileGate.Codes())
+	}
+	if reconcileGate.NextAction != "repair_or_reconcile_cleanup_state" {
+		t.Fatalf("reconcile next action = %q, want repair_or_reconcile_cleanup_state", reconcileGate.NextAction)
+	}
+}
 
 func TestCleanupDecisionDeletesDoneIssueWorkspace(t *testing.T) {
 	root := t.TempDir()

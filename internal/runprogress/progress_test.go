@@ -1,24 +1,28 @@
-package main
+package runprogress
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/weskor/agent-machine/internal/artifacts"
+	"github.com/weskor/agent-machine/internal/attemptoutcome"
+	"github.com/weskor/agent-machine/internal/domain"
 	"github.com/weskor/agent-machine/internal/runledger"
 )
 
 func TestRunProgressPathUsesRunnerStateOutsideIssueWorkspace(t *testing.T) {
 	repoRoot := t.TempDir()
 	workspaceRoot := filepath.Join(repoRoot, ".am", "workspaces")
-	path, err := runProgressPath(workspaceRoot, "CAG-119")
+	path, err := Path(workspaceRoot, "CAG-119")
 	if err != nil {
 		t.Fatalf("runProgressPath() error = %v", err)
 	}
-	want := filepath.Join(repoRoot, ".am", "state", "run-progress", "CAG-119", runProgressArtifactName)
+	want := filepath.Join(repoRoot, ".am", "state", "run-progress", "CAG-119", ArtifactName)
 	if path != want {
 		t.Fatalf("runProgressPath() = %q, want %q", path, want)
 	}
@@ -30,7 +34,7 @@ func TestRunProgressPathUsesRunnerStateOutsideIssueWorkspace(t *testing.T) {
 func TestWriteReadAndFormatRunProgress(t *testing.T) {
 	workspaceRoot := filepath.Join(t.TempDir(), ".am", "workspaces")
 	started := time.Date(2026, 5, 20, 21, 0, 0, 0, time.UTC)
-	snapshot := runProgressSnapshot{
+	snapshot := Snapshot{
 		IssueIdentifier:      "CAG-119",
 		IssueTitle:           "Add progress",
 		Phase:                "reviewing",
@@ -44,12 +48,12 @@ func TestWriteReadAndFormatRunProgress(t *testing.T) {
 		UpdatedAt:            started.Add(2 * time.Minute),
 		NextAction:           "repair_review_findings_before_handoff",
 		RunRecordPath:        filepath.Join(workspaceRoot, "CAG-119", ".am-run.json"),
-		EvaluationPath:       filepath.Join(workspaceRoot, "CAG-119", evaluationArtifactName),
+		EvaluationPath:       filepath.Join(workspaceRoot, "CAG-119", artifacts.EvaluationName),
 	}
-	if err := writeRunProgressResult(workspaceRoot, snapshot); err != nil {
+	if err := WriteResult(workspaceRoot, snapshot, nil); err != nil {
 		t.Fatalf("writeRunProgressResult() error = %v", err)
 	}
-	path, _ := runProgressPath(workspaceRoot, "CAG-119")
+	path, _ := Path(workspaceRoot, "CAG-119")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read progress file: %v", err)
@@ -58,11 +62,11 @@ func TestWriteReadAndFormatRunProgress(t *testing.T) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatalf("progress is not JSON: %v", err)
 	}
-	read, err := readRunProgress(workspaceRoot, "CAG-119")
+	read, err := Read(workspaceRoot, "CAG-119")
 	if err != nil {
 		t.Fatalf("readRunProgress() error = %v", err)
 	}
-	formatted := formatRunProgress(read)
+	formatted := Format(read)
 	for _, expected := range []string{"issue=CAG-119", "phase=reviewing", "status=review_failed", "checks=unknown_post_run", "review=failed", "classification=behavior_spec_blocker", "next=repair_review_findings_before_handoff", "run_record=", "evaluation=", "progress="} {
 		if !strings.Contains(formatted, expected) {
 			t.Fatalf("formatted progress missing %q: %s", expected, formatted)
@@ -85,7 +89,7 @@ func TestWriteReadAndFormatRunProgress(t *testing.T) {
 
 func TestRunProgressForRecordSummarizesTerminalOutcome(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "CAG-119")
-	record := runRecord{
+	record := domain.RunRecord{
 		IssueIdentifier:      "CAG-119",
 		IssueTitle:           "Add progress",
 		Workspace:            workspace,
@@ -95,13 +99,13 @@ func TestRunProgressForRecordSummarizesTerminalOutcome(t *testing.T) {
 		StartedAt:            time.Date(2026, 5, 20, 21, 0, 0, 0, time.UTC),
 		EndedAt:              time.Date(2026, 5, 20, 21, 5, 0, 0, time.UTC),
 		DurationMS:           300000,
-		Status:               runAttemptStatusSuccess,
+		Status:               attemptoutcome.StatusSuccess,
 		PRURL:                "https://github.com/weskor/agent-machine/pull/119",
 		ReviewStatus:         "passed",
 		ReviewClassification: "",
 	}
-	evaluation := evaluationArtifact{Outcome: "handoff_ready", ChecksStatus: "success", NextAction: "await_approval_and_green_checks"}
-	snapshot := runProgressForRecord(workspace, record, evaluation)
+	evaluation := artifacts.EvaluationArtifact{Outcome: "handoff_ready", ChecksStatus: "success", NextAction: "await_approval_and_green_checks"}
+	snapshot := ForRecord(workspace, record, evaluation)
 	if snapshot.Phase != "completed" || snapshot.Outcome != "handoff_ready" || snapshot.ChecksStatus != "success" || snapshot.NextAction != "await_approval_and_green_checks" {
 		t.Fatalf("unexpected snapshot: %#v", snapshot)
 	}
@@ -109,10 +113,10 @@ func TestRunProgressForRecordSummarizesTerminalOutcome(t *testing.T) {
 
 func TestRunProgressForRecordPreservesReviewNotReadyRetryAction(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "CAG-122")
-	record := runRecord{IssueIdentifier: "CAG-122", Workspace: workspace, Status: runAttemptStatusReviewNotReady, PRURL: "https://github.com/weskor/agent-machine/pull/122", Error: "review not ready", StartedAt: time.Date(2026, 5, 20, 21, 0, 0, 0, time.UTC), EndedAt: time.Date(2026, 5, 20, 21, 5, 0, 0, time.UTC), DurationMS: 300000}
-	evaluation := evaluationArtifact{Outcome: "waiting_for_checks", ChecksStatus: "waiting_for_checks", NextAction: "wait_for_github_checks_then_retry"}
+	record := domain.RunRecord{IssueIdentifier: "CAG-122", Workspace: workspace, Status: attemptoutcome.StatusReviewNotReady, PRURL: "https://github.com/weskor/agent-machine/pull/122", Error: "review not ready", StartedAt: time.Date(2026, 5, 20, 21, 0, 0, 0, time.UTC), EndedAt: time.Date(2026, 5, 20, 21, 5, 0, 0, time.UTC), DurationMS: 300000}
+	evaluation := artifacts.EvaluationArtifact{Outcome: "waiting_for_checks", ChecksStatus: "waiting_for_checks", NextAction: "wait_for_github_checks_then_retry"}
 
-	snapshot := runProgressForRecord(workspace, record, evaluation)
+	snapshot := ForRecord(workspace, record, evaluation)
 
 	if snapshot.Phase != "review_not_ready" || snapshot.NextAction != "wait_for_github_checks_then_retry" || snapshot.Outcome != "waiting_for_checks" {
 		t.Fatalf("unexpected review-not-ready snapshot: %#v", snapshot)
@@ -121,15 +125,15 @@ func TestRunProgressForRecordPreservesReviewNotReadyRetryAction(t *testing.T) {
 
 func TestPrintRunLedgerFallsBackToProgressSnapshot(t *testing.T) {
 	workspaceRoot := filepath.Join(t.TempDir(), ".am", "workspaces")
-	snapshot := runProgressSnapshot{
+	snapshot := Snapshot{
 		IssueIdentifier: "CAG-191",
 		Phase:           "completed",
-		Status:          runAttemptStatusSuccess,
+		Status:          attemptoutcome.StatusSuccess,
 		PRURL:           "https://github.com/weskor/agent-machine/pull/191",
 		StartedAt:       time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC),
 		UpdatedAt:       time.Date(2026, 5, 26, 12, 5, 0, 0, time.UTC),
 	}
-	path, err := runProgressPath(workspaceRoot, "CAG-191")
+	path, err := Path(workspaceRoot, "CAG-191")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +149,7 @@ func TestPrintRunLedgerFallsBackToProgressSnapshot(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		if err := printRunLedger(workspaceRoot, "CAG-191"); err != nil {
+		if err := PrintLedger(workspaceRoot, "CAG-191"); err != nil {
 			t.Fatalf("printRunLedger() error = %v", err)
 		}
 	})
@@ -154,4 +158,26 @@ func TestPrintRunLedgerFallsBackToProgressSnapshot(t *testing.T) {
 			t.Fatalf("ledger output missing %q:\n%s", expected, output)
 		}
 	}
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	original := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = original
+	}()
+	fn()
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(output)
 }

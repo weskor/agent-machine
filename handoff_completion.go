@@ -12,8 +12,6 @@ import (
 	"github.com/weskor/agent-machine/internal/state"
 )
 
-const runProgressPhaseHandoffPending = "handoff_pending"
-
 type handoffCompletion struct {
 	client          linearClient
 	config          runnerConfig

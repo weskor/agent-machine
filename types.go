@@ -7,6 +7,7 @@ import (
 	"github.com/weskor/agent-machine/internal/attemptlifecycle"
 	"github.com/weskor/agent-machine/internal/attemptoutcome"
 	"github.com/weskor/agent-machine/internal/domain"
+	"github.com/weskor/agent-machine/internal/runprogress"
 	"github.com/weskor/agent-machine/internal/runtimeadapter"
 	"github.com/weskor/agent-machine/internal/scopeguard"
 )
@@ -26,6 +27,8 @@ type usage = domain.Usage
 type usageCost = domain.UsageCost
 
 type evaluationArtifact = artifactio.EvaluationArtifact
+
+type runProgressSnapshot = runprogress.Snapshot
 
 type issue = domain.Issue
 
@@ -56,6 +59,16 @@ const (
 )
 
 const evaluationArtifactName = artifactio.EvaluationName
+
+const (
+	runProgressArtifactName             = runprogress.ArtifactName
+	prHandoffPendingPayloadArtifactName = runprogress.PRHandoffPendingPayloadName
+	reviewPendingPayloadArtifactName    = runprogress.ReviewPendingPayloadName
+	handoffPendingPayloadArtifactName   = runprogress.HandoffPendingPayloadName
+	runProgressPhasePRHandoffPending    = runprogress.PhasePRHandoffPending
+	runProgressPhaseReviewPending       = runprogress.PhaseReviewPending
+	runProgressPhaseHandoffPending      = runprogress.PhaseHandoffPending
+)
 
 type attemptLifecyclePhase = attemptlifecycle.Phase
 

@@ -15,13 +15,6 @@ import (
 	orchstate "github.com/weskor/agent-machine/internal/state"
 )
 
-func mergeConflictReason(pr pullRequestSummary) string {
-	if strings.EqualFold(pr.Mergeable, "CONFLICTING") || strings.EqualFold(pr.MergeStateStatus, "DIRTY") {
-		return fmt.Sprintf("GitHub reports mergeable=%s mergeStateStatus=%s; branch %s has conflicts with the base branch.", emptyAsUnknown(pr.Mergeable), emptyAsUnknown(pr.MergeStateStatus), pr.HeadRefName)
-	}
-	return ""
-}
-
 func mergeGateBlockReason(pr pullRequestSummary) string {
 	return evaluatePullRequestMergeGate(pr).Reason()
 }
@@ -266,41 +259,6 @@ func amPRs(prs []pullRequestSummary) []pullRequestSummary {
 func issueIdentifierFromBranch(branch string) string {
 	match := regexp.MustCompile(`(?i)(CAG[-_][0-9]+)`).FindString(branch)
 	return strings.ToUpper(strings.ReplaceAll(match, "_", "-"))
-}
-
-func checksPassed(checks []statusCheck) bool {
-	return checksBlockReason(checks) == ""
-}
-
-func checksBlockReason(checks []statusCheck) string {
-	if len(checks) == 0 {
-		return "no status checks were reported by GitHub"
-	}
-	for _, check := range checks {
-		switch check.Typename {
-		case "CheckRun":
-			if !strings.EqualFold(check.Status, "COMPLETED") || !strings.EqualFold(check.Conclusion, "SUCCESS") {
-				return fmt.Sprintf("check run %q is status=%s conclusion=%s", checkLabel(check), emptyAsUnknown(check.Status), emptyAsUnknown(check.Conclusion))
-			}
-		case "StatusContext":
-			if !strings.EqualFold(check.State, "SUCCESS") {
-				return fmt.Sprintf("status context %q is state=%s", checkLabel(check), emptyAsUnknown(check.State))
-			}
-		default:
-			return fmt.Sprintf("unknown status check shape %q for %q", emptyAsUnknown(check.Typename), checkLabel(check))
-		}
-	}
-	return ""
-}
-
-func checkLabel(check statusCheck) string {
-	if strings.TrimSpace(check.Name) != "" {
-		return check.Name
-	}
-	if strings.TrimSpace(check.Context) != "" {
-		return check.Context
-	}
-	return "unnamed"
 }
 
 func workspaceLockedOrModified(workspaceRoot, identifier, _ string) (bool, string) {

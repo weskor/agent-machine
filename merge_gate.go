@@ -1,52 +1,62 @@
 package main
 
-import (
-	"fmt"
-	"strings"
+import mergegate "github.com/weskor/agent-machine/internal/mergegate"
 
-	gatepkg "github.com/weskor/agent-machine/internal/gate"
-)
-
-type mergeGateDecision struct {
-	Eligible bool
-	gatepkg.Result
-}
+type mergeGateDecision = mergegate.Decision
 
 func evaluatePullRequestMergeGate(pr pullRequestSummary) mergeGateDecision {
-	decision := newMergeGateDecision(firstNonEmpty(pr.URL, pr.HeadRefName))
-	if reason := mergeConflictReason(pr); reason != "" {
-		decision.block("merge_conflict", reason)
-		return decision
-	}
-	if !strings.EqualFold(pr.Mergeable, "MERGEABLE") {
-		decision.block("mergeable_unknown", fmt.Sprintf("GitHub reports mergeable=%s; waiting for a fresh mergeable result before merging %s.", emptyAsUnknown(pr.Mergeable), pr.HeadRefName))
-		return decision
-	}
-	if reason := checksBlockReason(pr.StatusCheckRollup); reason != "" {
-		decision.block("status_checks", reason)
-		return decision
-	}
-	return decision
+	return mergegate.EvaluatePullRequest(mergegate.PullRequest{
+		Subject:          firstNonEmpty(pr.URL, pr.HeadRefName),
+		HeadRefName:      pr.HeadRefName,
+		Mergeable:        pr.Mergeable,
+		MergeStateStatus: pr.MergeStateStatus,
+		StatusChecks:     mergegateStatusChecks(pr.StatusCheckRollup),
+	})
 }
 
 func evaluateRunRecordMergeGate(record runRecord) mergeGateDecision {
-	decision := newMergeGateDecision(firstNonEmpty(record.PRURL, record.IssueIdentifier))
-	if record.Status == "review_failed" {
-		decision.block("review_decision", "review did not pass")
-		return decision
-	}
-	if strings.Contains(strings.ToLower(record.Error), "check") {
-		decision.block("status_checks", record.Error)
-		return decision
-	}
-	return decision
+	return mergegate.EvaluateRunRecord(mergegate.RunRecord{
+		Subject: firstNonEmpty(record.PRURL, record.IssueIdentifier),
+		Status:  record.Status,
+		Error:   record.Error,
+	})
 }
 
-func newMergeGateDecision(subject string) mergeGateDecision {
-	return mergeGateDecision{Eligible: true, Result: gatepkg.NewResult("merge", subject)}
+func checksPassed(checks []statusCheck) bool {
+	return mergegate.ChecksPassed(mergegateStatusChecks(checks))
 }
 
-func (d *mergeGateDecision) block(code, reason string) {
-	d.Eligible = false
-	d.Block(code, reason)
+func checksBlockReason(checks []statusCheck) string {
+	return mergegate.ChecksBlockReason(mergegateStatusChecks(checks))
+}
+
+func checkLabel(check statusCheck) string {
+	return mergegate.CheckLabel(mergegateStatusCheck(check))
+}
+
+func mergeConflictReason(pr pullRequestSummary) string {
+	return mergegate.ConflictReason(mergegate.PullRequest{
+		HeadRefName:      pr.HeadRefName,
+		Mergeable:        pr.Mergeable,
+		MergeStateStatus: pr.MergeStateStatus,
+	})
+}
+
+func mergegateStatusChecks(checks []statusCheck) []mergegate.StatusCheck {
+	out := make([]mergegate.StatusCheck, 0, len(checks))
+	for _, check := range checks {
+		out = append(out, mergegateStatusCheck(check))
+	}
+	return out
+}
+
+func mergegateStatusCheck(check statusCheck) mergegate.StatusCheck {
+	return mergegate.StatusCheck{
+		Typename:   check.Typename,
+		Status:     check.Status,
+		Conclusion: check.Conclusion,
+		State:      check.State,
+		Name:       check.Name,
+		Context:    check.Context,
+	}
 }

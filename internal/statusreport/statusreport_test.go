@@ -45,6 +45,71 @@ func TestSummarizeStateStoreReportsHealthyDB(t *testing.T) {
 	}
 }
 
+func TestSummarizeArtifactsReportsUsageAndTerminalStatus(t *testing.T) {
+	lines := SummarizeArtifacts([]ArtifactSummary{{
+		Issue:             "CAG-12",
+		Status:            "success",
+		Review:            "passed",
+		PRURL:             "https://github.com/weskor/agent-machine/pull/402",
+		Outcome:           "handoff_ready",
+		RootCause:         "none",
+		NextAction:        "await_approval_and_green_checks",
+		ChecksStatus:      "unknown_post_run",
+		TotalTokens:       79398,
+		TotalCost:         0.081882,
+		HasArtifact:       true,
+		HasEvaluation:     true,
+		Cleanable:         true,
+		MergeEligible:     true,
+		ShouldRetry:       false,
+		OperatorAttention: false,
+		TicketContract:    []string{"implementation_prompt_required_five_section_ticket_contract"},
+	}})
+	if len(lines) < 1 {
+		t.Fatalf("expected at least one summary line, got %d", len(lines))
+	}
+	line := lines[0]
+	for _, expected := range []string{"CAG-12", "class=completed", "status=success", "review=passed", "tokens=79398", "historical", "pull/402", "outcome=handoff_ready", "root=none", "next=await_approval_and_green_checks", "retry=false", "attention=false", "merge_eligible=true", "checks=unknown_post_run", "ticket_contract=implementation_prompt_required_five_section_ticket_contract"} {
+		if !strings.Contains(line, expected) {
+			t.Fatalf("expected %q in %q", expected, line)
+		}
+	}
+}
+
+func TestSummarizeArtifactsReportsMissingArtifact(t *testing.T) {
+	lines := SummarizeArtifacts([]ArtifactSummary{{Issue: "CAG-3"}})
+	if len(lines) != 1 || lines[0] != "CAG-3 missing artifact" {
+		t.Fatalf("unexpected summary: %#v", lines)
+	}
+}
+
+func TestSummarizeArtifactsReportsNone(t *testing.T) {
+	lines := SummarizeArtifacts(nil)
+	if len(lines) != 1 || lines[0] != "none" {
+		t.Fatalf("unexpected empty summary: %#v", lines)
+	}
+}
+
+func TestSummarizeArtifactsReportsRecurringFrictionWithLimit(t *testing.T) {
+	lines := SummarizeRecurringFriction([]ArtifactSummary{
+		{Issue: "CAG-1", Outcome: "needs_info", RootCause: "missing_requirements", Frictions: []string{"needs_info", "review_failed"}},
+		{Issue: "CAG-2", Outcome: "needs_info", RootCause: "missing_requirements", Frictions: []string{"needs_info", "missing_pr_url"}},
+		{Issue: "CAG-3", Outcome: "blocked", Frictions: []string{"check_failure_or_pending"}},
+	}, 2)
+	if len(lines) != 1 {
+		t.Fatalf("expected one recurring friction line, got %#v", lines)
+	}
+	line := lines[0]
+	for _, expected := range []string{"Recurring friction:", "needs_info=2", "outcome:needs_info=2"} {
+		if !strings.Contains(line, expected) {
+			t.Fatalf("expected %q in %q", expected, line)
+		}
+	}
+	if strings.Contains(line, "review_failed") || strings.Contains(line, "missing_pr_url") || strings.Contains(line, "check_failure_or_pending") {
+		t.Fatalf("expected truncation to two signals, got %q", line)
+	}
+}
+
 func TestSummarizeStateStoreReportsRecentEvents(t *testing.T) {
 	ctx := context.Background()
 	workspaceRoot := filepath.Join(t.TempDir(), ".am", "workspaces")

@@ -47,7 +47,7 @@ func printStatus(client linearClient, config runnerConfig) error {
 		log("- %s", summarizePR(pr, artifactIndex.matchPR(pr)))
 	}
 	log("Workspaces: %d", len(artifacts))
-	for _, summary := range summarizeArtifacts(artifacts) {
+	for _, summary := range statusreport.SummarizeArtifacts(artifacts) {
 		log("- %s", summary)
 	}
 	prsByIssue := indexPRsByIssue(prs)
@@ -129,30 +129,7 @@ func openAgentMachinePRs(config runnerConfig) ([]pullRequestSummary, error) {
 	return amPRs(prs), nil
 }
 
-type artifactSummary struct {
-	Issue             string
-	Status            string
-	Review            string
-	PRURL             string
-	Outcome           string
-	RootCause         string
-	NextAction        string
-	ChecksStatus      string
-	MergeBlockReason  string
-	MergeBlockerCodes []string
-	BlockedBy         []string
-	Frictions         []string
-	TotalTokens       float64
-	TotalCost         float64
-	HasArtifact       bool
-	HasEvaluation     bool
-	Cleanable         bool
-	Class             string
-	MergeEligible     bool
-	ShouldRetry       bool
-	OperatorAttention bool
-	TicketContract    []string
-}
+type artifactSummary = statusreport.ArtifactSummary
 
 type artifactIndex struct {
 	byIssue map[string]artifactSummary
@@ -241,45 +218,6 @@ func workspaceArtifactSummaries(workspaceRoot string) ([]artifactSummary, error)
 	}
 	sort.Slice(summaries, func(i, j int) bool { return summaries[i].Issue < summaries[j].Issue })
 	return summaries, nil
-}
-
-func summarizeArtifacts(artifacts []artifactSummary) []string {
-	if len(artifacts) == 0 {
-		return []string{"none"}
-	}
-	lines := make([]string, 0, len(artifacts))
-	for _, artifact := range artifacts {
-		if !artifact.HasArtifact {
-			lines = append(lines, fmt.Sprintf("%s missing artifact", artifact.Issue))
-			continue
-		}
-		review := artifact.Review
-		if review == "" {
-			review = "n/a"
-		}
-		cleanable := "actionable"
-		if artifact.Cleanable {
-			cleanable = "historical"
-		}
-		class := artifact.Class
-		if class == "" {
-			class = cleanupCategoryForTerminalStatus(artifact.Status)
-		}
-		evaluation := "eval=missing"
-		if artifact.HasEvaluation {
-			evaluation = fmt.Sprintf("outcome=%s root=%s next=%s retry=%t attention=%t merge_eligible=%t blocked_by=%s checks=%s friction=%s ticket_contract=%s", emptyAsNA(artifact.Outcome), emptyAsNA(artifact.RootCause), emptyAsNA(artifact.NextAction), artifact.ShouldRetry, artifact.OperatorAttention, artifact.MergeEligible, summarizeFrictionSignals(artifact.BlockedBy), emptyAsNA(artifact.ChecksStatus), summarizeFrictionSignals(artifact.Frictions), summarizeFrictionSignals(artifact.TicketContract))
-		}
-		lines = append(lines, fmt.Sprintf("%s class=%s status=%s review=%s tokens=%.0f cost=$%.4f bucket=%s pr=%s %s", artifact.Issue, class, artifact.Status, review, artifact.TotalTokens, artifact.TotalCost, cleanable, artifact.PRURL, evaluation))
-	}
-	lines = append(lines, summarizeRecurringFriction(artifacts, 5)...)
-	return lines
-}
-
-func summarizeFrictionSignals(signals []string) string {
-	if len(signals) == 0 {
-		return "none"
-	}
-	return strings.Join(signals, ",")
 }
 
 func indexArtifacts(artifacts []artifactSummary) artifactIndex {
@@ -446,47 +384,4 @@ func emptyAsNA(value string) string {
 		return "n/a"
 	}
 	return value
-}
-
-func summarizeRecurringFriction(artifacts []artifactSummary, limit int) []string {
-	counts := map[string]int{}
-	for _, artifact := range artifacts {
-		for _, signal := range artifact.Frictions {
-			counts[signal]++
-		}
-		if artifact.Outcome != "" {
-			counts["outcome:"+artifact.Outcome]++
-		}
-		if artifact.RootCause != "" && artifact.RootCause != "none" {
-			counts["root:"+artifact.RootCause]++
-		}
-		if artifact.NextAction != "" {
-			counts["next:"+artifact.NextAction]++
-		}
-	}
-	if len(counts) == 0 {
-		return nil
-	}
-	type pair struct {
-		Signal string
-		Count  int
-	}
-	pairs := make([]pair, 0, len(counts))
-	for signal, count := range counts {
-		pairs = append(pairs, pair{Signal: signal, Count: count})
-	}
-	sort.Slice(pairs, func(i, j int) bool {
-		if pairs[i].Count == pairs[j].Count {
-			return pairs[i].Signal < pairs[j].Signal
-		}
-		return pairs[i].Count > pairs[j].Count
-	})
-	if limit > 0 && len(pairs) > limit {
-		pairs = pairs[:limit]
-	}
-	parts := make([]string, 0, len(pairs))
-	for _, pair := range pairs {
-		parts = append(parts, fmt.Sprintf("%s=%d", pair.Signal, pair.Count))
-	}
-	return []string{fmt.Sprintf("Recurring friction: %s", strings.Join(parts, ", "))}
 }

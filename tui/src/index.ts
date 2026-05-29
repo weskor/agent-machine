@@ -350,41 +350,31 @@ function evidenceLines(snapshot: SurfaceSnapshot, row: IssueRow) {
 
   return [
     "Header:",
-    `issue: ${key}`,
+    `issue: ${key}  status: ${row.status}`,
     `title: ${row.title}`,
-    `am status: ${row.status}`,
     `source: ${clean(issue.source) || "n/a"}`,
     "",
     "Next:",
-    ...valueLines(issue.next_action, "next action", "n/a"),
+    compactValueLine(issue.next_action, "next action", "n/a"),
     "",
     "Why:",
-    ...valueLines(issue.blocker_reason, "reason", row.attention === "none" || row.attention === "n/a" ? "none" : row.attention),
+    compactValueLine(issue.blocker_reason, "reason", row.attention === "none" || row.attention === "n/a" ? "none" : row.attention),
     "",
     "Current Activity:",
-    ...valueLines(issue.current_activity, "activity", "none"),
-    `lane: ${clean(lane?.name) || row.lane}`,
-    `task: ${clean(task?.task_key) || "n/a"}`,
-    `lease: ${clean(task?.lease_name) || clean(lock?.owner) || clean(lane?.active_lease_name) || "n/a"}`,
-    `attempt: ${numberValue(issue.attempt) || numberValue(task?.attempt) || "n/a"}`,
-    `workspace: ${clean(issue.workspace) || clean(lock?.workspace) || "n/a"}`,
-    `branch: ${clean(issue.branch) || "n/a"}`,
-    `timing: ${formatTime(issue.updated_at || task?.updated_at || lock?.renewed_at) || "n/a"}`,
+    `lane: ${clean(lane?.name) || row.lane}  task: ${clean(task?.task_key) || "n/a"}`,
+    `lease: ${clean(task?.lease_name) || clean(lock?.owner) || clean(lane?.active_lease_name) || "n/a"}  attempt: ${numberValue(issue.attempt) || numberValue(task?.attempt) || "n/a"}`,
+    `workspace: ${clean(issue.workspace) || clean(lock?.workspace) || "n/a"}  branch: ${clean(issue.branch) || "n/a"}  timing: ${formatTime(issue.updated_at || task?.updated_at || lock?.renewed_at) || "n/a"}`,
     "",
     "External State:",
-    ...valueLines(issue.external_state, "external", "n/a"),
-    `linear: ${clean(issue.linear_state) || "n/a"}`,
-    `pr: ${clean(issue.pr_url) || "n/a"}`,
-    `review: ${clean(issue.review) || "n/a"}`,
+    compactValueLine(issue.external_state, "external", "n/a"),
+    `linear: ${clean(issue.linear_state) || "n/a"}  pr: ${clean(issue.pr_url) || "n/a"}  review: ${clean(issue.review) || "n/a"}`,
     "",
     "Agent Output/Evidence:",
-    ...valueLines(issue.agent_evidence_summary, "evidence", "none"),
-    `outcome: ${clean(issue.outcome) || "n/a"}`,
-    result ? `worker result: ${result.status}${result.reason ? ` (${result.reason})` : ""}` : "worker result: n/a",
-    result?.error ? `worker error: ${result.error}` : "worker error: none",
+    compactValueLine(issue.agent_evidence_summary, "evidence", "none"),
+    `outcome: ${clean(issue.outcome) || "n/a"}  worker: ${result ? `${result.status}${result.reason ? ` (${result.reason})` : ""}` : "n/a"}  error: ${result?.error || "none"}`,
     "",
     "Recent Events:",
-    ...(events.length > 0 ? events.map((event) => `${formatTime(event.occurred_at) || "n/a"} ${event.type} ${event.source}`) : ["none"]),
+    ...(events.length > 0 ? events.slice(0, 3).map((event) => `${formatTime(event.occurred_at) || "n/a"} ${event.type} ${event.source}`) : ["none"]),
   ]
 }
 
@@ -434,6 +424,14 @@ function valueLines(value: unknown, label: string, fallback: string): string[] {
     }
   }
   return [`${label}: ${fallback}`]
+}
+
+function compactValueLine(value: unknown, label: string, fallback: string): string {
+  const lines = valueLines(value, label, fallback)
+  if (lines.length === 0) {
+    return `${label}: ${fallback}`
+  }
+  return lines.map((line) => line.replace(/^- /, "")).join(" | ")
 }
 
 async function loadSurfaceSnapshot(): Promise<SurfaceSnapshot> {

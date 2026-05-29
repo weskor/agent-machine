@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/weskor/agent-machine/internal/runclassification"
 )
 
 func TestRenderPRHandoffBodyIsReadableAndBounded(t *testing.T) {
@@ -18,7 +20,7 @@ func TestRenderPRHandoffBodyIsReadableAndBounded(t *testing.T) {
 		Duration:         90 * time.Second,
 		Validation:       []string{"mise exec go -- go test ./...", "git diff --check"},
 		ScopeResult:      scopeGuardResult{Checked: true},
-		Classification:   &runClassification{Outcome: "handoff_ready", NextAction: "await_approval_and_green_checks"},
+		Classification:   &runclassification.Classification{Outcome: "handoff_ready", NextAction: "await_approval_and_green_checks"},
 		PRDetails:        &prHandoffDetails{ChangedFiles: 3, Additions: 20, Deletions: 4},
 		Progress:         &runProgressSnapshot{Phase: "handoff_pending", Status: "handoff_pending", NextAction: "move_to_human_review", ProgressPath: "/tmp/progress.json"},
 	}

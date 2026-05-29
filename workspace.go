@@ -9,6 +9,8 @@ import (
 
 	artifactio "github.com/weskor/agent-machine/internal/artifacts"
 	cfg "github.com/weskor/agent-machine/internal/config"
+	evaluationstate "github.com/weskor/agent-machine/internal/evaluation"
+	"github.com/weskor/agent-machine/internal/runclassification"
 	sh "github.com/weskor/agent-machine/internal/shell"
 	"github.com/weskor/agent-machine/internal/state"
 	"github.com/weskor/agent-machine/internal/stateprojection"
@@ -171,6 +173,50 @@ func writeRunRecordWithStateFallbackContext(ctx context.Context, store *state.St
 	writeRunProgress(record.WorkspaceRoot, runProgressForRecord(workspace, record, evaluation))
 	return nil
 }
+
+func writeEvaluationArtifact(workspace string, record runRecord) (string, evaluationArtifact) {
+	path, evaluation, _ := writeEvaluationArtifactResult(workspace, record)
+	return path, evaluation
+}
+
+func writeEvaluationArtifactResult(workspace string, record runRecord) (string, evaluationArtifact, error) {
+	path, evaluation, err := artifactManager().WriteEvaluation(workspace, record)
+	if err != nil {
+		log("failed to write evaluation artifact: %v", err)
+		return "", evaluation, err
+	}
+	log("wrote evaluation artifact: %s", path)
+	return path, evaluation, nil
+}
+
+func evaluationForRun(workspace string, record runRecord) evaluationArtifact {
+	return evaluationBuilder().ForRun(workspace, record)
+}
+
+func classifyRunRecord(workspace string, record runRecord) runclassification.Classification {
+	return evaluationBuilder().Classify(workspace, record)
+}
+
+func evaluationBuilder() evaluationstate.Builder {
+	return evaluationstate.Builder{
+		MergeGate: func(record runRecord) evaluationstate.MergeGate {
+			gate := evaluateRunRecordMergeGate(record)
+			return evaluationstate.MergeGate{ReasonText: gate.Reason(), CodeValues: gate.Codes()}
+		},
+		FeedbackRetryCount: feedbackRetryCount,
+		TerminalStatus:     terminalRunStatus,
+		RuntimeUsage:       recordRuntimeUsage,
+	}
+}
+
+func feedbackRetryCount(workspace string) int {
+	feedback, err := readPRFeedback(workspace)
+	if err != nil || strings.TrimSpace(feedback) == "" {
+		return 0
+	}
+	return 1
+}
+
 func stateStoreForRunRecordExportContext(ctx context.Context, store *state.Store, fallbackOpen bool, workspaceRoot string) (*state.Store, string, func(), error) {
 	if store != nil {
 		return store, "", nil, nil

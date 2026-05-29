@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/weskor/agent-machine/internal/state"
@@ -111,7 +112,7 @@ func completeWorkerPayloadRef(ctx context.Context, store *state.Store, ref *stat
 		completeCtx = context.WithoutCancel(ctx)
 	}
 	status := "completed"
-	if workerErr != nil {
+	if workerErr != nil && !errors.Is(workerErr, errTerminalPullRequest) {
 		status = "failed"
 	}
 	return store.CompleteWorkerPayloadRef(completeCtx, *ref, status, time.Now().UTC())
@@ -127,7 +128,7 @@ func completePRHandoffIntent(ctx context.Context, store *state.Store, payload pr
 	}
 	status := state.PRHandoffIntentStatusCompleted
 	errorText := ""
-	if workerErr != nil {
+	if workerErr != nil && !errors.Is(workerErr, errTerminalPullRequest) {
 		status = state.PRHandoffIntentStatusFailed
 		errorText = workerErr.Error()
 	}

@@ -208,6 +208,9 @@ func executeClaimedRunAttempt(ctx context.Context, client linearClient, proj pro
 
 	prURL, err = ensureRunnerPRHandoffFromInputContext(ctx, config, prHandoffInput{Candidate: candidate, Workspace: workspace, AgentPRURL: prURL, ProgressStarted: progressStarted, AttemptStartedAt: piStart, RuntimeUsage: runtimeUsage, ScopeResult: scopeResult, Validation: validation, GitHubAuth: githubAuth, StateStore: stateStore}, githubEnv)
 	if err != nil {
+		if completeTerminalPullRequestHandoffProgress(config, candidate, workspace, branch, progressStarted, prURL, err) {
+			return true, nil
+		}
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseHandoff, PRURL: prURL, Error: err.Error()})
 		writeRunRecordWithCommandStateContext(ctx, stateStore, workspace, runRecordFor(candidate, workspace, config.RuntimeImplementationCommand(), githubAuth, piStart, time.Now(), runtimeUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), ""))
 		return true, err

@@ -139,6 +139,10 @@ func executePRHandoffPendingAttempt(ctx context.Context, client linearClient, co
 	payload.GitHubAuth = githubAuth
 	prURL, err = executePRHandoffPendingPayloadContext(ctx, config, payload, githubEnv)
 	if err != nil {
+		if completeTerminalPullRequestHandoffProgress(config, payload.Issue(), payload.Workspace, payload.Branch, payload.ProgressStarted, firstNonEmpty(prURL, payload.AgentPRURL), err) {
+			err = nil
+			return true, nil
+		}
 		now := time.Now()
 		candidate := payload.Issue()
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseHandoff, PRURL: payload.AgentPRURL, Error: err.Error()})

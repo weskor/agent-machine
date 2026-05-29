@@ -223,6 +223,24 @@ func executeRunnerPRHandoffContext(ctx context.Context, config runnerConfig, can
 	if base == "" {
 		base = "main"
 	}
+	var github githubAPI
+	githubCtx := ctx
+	var cancelGithub context.CancelFunc
+	defer func() {
+		if cancelGithub != nil {
+			cancelGithub()
+		}
+	}()
+	ensureCodeHost := func() error {
+		if github != nil {
+			return nil
+		}
+		github, githubCtx, cancelGithub, err = codeHostClientWithContextTimeout(ctx, config, config.Budget.GitHubTimeout)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
 	worktreePathspec := "-- . ':!.am-*' ':!.am/**'"
 	status, err := sh.CaptureQuietContext(ctx, "git status --porcelain "+worktreePathspec, workspace)
 	if err != nil {
@@ -236,15 +254,22 @@ func executeRunnerPRHandoffContext(ctx context.Context, config runnerConfig, can
 	if err := sh.RunWithContextTimeout(ctx, "git diff --quiet "+sh.Quote("origin/"+base+"...HEAD"), workspace, config.Budget.CommandTimeout); err == nil {
 		return "", fmt.Errorf("no branch changes to hand off for %s", candidate.Identifier)
 	}
+	if strings.TrimSpace(agentPRURL) != "" {
+		if err := ensureCodeHost(); err != nil {
+			return "", err
+		}
+		facts, merged, err := mergedPullRequestFacts(githubCtx, github, agentPRURL)
+		if err == nil && merged {
+			return agentPRURL, mergedPullRequestTerminalError(facts)
+		}
+	}
 	if _, err := sh.CaptureEnvWithOutputContextTimeout(ctx, "git push --force-with-lease origin HEAD:refs/heads/"+sh.Quote(branch), workspace, githubEnv, true, config.Budget.CommandTimeout); err != nil {
 		return "", fmt.Errorf("git push failed for %s: %w", branch, err)
 	}
 
-	github, githubCtx, cancel, err := codeHostClientWithContextTimeout(ctx, config, config.Budget.GitHubTimeout)
-	if err != nil {
+	if err := ensureCodeHost(); err != nil {
 		return "", err
 	}
-	defer cancel()
 	if strings.TrimSpace(agentPRURL) != "" {
 		resolved, reason, used, err := validateAdvisoryPRForHandoff(githubCtx, github, config, candidate, agentPRURL)
 		if err != nil {

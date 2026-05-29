@@ -580,6 +580,79 @@ func TestRunQueuedMergeWorkerTaskClaimsTaskAndRefreshesOpenPR(t *testing.T) {
 	}
 }
 
+func TestRunQueuedMergeWorkerTaskConvergesAlreadyMergedMissingOpenPR(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-192")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := sh.Run("git init -q", workspace); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	pr := pullRequestSummary{
+		Number:      192,
+		URL:         "https://github.com/weskor/agent-machine/pull/192",
+		BaseRefName: "develop",
+		HeadRefName: expectedWorkspaceBranch("CAG-192"),
+	}
+	if err := store.UpsertAttemptResult(context.Background(), state.AttemptResult{
+		IssueKey:      "CAG-192",
+		IssueID:       "issue-id",
+		Attempt:       1,
+		WorkspacePath: workspace,
+		BranchName:    expectedWorkspaceBranch("CAG-192"),
+		BaseBranch:    "develop",
+		Status:        runAttemptStatusSuccess,
+		Repository:    "weskor/agent-machine",
+		PRNumber:      pr.Number,
+		PRURL:         pr.URL,
+		ReviewStatus:  "passed",
+		ReviewPassed:  true,
+		MergeEligible: true,
+		UpdatedAt:     time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	candidate := testIssue("CAG-192", "Human Review")
+	if _, enqueued, err := enqueueMergeWorkerTask(context.Background(), store, candidate, pr, time.Now().UTC()); err != nil || !enqueued {
+		t.Fatalf("enqueueMergeWorkerTask() enqueued=%v err=%v", enqueued, err)
+	}
+	withFakeGitHubAPI(t, fakeGitHubAPI{state: "MERGED", merged: true})
+	var updatedStates []string
+	var comments []string
+	client := mergeTestLinearClient(t, "CAG-192", &updatedStates, &comments)
+	config := testRunnerConfig(root)
+	config.HandoffState = "Human Review"
+	config.DoneState = "Done"
+	config.BaseBranch = "develop"
+
+	didWork, err := runQueuedMergeWorkerTask(client, config, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didWork {
+		t.Fatal("didWork=false; want queued merged PR task handled")
+	}
+	if len(updatedStates) != 1 || updatedStates[0] != "done-id" {
+		t.Fatalf("updated states = %#v, want Done transition", updatedStates)
+	}
+	if _, err := os.Stat(workspace); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("workspace stat err = %v; want already-merged cleanup to remove workspace", err)
+	}
+	results, err := store.WorkerResults(context.Background(), mergeWorkerRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Reason != terminalPRReasonAlreadyMerged || results[0].Status != "completed" {
+		t.Fatalf("merge results = %+v; want completed %s", results, terminalPRReasonAlreadyMerged)
+	}
+}
+
 func TestMergeWorkerRoutesChangesRequestedBackToReady(t *testing.T) {
 	root := t.TempDir()
 	store, err := state.Open(context.Background(), state.DefaultDBPath(root))

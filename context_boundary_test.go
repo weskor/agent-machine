@@ -101,7 +101,7 @@ func TestWorkerContextBoundariesDoNotUseBackgroundContext(t *testing.T) {
 			"createCommentContext",
 			"issueByIdentifierContext",
 		},
-		"linear_status_worker.go": {
+		"internal/linearstatus/worker.go": {
 			"MoveToContext",
 			"CommentContext",
 		},

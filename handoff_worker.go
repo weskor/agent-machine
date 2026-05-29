@@ -65,7 +65,7 @@ func (w handoffWorker) Execute(ctx context.Context) (handoffWorkerResult, error)
 	if err := ctx.Err(); err != nil {
 		return handoffWorkerResult{Summary: &summary, Terminal: true}, err
 	}
-	linearStatus := linearStatusWorker{client: w.client, candidate: w.candidate, states: w.states}
+	linearStatus := newLinearStatusWorker(w.client, w.candidate, w.states)
 	if stateID(w.states, w.config.HandoffState) != "" {
 		if _, err := linearStatus.MoveToContext(ctx, w.config.HandoffState); err != nil {
 			writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, w.review, w.prURL, runAttemptStatusFailed, err.Error(), w.config.Budget.Active(), ""))

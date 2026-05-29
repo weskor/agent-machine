@@ -99,7 +99,7 @@ func executeSemanticReview(ctx context.Context, w reviewWorker) (reviewWorkerRes
 	if err := ctx.Err(); err != nil {
 		return reviewWorkerResult{Terminal: true}, err
 	}
-	linearStatus := linearStatusWorker{client: w.client, candidate: w.candidate, states: w.states}
+	linearStatus := newLinearStatusWorker(w.client, w.candidate, w.states)
 	readiness := newReviewReadinessModule(w.config.WorkspaceRoot)
 	evidence, err := collectReviewEvidenceForWorker(ctx, w.config, w.candidate, w.workspace, w.prURL, w.scopeResult, w.validation)
 	if err != nil {

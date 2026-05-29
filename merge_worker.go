@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/weskor/agent-machine/internal/linearstatus"
 	orchstate "github.com/weskor/agent-machine/internal/state"
 )
 
@@ -41,7 +42,7 @@ func (w mergeWorker) HandlePullRequest(ctx context.Context, pr pullRequestSummar
 		recordMergeErrorContext(ctx, w.store, candidate.Identifier, candidate.ID, pr.Number, err)
 		return err
 	}
-	linearStatus := linearStatusWorker{client: w.client, candidate: candidate, states: states}
+	linearStatus := newLinearStatusWorker(w.client, candidate, states)
 	gate := evaluatePullRequestMergeGate(pr)
 	if hasString(gate.Codes(), "merge_conflict") {
 		reason := gate.Reason()
@@ -82,7 +83,7 @@ func (w mergeWorker) HandlePullRequest(ctx context.Context, pr pullRequestSummar
 	}
 }
 
-func (w mergeWorker) handleApprovedPR(ctx context.Context, candidate *issue, states []workflowState, linearStatus linearStatusWorker, pr pullRequestSummary, decision reconciliationDecision) error {
+func (w mergeWorker) handleApprovedPR(ctx context.Context, candidate *issue, states []workflowState, linearStatus linearstatus.Worker, pr pullRequestSummary, decision reconciliationDecision) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -133,7 +134,7 @@ func (w mergeWorker) handleApprovedPR(ctx context.Context, candidate *issue, sta
 	return nil
 }
 
-func (w mergeWorker) handleChangesRequestedPR(ctx context.Context, candidate *issue, states []workflowState, linearStatus linearStatusWorker, pr pullRequestSummary) error {
+func (w mergeWorker) handleChangesRequestedPR(ctx context.Context, candidate *issue, states []workflowState, linearStatus linearstatus.Worker, pr pullRequestSummary) error {
 	feedback, err := collectPRFeedback(pr.URL, pr.Number)
 	if err != nil {
 		return err

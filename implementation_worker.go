@@ -41,7 +41,7 @@ type implementationWorkerResult struct {
 }
 
 func (w implementationWorker) Prepare(ctx context.Context) error {
-	linearStatus := linearStatusWorker{client: w.client, candidate: w.candidate, states: w.states}
+	linearStatus := newLinearStatusWorker(w.client, w.candidate, w.states)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func (w implementationWorker) Prepare(ctx context.Context) error {
 }
 
 func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]string, githubAuth string) (implementationWorkerResult, error) {
-	linearStatus := linearStatusWorker{client: w.client, candidate: w.candidate, states: w.states}
+	linearStatus := newLinearStatusWorker(w.client, w.candidate, w.states)
 	promptPath := filepath.Join(w.workspace, ".am-prompt.md")
 	runtime, err := newAgentRuntime(w.config.RuntimeProvider)
 	if err != nil {

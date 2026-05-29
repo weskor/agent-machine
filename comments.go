@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weskor/agent-machine/internal/commenttext"
 	"github.com/weskor/agent-machine/internal/runclassification"
 )
 
@@ -203,60 +204,7 @@ func validationLines(output string) []string {
 }
 
 func issueDescriptionSectionLines(description string, names ...string) []string {
-	if strings.TrimSpace(description) == "" {
-		return nil
-	}
-	wanted := map[string]bool{}
-	for _, name := range names {
-		wanted[normalizeIssueSectionName(name)] = true
-	}
-	inSection := false
-	var lines []string
-	for _, line := range strings.Split(description, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			if inSection && len(lines) > 0 {
-				break
-			}
-			continue
-		}
-		if name, ok := issueSectionHeading(trimmed); ok {
-			if inSection && len(lines) > 0 {
-				break
-			}
-			inSection = wanted[normalizeIssueSectionName(name)]
-			continue
-		}
-		if !inSection {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "-") || strings.HasPrefix(trimmed, "*") {
-			lines = append(lines, sanitizeMarkdownLine(strings.TrimSpace(strings.TrimLeft(trimmed, "-* "))))
-			continue
-		}
-		lines = append(lines, sanitizeMarkdownLine(trimmed))
-	}
-	return uniqueStrings(lines)
-}
-
-func issueSectionHeading(line string) (string, bool) {
-	trimmed := strings.TrimSpace(line)
-	trimmed = strings.TrimLeft(trimmed, "#")
-	trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, ":"))
-	if trimmed == "" || len(trimmed) > 80 {
-		return "", false
-	}
-	lower := strings.ToLower(trimmed)
-	switch lower {
-	case "goal", "scope", "requirements", "acceptance criteria", "validation", "out of scope", "out-of-scope", "out of scope paths", "out-of-scope paths", "risks":
-		return lower, true
-	default:
-		return "", false
-	}
-}
-
-func normalizeIssueSectionName(name string) string {
-	return strings.ToLower(strings.TrimSpace(strings.Trim(name, "#: ")))
+	return commenttext.SectionLines(description, names...)
 }
 
 func followUpLines(review *reviewResult) []string {
@@ -277,55 +225,21 @@ func firstNonMarkerLine(text string) string {
 }
 
 func writeBoundedBullets(builder *strings.Builder, values []string, empty string, limit int) {
-	if len(values) == 0 {
-		fmt.Fprintf(builder, "- %s\n", empty)
-		return
-	}
-	for i, value := range values {
-		if i >= limit {
-			fmt.Fprintf(builder, "- …and %d more.\n", len(values)-limit)
-			return
-		}
-		fmt.Fprintf(builder, "- %s\n", sanitizeMarkdownLine(value))
-	}
+	commenttext.WriteBoundedBullets(builder, values, empty, limit)
 }
 
 func markdownLink(label, target string) string {
-	label = sanitizeMarkdownLine(label)
-	target = strings.TrimSpace(target)
-	if target == "" {
-		return label
-	}
-	return fmt.Sprintf("[%s](%s)", label, target)
+	return commenttext.MarkdownLink(label, target)
 }
 
 func sanitizeMarkdownLine(value string) string {
-	value = strings.ReplaceAll(value, "\r", " ")
-	value = strings.ReplaceAll(value, "\n", " ")
-	value = strings.ReplaceAll(value, "`", "'")
-	value = strings.Join(strings.Fields(value), " ")
-	return truncateMarkdown(value, 240)
+	return commenttext.SanitizeLine(value)
 }
 
 func truncateMarkdown(value string, limit int) string {
-	if len(value) <= limit {
-		return value
-	}
-	if limit <= 1 {
-		return "…"
-	}
-	return strings.TrimSpace(value[:limit-1]) + "…"
+	return commenttext.Truncate(value, limit)
 }
 
 func uniqueStrings(values []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, value := range values {
-		if value == "" || seen[value] {
-			continue
-		}
-		seen[value] = true
-		out = append(out, value)
-	}
-	return out
+	return commenttext.Unique(values)
 }

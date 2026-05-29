@@ -1,15 +1,17 @@
-package main
+package contextboundary
 
 import (
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"testing"
 )
 
 func TestWorkerContextBoundariesDoNotUseBackgroundContext(t *testing.T) {
+	root := repoRoot(t)
 	protected := map[string][]string{
 		"cleanup.go": {
 			"cleanupWorkspacesContext",
@@ -180,9 +182,18 @@ func TestWorkerContextBoundariesDoNotUseBackgroundContext(t *testing.T) {
 
 	for path, funcs := range protected {
 		t.Run(filepath.ToSlash(path), func(t *testing.T) {
-			assertNoContextBackgroundInFunctions(t, path, funcs)
+			assertNoContextBackgroundInFunctions(t, filepath.Join(root, path), funcs)
 		})
 	}
+}
+
+func repoRoot(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
 
 func assertNoContextBackgroundInFunctions(t *testing.T, path string, funcs []string) {

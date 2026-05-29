@@ -1,6 +1,10 @@
 package main
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/weskor/agent-machine/internal/runclassification"
+)
 
 type attemptLifecyclePhase string
 
@@ -55,7 +59,7 @@ func decideAttemptLifecycle(input attemptLifecycleInput) attemptLifecycleDecisio
 		record.ReviewStatus = input.Review.Status
 		record.ReviewClassification = input.Review.Classification
 	}
-	classification := classifyRun(runClassificationInput{
+	classification := runclassification.Classify(runclassification.Input{
 		Record:        record,
 		NeedsInfoUsed: record.Status == runAttemptStatusNeedsInfo || record.Status == runAttemptStatusNeedsInfoFail || len(input.NeedsInfoQuestions) > 0,
 	})

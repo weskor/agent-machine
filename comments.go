@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/weskor/agent-machine/internal/runclassification"
 )
 
 type handoffSummary struct {
@@ -18,7 +20,7 @@ type handoffSummary struct {
 	Validation       []string
 	ScopeResult      scopeGuardResult
 	FollowUps        []string
-	Classification   *runClassification
+	Classification   *runclassification.Classification
 	PRDetails        *prHandoffDetails
 	Progress         *runProgressSnapshot
 }

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/weskor/agent-machine/internal/behaviorcontract"
+	"github.com/weskor/agent-machine/internal/runclassification"
 	"github.com/weskor/agent-machine/internal/ticketcontract"
 )
 
@@ -62,7 +63,7 @@ func (o runAttemptOutcome) TerminalOutcomeIntent() string {
 		record.ReviewStatus = o.Review.Status
 		record.ReviewClassification = o.Review.Classification
 	}
-	classification := classifyRun(runClassificationInput{Record: record, NeedsInfoUsed: o.Status == runAttemptStatusNeedsInfo || o.Status == runAttemptStatusNeedsInfoFail})
+	classification := runclassification.Classify(runclassification.Input{Record: record, NeedsInfoUsed: o.Status == runAttemptStatusNeedsInfo || o.Status == runAttemptStatusNeedsInfoFail})
 	return classification.Outcome
 }
 

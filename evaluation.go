@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	artifactio "github.com/weskor/agent-machine/internal/artifacts"
+	"github.com/weskor/agent-machine/internal/runclassification"
 )
 
 const evaluationArtifactName = artifactio.EvaluationName
@@ -71,6 +72,27 @@ func evaluationForRun(workspace string, record runRecord) evaluationArtifact {
 	evaluation.ShouldRetry = classification.ShouldRetry
 	evaluation.OperatorAttentionRequired = classification.OperatorAttentionRequired
 	return evaluation
+}
+
+func classifyRunRecord(workspace string, record runRecord) runclassification.Classification {
+	return runclassification.Classify(runclassification.Input{
+		Record:             record,
+		FeedbackRetryCount: feedbackRetryCount(workspace),
+		NeedsInfoUsed:      strings.HasPrefix(record.Status, "needs_info"),
+		MergeBlockReason:   mergeBlockReason(record),
+		TotalTokens:        runRecordTotalTokens(record),
+	})
+}
+
+func runRecordTotalTokens(record runRecord) float64 {
+	var total float64
+	if usage := recordRuntimeUsage(record); usage != nil {
+		total += usage.TotalTokens
+	}
+	if record.ReviewUsage != nil {
+		total += record.ReviewUsage.TotalTokens
+	}
+	return total
 }
 
 func hasString(values []string, needle string) bool {

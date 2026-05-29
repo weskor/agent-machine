@@ -14,7 +14,6 @@ import (
 	"github.com/weskor/agent-machine/internal/runclassification"
 	"github.com/weskor/agent-machine/internal/runledger"
 	"github.com/weskor/agent-machine/internal/runprogress"
-	sh "github.com/weskor/agent-machine/internal/shell"
 	"github.com/weskor/agent-machine/internal/state"
 	"github.com/weskor/agent-machine/internal/stateprojection"
 	ws "github.com/weskor/agent-machine/internal/workspace"
@@ -79,42 +78,7 @@ func ensureIsolatedWorkspace(workspaceRoot, workspace, identifier string) error 
 }
 
 func ensureIsolatedWorkspaceContext(ctx context.Context, workspaceRoot, workspace, identifier string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := assertSafeDeletePath(workspaceRoot, workspace); err != nil {
-		return err
-	}
-	topLevel, err := sh.CaptureQuietContext(ctx, "git rev-parse --show-toplevel", workspace)
-	if err != nil {
-		return fmt.Errorf("workspace %s is not a git checkout: %w", workspace, err)
-	}
-	topAbs, err := filepath.Abs(strings.TrimSpace(topLevel))
-	if err != nil {
-		return err
-	}
-	workspaceAbs, err := filepath.Abs(workspace)
-	if err != nil {
-		return err
-	}
-	if filepath.Clean(topAbs) != filepath.Clean(workspaceAbs) {
-		return fmt.Errorf("refusing shared git checkout: top-level %s does not match workspace %s", strings.TrimSpace(topLevel), workspace)
-	}
-	branch := expectedWorkspaceBranch(identifier)
-	current, err := currentGitBranchContext(ctx, workspace)
-	if err != nil {
-		return err
-	}
-	if current == branch {
-		return nil
-	}
-	if current != "" && strings.HasPrefix(current, "am/") {
-		return fmt.Errorf("workspace %s is on unexpected Agent Machine branch %q; expected %q", workspace, current, branch)
-	}
-	if err := sh.RunWithContext(ctx, "git switch -C "+sh.Quote(branch), workspace); err != nil {
-		return err
-	}
-	return nil
+	return ws.EnsureIsolatedContext(ctx, workspaceRoot, workspace, expectedWorkspaceBranch(identifier))
 }
 
 func writeRunRecord(workspace string, record runRecord) {

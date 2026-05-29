@@ -602,56 +602,6 @@ func TestRenderNeedsInfoCommentNumbersQuestions(t *testing.T) {
 	}
 }
 
-func TestEnsureIsolatedWorkspaceSwitchesFromBaseBranch(t *testing.T) {
-	root := t.TempDir()
-	workspace := filepath.Join(root, "CAG-31")
-	if err := os.MkdirAll(workspace, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := sh.Run("git init -q && git checkout -q -b develop", workspace); err != nil {
-		t.Fatal(err)
-	}
-	if err := ensureIsolatedWorkspace(root, workspace, "CAG-31"); err != nil {
-		t.Fatal(err)
-	}
-	branch, err := currentGitBranch(workspace)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if branch != "am/CAG-31-workspace" {
-		t.Fatalf("branch = %q", branch)
-	}
-}
-
-func TestEnsureIsolatedWorkspaceRefusesSharedCheckout(t *testing.T) {
-	parent := t.TempDir()
-	if err := sh.Run("git init -q", parent); err != nil {
-		t.Fatal(err)
-	}
-	root := filepath.Join(parent, ".am", "workspaces")
-	workspace := filepath.Join(root, "CAG-32")
-	if err := os.MkdirAll(workspace, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := ensureIsolatedWorkspace(root, workspace, "CAG-32"); err == nil || !strings.Contains(err.Error(), "shared git checkout") {
-		t.Fatalf("expected shared checkout refusal, got %v", err)
-	}
-}
-
-func TestEnsureIsolatedWorkspaceRefusesOtherAgentMachineBranch(t *testing.T) {
-	root := t.TempDir()
-	workspace := filepath.Join(root, "CAG-33")
-	if err := os.MkdirAll(workspace, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := sh.Run("git init -q && git checkout -q -b am/CAG-99-workspace", workspace); err != nil {
-		t.Fatal(err)
-	}
-	if err := ensureIsolatedWorkspace(root, workspace, "CAG-33"); err == nil || !strings.Contains(err.Error(), "unexpected Agent Machine branch") {
-		t.Fatalf("expected branch refusal, got %v", err)
-	}
-}
-
 func TestRunRecordCapturesWorkspaceIsolationFields(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "CAG-34")

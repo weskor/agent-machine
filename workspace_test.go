@@ -241,6 +241,23 @@ func TestWriteRunRecordWithoutWorkspaceRootSkipsSQLiteMirror(t *testing.T) {
 	}
 }
 
+func TestWriteEvaluationArtifactAlongsideRunRecord(t *testing.T) {
+	workspace := t.TempDir()
+	writeEvaluationArtifact(workspace, testWorkspaceRunRecord(workspace, runAttemptStatusSuccess, "https://github.com/weskor/agent-machine/pull/402", nil))
+
+	data, err := os.ReadFile(filepath.Join(workspace, evaluationArtifactName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var evaluation evaluationArtifact
+	if err := json.Unmarshal(data, &evaluation); err != nil {
+		t.Fatal(err)
+	}
+	if evaluation.IssueIdentifier != "CAG-108" {
+		t.Fatalf("unexpected evaluation artifact: %s", string(data))
+	}
+}
+
 func TestWriteRunRecordPersistsSQLiteBeforeArtifactsForTerminalOutcomes(t *testing.T) {
 	ctx := context.Background()
 	statuses := []struct {

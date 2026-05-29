@@ -208,3 +208,12 @@ func countScenarioCall(calls []string, want string) int {
 	}
 	return count
 }
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, needle) {
+			return true
+		}
+	}
+	return false
+}

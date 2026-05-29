@@ -937,3 +937,9 @@ func TestFeedbackAlreadyAddressedDoesNotFallbackToArtifacts(t *testing.T) {
 		t.Fatal("artifact-only feedback should not drive merge retry suppression")
 	}
 }
+
+func testRunRecord(status, prURL string) runRecord {
+	started := time.Date(2026, 5, 17, 1, 0, 0, 0, time.UTC)
+	ended := started.Add(2 * time.Minute)
+	return runRecord{IssueIdentifier: "CAG-19", IssueID: "issue-id", IssueTitle: "Add evaluations", IssueURL: "https://linear.app/example/issue/CAG-19", Workspace: "/tmp/CAG-19", StartedAt: started, EndedAt: ended, DurationMS: ended.Sub(started).Milliseconds(), PRURL: prURL, Status: status}
+}

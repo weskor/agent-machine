@@ -95,18 +95,7 @@ func validationLines(output string) []string {
 	if text == "" {
 		text = output
 	}
-	var lines []string
-	for _, line := range strings.Split(text, "\n") {
-		clean := sanitizeMarkdownLine(strings.Trim(line, " -•\t`"))
-		lower := strings.ToLower(clean)
-		if clean == "" || len(clean) > 180 {
-			continue
-		}
-		if strings.Contains(lower, "bun run ") || strings.Contains(lower, "git diff --check") || strings.Contains(lower, "go test") || strings.Contains(lower, "validation") {
-			lines = append(lines, clean)
-		}
-	}
-	return uniqueStrings(lines)
+	return commenttext.ValidationLines(text)
 }
 
 func issueDescriptionSectionLines(description string, names ...string) []string {

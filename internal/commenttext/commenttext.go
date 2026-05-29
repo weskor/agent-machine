@@ -42,6 +42,21 @@ func SectionLines(description string, names ...string) []string {
 	return Unique(lines)
 }
 
+func ValidationLines(text string) []string {
+	var lines []string
+	for _, line := range strings.Split(text, "\n") {
+		clean := SanitizeLine(strings.Trim(line, " -•\t`"))
+		lower := strings.ToLower(clean)
+		if clean == "" || len(clean) > 180 {
+			continue
+		}
+		if strings.Contains(lower, "bun run ") || strings.Contains(lower, "git diff --check") || strings.Contains(lower, "go test") || strings.Contains(lower, "validation") {
+			lines = append(lines, clean)
+		}
+	}
+	return Unique(lines)
+}
+
 func WriteBoundedBullets(builder *strings.Builder, values []string, empty string, limit int) {
 	if len(values) == 0 {
 		fmt.Fprintf(builder, "- %s\n", empty)

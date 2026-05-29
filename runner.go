@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	backfillstate "github.com/weskor/agent-machine/internal/backfill"
 	"github.com/weskor/agent-machine/internal/cli"
 	cfg "github.com/weskor/agent-machine/internal/config"
 	"github.com/weskor/agent-machine/internal/doctor"
@@ -38,7 +39,7 @@ func orchestratorRunner() orchestrator.Runner[linearClient, runnerConfig] {
 	}
 	modes := orchestrator.ModeOperationFuncs[linearClient, runnerConfig]{
 		BackfillFunc: func(root string) (cli.BackfillSummary, error) {
-			summary, err := backfillStateFromArtifacts(root)
+			summary, err := backfillstate.StateFromArtifacts(root, artifactManager(), stateProjectionCore())
 			return cli.BackfillSummary{
 				Scanned:              summary.Scanned,
 				Seeded:               summary.Seeded,
@@ -282,7 +283,7 @@ func printDoctor(config runnerConfig) error {
 	return report.Err()
 }
 
-func convertBackfillSkipped(skipped []backfillSkip) []cli.BackfillSkipped {
+func convertBackfillSkipped(skipped []backfillstate.Skip) []cli.BackfillSkipped {
 	converted := make([]cli.BackfillSkipped, 0, len(skipped))
 	for _, item := range skipped {
 		converted = append(converted, cli.BackfillSkipped{Workspace: item.Workspace, Reason: item.Reason})

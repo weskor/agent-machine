@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	backfillstate "github.com/weskor/agent-machine/internal/backfill"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -45,7 +47,7 @@ func TestBackfillStateFromArtifactsSeedsSQLiteIdempotently(t *testing.T) {
 	writeJSON(t, filepath.Join(workspace, evaluationArtifactName), evaluationForRun(workspace, record))
 
 	for i := 0; i < 2; i++ {
-		summary, err := backfillStateFromArtifacts(workspaceRoot)
+		summary, err := backfillstate.StateFromArtifacts(workspaceRoot, artifactManager(), stateProjectionCore())
 		if err != nil {
 			t.Fatalf("backfill run %d error = %v", i+1, err)
 		}
@@ -81,7 +83,7 @@ func TestBackfillStateFromArtifactsSkipsMalformedAndHiddenWorkspaces(t *testing.
 	}
 	writeJSON(t, filepath.Join(hidden, ".am-run.json"), runRecord{IssueIdentifier: "CAG-hidden", Status: "success"})
 
-	summary, err := backfillStateFromArtifacts(workspaceRoot)
+	summary, err := backfillstate.StateFromArtifacts(workspaceRoot, artifactManager(), stateProjectionCore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +112,7 @@ func TestBackfillStateFromArtifactsMarksConflictingIssueArtifactsForReconciliati
 	writeJSON(t, filepath.Join(newer, ".am-run.json"), runRecord{IssueIdentifier: "CAG-69", Workspace: newer, WorkspaceRoot: workspaceRoot, Status: "review_failed", PRURL: "https://github.com/acme/repo/pull/69", EndedAt: time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)})
 	writeJSON(t, filepath.Join(older, ".am-run.json"), runRecord{IssueIdentifier: "CAG-69", Workspace: older, WorkspaceRoot: workspaceRoot, Status: "success", PRURL: "https://github.com/acme/repo/pull/69", EndedAt: time.Date(2026, 5, 19, 11, 0, 0, 0, time.UTC)})
 
-	summary, err := backfillStateFromArtifacts(workspaceRoot)
+	summary, err := backfillstate.StateFromArtifacts(workspaceRoot, artifactManager(), stateProjectionCore())
 	if err != nil {
 		t.Fatal(err)
 	}

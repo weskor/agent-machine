@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/weskor/agent-machine/internal/runledger"
+	"github.com/weskor/agent-machine/internal/terminalpr"
 )
 
 const runProgressArtifactName = "progress.json"
@@ -94,6 +95,30 @@ func writeRunProgress(workspaceRoot string, snapshot runProgressSnapshot) {
 	if err := writeRunProgressResult(workspaceRoot, snapshot); err != nil {
 		log("failed to write run progress for %s: %v", snapshot.IssueIdentifier, err)
 	}
+}
+
+func writeTerminalPullRequestProgress(config runnerConfig, candidate *issue, workspace, branch string, progressStarted time.Time, facts terminalpr.Facts) {
+	snapshot := runProgressForIssue(candidate, workspace, "completed", progressStarted)
+	snapshot.Status = runAttemptStatusSuccess
+	snapshot.Outcome = facts.Reason
+	snapshot.Branch = branch
+	snapshot.PRURL = facts.PRURL
+	snapshot.NextAction = "cleanup_workspace"
+	writeRunProgress(config.WorkspaceRoot, snapshot)
+}
+
+func completeTerminalPullRequestHandoffProgress(config runnerConfig, candidate *issue, workspace, branch string, progressStarted time.Time, fallbackPRURL string, err error) bool {
+	facts, ok := terminalpr.FactsFromError(err, fallbackPRURL)
+	if !ok {
+		return false
+	}
+	writeTerminalPullRequestProgress(config, candidate, workspace, branch, progressStarted, facts)
+	identifier := ""
+	if candidate != nil {
+		identifier = candidate.Identifier
+	}
+	log("%s PR handoff stopped because PR is already merged: %s", emptyAsUnknown(identifier), facts.PRURL)
+	return true
 }
 
 func writeRunProgressResult(workspaceRoot string, snapshot runProgressSnapshot) error {

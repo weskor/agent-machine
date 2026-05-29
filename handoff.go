@@ -13,6 +13,7 @@ import (
 	"github.com/weskor/agent-machine/internal/codehost"
 	sh "github.com/weskor/agent-machine/internal/shell"
 	"github.com/weskor/agent-machine/internal/state"
+	"github.com/weskor/agent-machine/internal/terminalpr"
 )
 
 const runProgressPhasePRHandoffPending = "pr_handoff_pending"
@@ -258,9 +259,9 @@ func executeRunnerPRHandoffContext(ctx context.Context, config runnerConfig, can
 		if err := ensureCodeHost(); err != nil {
 			return "", err
 		}
-		facts, merged, err := mergedPullRequestFacts(githubCtx, github, agentPRURL)
+		facts, merged, err := terminalpr.MergedFacts(githubCtx, github, agentPRURL)
 		if err == nil && merged {
-			return agentPRURL, mergedPullRequestTerminalError(facts)
+			return agentPRURL, terminalpr.TerminalError(facts)
 		}
 	}
 	if _, err := sh.CaptureEnvWithOutputContextTimeout(ctx, "git push --force-with-lease origin HEAD:refs/heads/"+sh.Quote(branch), workspace, githubEnv, true, config.Budget.CommandTimeout); err != nil {

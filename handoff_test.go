@@ -10,6 +10,7 @@ import (
 
 	sh "github.com/weskor/agent-machine/internal/shell"
 	"github.com/weskor/agent-machine/internal/state"
+	"github.com/weskor/agent-machine/internal/terminalpr"
 )
 
 func TestEnsureRunnerPRHandoffCreatesPRWhenAgentEmitsNoURL(t *testing.T) {
@@ -251,7 +252,7 @@ func TestExecuteRunnerPRHandoffStopsBeforePushWhenAdvisoryPRAlreadyMerged(t *tes
 	withFakeGitHubAPI(t, fakeGitHubAPI{state: "MERGED", merged: true})
 
 	gotPRURL, err := executeRunnerPRHandoffContext(context.Background(), config, &candidate, workspace, prURL, nil)
-	if !errors.Is(err, errTerminalPullRequest) {
+	if !errors.Is(err, terminalpr.ErrTerminalPullRequest) {
 		t.Fatalf("executeRunnerPRHandoffContext() error = %v; want terminal PR", err)
 	}
 	if gotPRURL != prURL {

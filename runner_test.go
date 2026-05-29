@@ -57,6 +57,77 @@ func TestTUIEnvironmentPreservesExistingAMBin(t *testing.T) {
 	}
 }
 
+func TestNewAgentRuntimeRejectsUnsupportedProvider(t *testing.T) {
+	removedSessionProvider := "codex_" + "app_server"
+	_, err := newAgentRuntime(removedSessionProvider)
+	if err == nil || !strings.Contains(err.Error(), "unsupported runtime.provider") || !strings.Contains(err.Error(), "codex_cli") || !strings.Contains(err.Error(), "claude_cli") {
+		t.Fatalf("expected unsupported provider error, got %v", err)
+	}
+	supportedList := err.Error()
+	if marker := strings.Index(supportedList, "supported providers:"); marker >= 0 {
+		supportedList = supportedList[marker:]
+	}
+	if strings.Contains(supportedList, removedSessionProvider) {
+		t.Fatalf("removed provider should not be advertised as supported, got %v", err)
+	}
+}
+
+func TestNewAgentRuntimeSupportsClaudeProvider(t *testing.T) {
+	runtime, err := newAgentRuntime("claude_cli")
+	if err != nil {
+		t.Fatalf("newAgentRuntime returned error: %v", err)
+	}
+	if runtime == nil {
+		t.Fatal("expected claude runtime")
+	}
+}
+
+func TestFirstPRURL(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
+	output := "opened https://github.com/weskor/agent-machine/pull/123 and then https://github.com/weskor/agent-machine/pull/456"
+	if got := firstPRURL(output); got != "https://github.com/weskor/agent-machine/pull/123" {
+		t.Fatalf("unexpected PR URL: %q", got)
+	}
+}
+
+func TestFirstPRURLPrefersAssistantTextOverRawJSONL(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
+	output := `{"message":{"role":"user","content":[{"type":"text","text":"ignore old https://github.com/weskor/agent-machine/pull/2"}]}}
+{"message":{"role":"assistant","content":[{"type":"text","text":"opened https://github.com/weskor/agent-machine/pull/400"}]}}
+`
+
+	if got := firstPRURL(output); got != "https://github.com/weskor/agent-machine/pull/400" {
+		t.Fatalf("unexpected PR URL: %q", got)
+	}
+}
+
+func TestFirstPRURLDetectsConfiguredAgentMachineRepositoryFromJSONL(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
+	output := `{"message":{"role":"assistant","content":[{"type":"text","text":"opened https://github.com/weskor/agent-machine/pull/1"}]}}
+`
+
+	if got := firstPRURL(output); got != "https://github.com/weskor/agent-machine/pull/1" {
+		t.Fatalf("unexpected PR URL: %q", got)
+	}
+}
+
+func TestClaudeResultTextDrivesRuntimeMarkersFromJSON(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
+	output := `{"type":"result","result":"NEEDS_INFO\n1. Which tenant?\n\nREVIEW_FAIL\nREVIEW_CLASSIFICATION: missing_evidence_only\nhttps://github.com/weskor/agent-machine/pull/123"}`
+	if got := firstPRURLFromClaudeOutput(output); got != "https://github.com/weskor/agent-machine/pull/123" {
+		t.Fatalf("unexpected PR URL: %q", got)
+	}
+	if got := claudeNeedsInfoQuestionsToRuntime(output); len(got) != 1 || got[0] != "1. Which tenant?" {
+		t.Fatalf("unexpected needs-info questions: %#v", got)
+	}
+	if got := claudeReviewStatus(output); got != "failed" {
+		t.Fatalf("unexpected review status: %q", got)
+	}
+	if got := claudeReviewClassification("failed", output); got != "missing_evidence_only" {
+		t.Fatalf("unexpected review classification: %q", got)
+	}
+}
+
 func TestHasUnresolvedReviewFailure(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "CAG-1")

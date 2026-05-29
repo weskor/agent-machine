@@ -170,6 +170,31 @@ func TestFeedbackHashAndUsageParsingCompatibility(t *testing.T) {
 	}
 }
 
+func TestParseUsageReturnsLastTokenUsageEvent(t *testing.T) {
+	output := `plain log line
+{"message":{"usage":{"input":10,"output":2,"cacheRead":3,"cacheWrite":0,"totalTokens":15,"cost":{"input":0.1,"output":0.2,"cacheRead":0.03,"cacheWrite":0,"total":0.33}}}}
+{"message":{"usage":{"input":20,"output":4,"cacheRead":6,"cacheWrite":1,"totalTokens":31,"cost":{"total":0.44}}}}
+`
+
+	got := ParseUsage(output)
+	if got == nil {
+		t.Fatal("expected usage")
+	}
+	if got.TotalTokens != 31 || got.Input != 20 || got.Output != 4 || got.CacheRead != 6 || got.CacheWrite != 1 {
+		t.Fatalf("unexpected usage: %+v", got)
+	}
+	if got.TotalCost() != 0.44 {
+		t.Fatalf("unexpected cost: %v", got.TotalCost())
+	}
+}
+
+func TestParseUsageIgnoresEmptyUsageEvents(t *testing.T) {
+	output := `{"message":{"usage":{"input":10,"totalTokens":0}}}`
+	if got := ParseUsage(output); got != nil {
+		t.Fatalf("expected nil usage, got %+v", got)
+	}
+}
+
 func TestParseUsageContinuesAfterLongJSONLLine(t *testing.T) {
 	longLine := `{"message":{"content":"` + strings.Repeat("x", 70*1024) + `"}}`
 	output := "noise\n" + longLine + "\n" + `{"message":{"usage":{"totalTokens":9,"cost":{"total":0.02}}}}`

@@ -11,8 +11,10 @@ TUI_BUN_ARCH_amd64 = x64
 TUI_BUN_ARCH_arm64 = arm64
 TUI_BUN_ARCH = $(TUI_BUN_ARCH_$(TUI_GOARCH))
 TUI_BIN = $(TUI_DIST)/agent-machine-tui_$(TUI_GOOS)_$(TUI_GOARCH)
+BUN_TMPDIR ?= /tmp/agent-machine-bun
+BUN_INSTALL ?= /tmp/agent-machine-bun-install
 
-.PHONY: fmt fmt-check vet lint test ci build install-local tui-check tui-build release-check release-snapshot
+.PHONY: fmt fmt-check vet lint test ci build install-local tui-deps tui-check tui-build release-check release-snapshot
 
 build:
 	mkdir -p $(dir $(LOCAL_BIN))
@@ -39,10 +41,15 @@ lint:
 test:
 	go test $(GO_PACKAGES)
 
-ci: fmt-check vet lint test
+# ci is the local all-in validation target: Go gates plus the TUI build check.
+ci: fmt-check vet lint test tui-check
 
-tui-check:
-	cd tui && bun build src/index.ts --target=bun --outdir /tmp/agent-machine-tui-check
+tui-deps:
+	mkdir -p $(BUN_TMPDIR) $(BUN_INSTALL)
+	cd tui && BUN_TMPDIR=$(BUN_TMPDIR) BUN_INSTALL=$(BUN_INSTALL) bun install --frozen-lockfile
+
+tui-check: tui-deps
+	cd tui && BUN_TMPDIR=$(BUN_TMPDIR) BUN_INSTALL=$(BUN_INSTALL) bun build src/index.ts --target=bun --outdir /tmp/agent-machine-tui-check
 
 tui-build:
 	mkdir -p $(TUI_DIST)

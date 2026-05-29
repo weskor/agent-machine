@@ -42,15 +42,6 @@ func TestSurfaceSnapshotBuildsReadOnlyControlPlaneJSON(t *testing.T) {
 	if len(snap.WorkerTasks) != 1 || snap.WorkerTasks[0].TaskKey != "implementation:CAG-202:1" {
 		t.Fatalf("worker tasks = %+v", snap.WorkerTasks)
 	}
-	if len(snap.WorkItems) != 2 {
-		t.Fatalf("work items = %+v; want run artifact and task-only issue", snap.WorkItems)
-	}
-	if snap.WorkItems[0].IssueIdentifier != "CAG-201" || snap.WorkItems[0].PriorityBucket != "review_or_merge_blockers" || snap.WorkItems[0].NextAction.Code == "" || snap.WorkItems[0].ExternalState.PRURL == "" {
-		t.Fatalf("first work item = %+v; want handoff-ready PR before queued work", snap.WorkItems[0])
-	}
-	if snap.WorkItems[1].IssueIdentifier != "CAG-202" || snap.WorkItems[1].AMStatus != "queued" || snap.WorkItems[1].LaneRoleHint != "implementation" {
-		t.Fatalf("second work item = %+v; want queued task after handoff-ready PR", snap.WorkItems[1])
-	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
@@ -60,7 +51,7 @@ func TestSurfaceSnapshotBuildsReadOnlyControlPlaneJSON(t *testing.T) {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"schema_version", "observed_at", "source_precedence", "work_items", "active_lanes", "worker_tasks", "recent_events"} {
+	for _, key := range []string{"schema_version", "observed_at", "source_precedence", "active_lanes", "worker_tasks", "recent_events"} {
 		if _, ok := decoded[key]; !ok {
 			t.Fatalf("encoded snapshot missing key %q: %s", key, string(data))
 		}

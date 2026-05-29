@@ -318,7 +318,7 @@ function issueRows(snapshot: SurfaceSnapshot): IssueRow[] {
       status: clean(issue.am_status) || clean(issue.status) || "n/a",
       lane: clean(issue.lane_role_hint) || clean(task?.role) || "n/a",
       age: clean(issue.age) || relativeAge(issue.updated_at || task?.updated_at || lock?.renewed_at, snapshot.observed_at) || "n/a",
-      attention: clean(issue.attention) || (lock?.stale ? "stale" : "none"),
+      attention: clean(issue.attention) || "n/a",
       issue,
     }
   })

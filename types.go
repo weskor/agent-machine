@@ -9,6 +9,7 @@ import (
 	cleanuppolicy "github.com/weskor/agent-machine/internal/cleanup"
 	"github.com/weskor/agent-machine/internal/domain"
 	gatepkg "github.com/weskor/agent-machine/internal/gate"
+	"github.com/weskor/agent-machine/internal/reviewprompt"
 	"github.com/weskor/agent-machine/internal/runprogress"
 	"github.com/weskor/agent-machine/internal/runtimeadapter"
 	"github.com/weskor/agent-machine/internal/scopeguard"
@@ -33,6 +34,8 @@ type evaluationArtifact = artifactio.EvaluationArtifact
 type runProgressSnapshot = runprogress.Snapshot
 
 type cleanupResult = cleanuppolicy.Decision
+
+type reviewEvidence = reviewprompt.Evidence
 
 type issue = domain.Issue
 

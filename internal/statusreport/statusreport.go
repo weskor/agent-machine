@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	cleanuppolicy "github.com/weskor/agent-machine/internal/cleanup"
 	"github.com/weskor/agent-machine/internal/state"
 )
 
@@ -72,6 +73,31 @@ type WorkerResult struct {
 type StateRow struct {
 	IssueKey, Status, ReviewStatus, PRURL, TerminalOutcome string
 	UpdatedAt                                              time.Time
+}
+
+type ArtifactSummary struct {
+	Issue             string
+	Status            string
+	Review            string
+	PRURL             string
+	Outcome           string
+	RootCause         string
+	NextAction        string
+	ChecksStatus      string
+	MergeBlockReason  string
+	MergeBlockerCodes []string
+	BlockedBy         []string
+	Frictions         []string
+	TotalTokens       float64
+	TotalCost         float64
+	HasArtifact       bool
+	HasEvaluation     bool
+	Cleanable         bool
+	Class             string
+	MergeEligible     bool
+	ShouldRetry       bool
+	OperatorAttention bool
+	TicketContract    []string
 }
 
 func SummarizeSnapshotStateStore(workspaceRoot string, snapshot Snapshot) []string {
@@ -196,6 +222,88 @@ func LoadSnapshotState(ctx context.Context, workspaceRoot string) ([]StateRow, [
 		events = append(events, EventSummary{Sequence: event.Sequence, OccurredAt: event.OccurredAt, IssueKey: event.IssueKey, Source: event.Source, Type: event.Type})
 	}
 	return out, LanesFromHeartbeats(heartbeats), events, WorkerTasksFromState(workerTasks), WorkerResultsFromState(workerResults), health, nil
+}
+
+func SummarizeArtifacts(artifacts []ArtifactSummary) []string {
+	if len(artifacts) == 0 {
+		return []string{"none"}
+	}
+	lines := make([]string, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		if !artifact.HasArtifact {
+			lines = append(lines, fmt.Sprintf("%s missing artifact", artifact.Issue))
+			continue
+		}
+		review := artifact.Review
+		if review == "" {
+			review = "n/a"
+		}
+		cleanable := "actionable"
+		if artifact.Cleanable {
+			cleanable = "historical"
+		}
+		class := artifact.Class
+		if class == "" {
+			class = cleanuppolicy.CategoryForTerminalStatus(artifact.Status)
+		}
+		evaluation := "eval=missing"
+		if artifact.HasEvaluation {
+			evaluation = fmt.Sprintf("outcome=%s root=%s next=%s retry=%t attention=%t merge_eligible=%t blocked_by=%s checks=%s friction=%s ticket_contract=%s", emptyAsNA(artifact.Outcome), emptyAsNA(artifact.RootCause), emptyAsNA(artifact.NextAction), artifact.ShouldRetry, artifact.OperatorAttention, artifact.MergeEligible, summarizeFrictionSignals(artifact.BlockedBy), emptyAsNA(artifact.ChecksStatus), summarizeFrictionSignals(artifact.Frictions), summarizeFrictionSignals(artifact.TicketContract))
+		}
+		lines = append(lines, fmt.Sprintf("%s class=%s status=%s review=%s tokens=%.0f cost=$%.4f bucket=%s pr=%s %s", artifact.Issue, class, artifact.Status, review, artifact.TotalTokens, artifact.TotalCost, cleanable, artifact.PRURL, evaluation))
+	}
+	lines = append(lines, SummarizeRecurringFriction(artifacts, 5)...)
+	return lines
+}
+
+func SummarizeRecurringFriction(artifacts []ArtifactSummary, limit int) []string {
+	counts := map[string]int{}
+	for _, artifact := range artifacts {
+		for _, signal := range artifact.Frictions {
+			counts[signal]++
+		}
+		if artifact.Outcome != "" {
+			counts["outcome:"+artifact.Outcome]++
+		}
+		if artifact.RootCause != "" && artifact.RootCause != "none" {
+			counts["root:"+artifact.RootCause]++
+		}
+		if artifact.NextAction != "" {
+			counts["next:"+artifact.NextAction]++
+		}
+	}
+	if len(counts) == 0 {
+		return nil
+	}
+	type pair struct {
+		Signal string
+		Count  int
+	}
+	pairs := make([]pair, 0, len(counts))
+	for signal, count := range counts {
+		pairs = append(pairs, pair{Signal: signal, Count: count})
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i].Count == pairs[j].Count {
+			return pairs[i].Signal < pairs[j].Signal
+		}
+		return pairs[i].Count > pairs[j].Count
+	})
+	if limit > 0 && len(pairs) > limit {
+		pairs = pairs[:limit]
+	}
+	parts := make([]string, 0, len(pairs))
+	for _, pair := range pairs {
+		parts = append(parts, fmt.Sprintf("%s=%d", pair.Signal, pair.Count))
+	}
+	return []string{fmt.Sprintf("Recurring friction: %s", strings.Join(parts, ", "))}
+}
+
+func summarizeFrictionSignals(signals []string) string {
+	if len(signals) == 0 {
+		return "none"
+	}
+	return strings.Join(signals, ",")
 }
 
 func FormatStateCounts(counts state.Counts) string {

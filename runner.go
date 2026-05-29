@@ -8,11 +8,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/weskor/agent-machine/internal/cli"
 	cfg "github.com/weskor/agent-machine/internal/config"
 	"github.com/weskor/agent-machine/internal/doctor"
 	"github.com/weskor/agent-machine/internal/orchestrator"
+	"github.com/weskor/agent-machine/internal/workertask"
 )
 
 func cliDependencies() cli.Dependencies[linearClient] {
@@ -87,6 +89,24 @@ func orchestratorRunner() orchestrator.Runner[linearClient, runnerConfig] {
 		},
 	}
 	return orchestrator.NewRunner(setup, modes, runnerConfigFromCLI)
+}
+
+func repairWorkerTaskReconciliation(workspaceRoot, taskKey string) error {
+	taskKey = strings.TrimSpace(taskKey)
+	if taskKey == "" {
+		return fmt.Errorf("repair worker task: task key is required")
+	}
+	store, stateDBPath := commandScopedStateStore(context.Background(), workspaceRoot, "repair-worker-task")
+	if store == nil {
+		return fmt.Errorf("SQLite state store unavailable for worker task repair at %s", stateDBPath)
+	}
+	defer store.Close()
+	task, err := workertask.RequeueReconciliationNeeded(context.Background(), store, taskKey, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	log("requeued reconciliation-needed worker task %s role=%s issue=%s", task.TaskKey, task.Role, emptyAsNA(task.IssueKey))
+	return nil
 }
 
 func runnerConfigFromCLI(config cli.Config) runnerConfig {

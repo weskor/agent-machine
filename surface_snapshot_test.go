@@ -107,8 +107,11 @@ func TestSurfaceSnapshotExposesPrioritizedIssueQueueWithEvidence(t *testing.T) {
 	if first.AMStatus != "reconciliation_needed" || first.PriorityBucket != "reconciliation_needed" || first.Attention != "reconciliation_needed" {
 		t.Fatalf("first queue status/priority/attention = %+v", first)
 	}
-	if first.NextAction != "repair_review_findings_before_handoff" || first.BlockerReason != "review did not pass" {
+	if first.NextAction != "repair_state" || first.BlockerReason != "reconciliation_needed" {
 		t.Fatalf("first queue next/blocker = %+v", first)
+	}
+	if first.AgentEvidence.NextAction != "repair_review_findings_before_handoff" || first.AgentEvidence.RootCause != "out_of_scope_diff" {
+		t.Fatalf("first queue agent evidence = %+v", first.AgentEvidence)
 	}
 	if first.LaneRoleHint != "implementation" || first.CurrentActivity.Task != "implementation:CAG-300:1" || first.ExternalState.PR != "https://example.test/pr/300" {
 		t.Fatalf("first queue evidence = %+v", first)

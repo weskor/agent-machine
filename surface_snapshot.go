@@ -370,26 +370,10 @@ func applySurfaceArtifactEvidence(item *surfaceWorkItem, artifact artifactSummar
 	item.AgentEvidence.NextAction = firstSurfaceNonEmpty(item.AgentEvidence.NextAction, artifact.NextAction)
 	item.AgentEvidence.BlockedBy = append([]string{}, artifact.BlockedBy...)
 	item.AgentEvidence.Review = firstSurfaceNonEmpty(item.AgentEvidence.Review, artifact.Review)
-	item.NextAction = firstSurfaceNonEmpty(item.NextAction, artifact.NextAction)
 	item.PRURL = firstSurfaceNonEmpty(item.PRURL, artifact.PRURL)
 	item.Outcome = firstSurfaceNonEmpty(item.Outcome, artifact.Outcome)
 	item.Review = firstSurfaceNonEmpty(item.Review, artifact.Review)
 	item.ExternalState.Checks = firstSurfaceNonEmpty(item.ExternalState.Checks, artifact.ChecksStatus)
-	if artifact.MergeBlockReason != "" {
-		item.BlockerReason = artifact.MergeBlockReason
-	}
-	if item.BlockerReason == "" && len(artifact.MergeBlockerCodes) > 0 {
-		item.BlockerReason = strings.Join(artifact.MergeBlockerCodes, ",")
-	}
-	if item.BlockerReason == "" && artifact.RootCause != "" && artifact.RootCause != "none" {
-		item.BlockerReason = artifact.RootCause
-	}
-	if artifact.OperatorAttention {
-		item.Attention = "operator_review"
-	}
-	if artifact.ShouldRetry {
-		item.Attention = firstSurfaceNonEmpty(item.Attention, "failed")
-	}
 }
 
 func finalizeSurfaceWorkItem(item *surfaceWorkItem, observedAt time.Time) {
@@ -397,7 +381,7 @@ func finalizeSurfaceWorkItem(item *surfaceWorkItem, observedAt time.Time) {
 	item.PriorityBucket, item.priorityRank = surfacePriorityBucket(*item)
 	item.Attention = surfaceAttention(*item)
 	item.LaneRoleHint = surfaceLaneRoleHint(*item)
-	item.NextAction = firstSurfaceNonEmpty(item.NextAction, surfaceNextAction(*item))
+	item.NextAction = surfaceNextAction(*item)
 	item.BlockerReason = firstSurfaceNonEmpty(item.BlockerReason, surfaceBlockerReason(*item))
 	item.Age = surfaceAge(item.UpdatedAt, observedAt)
 	item.ExternalState.Linear = firstSurfaceNonEmpty(item.ExternalState.Linear, item.LinearState)

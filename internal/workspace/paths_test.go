@@ -92,6 +92,54 @@ func TestEnsureRootRejectsUnsafeRoots(t *testing.T) {
 	}
 }
 
+func TestEnsureIsolatedSwitchesFromBaseBranch(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-31")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, workspace, "init", "-q")
+	runGit(t, workspace, "checkout", "-q", "-b", "develop")
+
+	if err := EnsureIsolated(root, workspace, "am/CAG-31-workspace"); err != nil {
+		t.Fatal(err)
+	}
+	branch, err := CurrentGitBranch(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if branch != "am/CAG-31-workspace" {
+		t.Fatalf("branch = %q", branch)
+	}
+}
+
+func TestEnsureIsolatedRefusesSharedCheckout(t *testing.T) {
+	parent := t.TempDir()
+	runGit(t, parent, "init", "-q")
+	root := filepath.Join(parent, ".am", "workspaces")
+	workspace := filepath.Join(root, "CAG-32")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureIsolated(root, workspace, "am/CAG-32-workspace"); err == nil || !strings.Contains(err.Error(), "shared git checkout") {
+		t.Fatalf("expected shared checkout refusal, got %v", err)
+	}
+}
+
+func TestEnsureIsolatedRefusesOtherAgentMachineBranch(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-33")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, workspace, "init", "-q")
+	runGit(t, workspace, "checkout", "-q", "-b", "am/CAG-99-workspace")
+
+	if err := EnsureIsolated(root, workspace, "am/CAG-33-workspace"); err == nil || !strings.Contains(err.Error(), "unexpected Agent Machine branch") {
+		t.Fatalf("expected branch refusal, got %v", err)
+	}
+}
+
 func TestHasChangesIgnoresFalseScratchMarkers(t *testing.T) {
 	workspace := initGitWorkspace(t)
 	if err := os.WriteFile(filepath.Join(workspace, "false"), nil, 0o600); err != nil {

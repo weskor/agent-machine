@@ -137,6 +137,48 @@ func CurrentGitBranchContext(ctx context.Context, workspace string) (string, err
 	return strings.TrimSpace(output), nil
 }
 
+func EnsureIsolated(root, workspace, expectedBranch string) error {
+	return EnsureIsolatedContext(context.Background(), root, workspace, expectedBranch)
+}
+
+func EnsureIsolatedContext(ctx context.Context, root, workspace, expectedBranch string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := AssertSafeDeletePath(root, workspace); err != nil {
+		return err
+	}
+	topLevel, err := sh.CaptureQuietContext(ctx, "git rev-parse --show-toplevel", workspace)
+	if err != nil {
+		return fmt.Errorf("workspace %s is not a git checkout: %w", workspace, err)
+	}
+	topAbs, err := filepath.Abs(strings.TrimSpace(topLevel))
+	if err != nil {
+		return err
+	}
+	workspaceAbs, err := filepath.Abs(workspace)
+	if err != nil {
+		return err
+	}
+	if filepath.Clean(topAbs) != filepath.Clean(workspaceAbs) {
+		return fmt.Errorf("refusing shared git checkout: top-level %s does not match workspace %s", strings.TrimSpace(topLevel), workspace)
+	}
+	current, err := CurrentGitBranchContext(ctx, workspace)
+	if err != nil {
+		return err
+	}
+	if current == expectedBranch {
+		return nil
+	}
+	if current != "" && strings.HasPrefix(current, "am/") {
+		return fmt.Errorf("workspace %s is on unexpected Agent Machine branch %q; expected %q", workspace, current, expectedBranch)
+	}
+	if err := sh.RunWithContext(ctx, "git switch -C "+sh.Quote(expectedBranch), workspace); err != nil {
+		return err
+	}
+	return nil
+}
+
 func HasChanges(workspace string) (bool, error) {
 	output, err := sh.CaptureQuiet("git status --porcelain", workspace)
 	if err != nil {

@@ -14,6 +14,8 @@ import (
 
 type githubAPI = codehost.Client
 
+var defaultGitHubCommandTimeout = 2 * time.Minute
+
 type pullRequestSummary = ghapi.PullRequestSummary
 type prAuthor = ghapi.PRAuthor
 type prCommit = ghapi.PRCommit

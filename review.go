@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/weskor/agent-machine/internal/agentruntime"
+	"github.com/weskor/agent-machine/internal/attemptlifecycle"
 	"github.com/weskor/agent-machine/internal/reviewpolicy"
 	"github.com/weskor/agent-machine/internal/ticketcontract"
 )
@@ -287,5 +288,5 @@ func reviewGuidanceFromEvidence(evidence *reviewEvidence) string {
 }
 
 func reviewFailureRoutesToHumanHandoff(review *reviewResult, prURL string) bool {
-	return review != nil && review.Status == "failed" && review.Classification == reviewClassificationMissingEvidenceOnly && strings.TrimSpace(prURL) != ""
+	return attemptlifecycle.ReviewFailureRoutesToHumanHandoff(review, prURL)
 }

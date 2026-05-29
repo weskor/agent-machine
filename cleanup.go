@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/weskor/agent-machine/internal/codehost"
+	gatepkg "github.com/weskor/agent-machine/internal/gate"
 	orchstate "github.com/weskor/agent-machine/internal/state"
 	ws "github.com/weskor/agent-machine/internal/workspace"
 )
@@ -198,35 +199,35 @@ type cleanupResult struct {
 	WorkspacePath   string
 }
 
-func cleanupGateResult(decision cleanupResult) deterministicGateResult {
+func cleanupGateResult(decision cleanupResult) gatepkg.Result {
 	subject := firstNonEmpty(decision.IssueIdentifier, decision.WorkspacePath)
-	gate := newDeterministicGateResult("cleanup", subject)
-	gate.ReasonText = decision.Reason
-	gate.Metadata = map[string]string{}
+	result := gatepkg.NewResult("cleanup", subject)
+	result.ReasonText = decision.Reason
+	result.Metadata = map[string]string{}
 	if decision.Category != "" {
-		gate.Metadata["category"] = decision.Category
+		result.Metadata["category"] = decision.Category
 	}
 	if decision.ArtifactRef != "" {
-		gate.Metadata["artifact_ref"] = decision.ArtifactRef
+		result.Metadata["artifact_ref"] = decision.ArtifactRef
 	}
 	if decision.WorkspacePath != "" {
-		gate.Metadata["workspace_path"] = decision.WorkspacePath
+		result.Metadata["workspace_path"] = decision.WorkspacePath
 	}
-	if len(gate.Metadata) == 0 {
-		gate.Metadata = nil
+	if len(result.Metadata) == 0 {
+		result.Metadata = nil
 	}
 	if decision.Delete {
-		gate.NextAction = "delete_workspace"
-		return gate
+		result.NextAction = "delete_workspace"
+		return result
 	}
 	code := cleanupGateCode(decision.Category)
 	if decision.Category == "reconciliation-needed" {
-		gate.ReconciliationNeeded(code, decision.Reason, "repair_or_reconcile_cleanup_state")
-		return gate
+		result.ReconciliationNeeded(code, decision.Reason, "repair_or_reconcile_cleanup_state")
+		return result
 	}
-	gate.Block(code, decision.Reason)
-	gate.NextAction = "keep_workspace"
-	return gate
+	result.Block(code, decision.Reason)
+	result.NextAction = "keep_workspace"
+	return result
 }
 
 func cleanupGateCode(category string) string {

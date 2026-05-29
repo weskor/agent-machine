@@ -63,7 +63,7 @@ func TestSurfaceSnapshotExposesPrioritizedIssueQueueWithEvidence(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	now := time.Date(2026, 5, 24, 12, 0, 0, 0, time.UTC)
-	writeSnapshotState(t, root, state.RunArtifactSnapshot{IssueKey: "CAG-100", Attempt: 1, Status: "success", ReviewStatus: "passed", PRURL: "https://example.test/pr/100", TerminalOutcome: "handoff_ready", UpdatedAt: now.Add(-time.Hour)})
+	writeSnapshotState(t, root, state.RunArtifactSnapshot{IssueKey: "CAG-100", Attempt: 1, Status: "success", ReviewStatus: "passed", PRURL: "https://example.test/pr/100", TerminalOutcome: "handoff_ready", MergeEligible: true, UpdatedAt: now.Add(-time.Hour)})
 	writeSnapshotState(t, root, state.RunArtifactSnapshot{IssueKey: "CAG-300", Attempt: 1, Status: "running", UpdatedAt: now.Add(-2 * time.Hour)})
 	writeSnapshotArtifact(t, root, "CAG-300", runRecord{IssueIdentifier: "CAG-300", Status: "review_failed", ReviewStatus: "failed", PRURL: "https://example.test/pr/300"})
 	writeSnapshotEvaluation(t, root, "CAG-300", evaluationArtifact{
@@ -84,6 +84,9 @@ func TestSurfaceSnapshotExposesPrioritizedIssueQueueWithEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := store.UpsertWorkerTask(ctx, state.WorkerTask{TaskKey: "implementation:CAG-300:1", Role: "implementation", IssueKey: "CAG-300", Attempt: 1, Status: "reconciliation_needed", Priority: 1, LeaseName: "lane:work", UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertDaemonHeartbeat(ctx, state.DaemonHeartbeat{ProcessID: "pid-1", LaneName: "implementation", WorkflowPath: "am.yaml", CycleNumber: 1, LastSuccessAt: now, ActiveTaskKey: "implementation:CAG-999:1", ActiveTaskRole: "implementation", ActiveLeaseName: "lane:implementation", ActiveTaskStartedAt: now.Add(-time.Minute), UpdatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
@@ -109,6 +112,12 @@ func TestSurfaceSnapshotExposesPrioritizedIssueQueueWithEvidence(t *testing.T) {
 	}
 	if first.LaneRoleHint != "implementation" || first.CurrentActivity.Task != "implementation:CAG-300:1" || first.ExternalState.PR != "https://example.test/pr/300" {
 		t.Fatalf("first queue evidence = %+v", first)
+	}
+	if first.CurrentActivity.Lane == "implementation" {
+		t.Fatalf("first queue lane = %+v; unrelated same-role active lane should not stamp issue evidence", first.CurrentActivity)
+	}
+	if snap.IssueQueue[1].IssueIdentifier != "CAG-100" || snap.IssueQueue[1].AMStatus == "mergeable" || snap.IssueQueue[1].NextAction == "merge_pr" {
+		t.Fatalf("second queue item = %+v; artifact merge eligibility should not become current mergeable state", snap.IssueQueue[1])
 	}
 }
 

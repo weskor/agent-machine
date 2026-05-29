@@ -326,11 +326,11 @@ func buildSurfaceIssueQueue(orch orchestrationSnapshot, observedAt time.Time) []
 		}
 	}
 	for _, lane := range orch.ActiveLanes {
-		if lane.ActiveTaskKey == "" && lane.ActiveTaskRole == "" {
+		if lane.ActiveTaskKey == "" {
 			continue
 		}
 		for _, item := range items {
-			if item.CurrentActivity.Task == lane.ActiveTaskKey || item.LaneRoleHint == lane.ActiveTaskRole {
+			if item.CurrentActivity.Task == lane.ActiveTaskKey {
 				item.CurrentActivity.Lane = firstSurfaceNonEmpty(item.CurrentActivity.Lane, lane.Name)
 				item.CurrentActivity.Lease = firstSurfaceNonEmpty(item.CurrentActivity.Lease, lane.ActiveLeaseName)
 				item.CurrentActivity.Timing = firstSurfaceNonEmpty(item.CurrentActivity.Timing, formatSurfaceTime(lane.ActiveTaskStartedAt))
@@ -375,9 +375,6 @@ func applySurfaceArtifactEvidence(item *surfaceWorkItem, artifact artifactSummar
 	item.Outcome = firstSurfaceNonEmpty(item.Outcome, artifact.Outcome)
 	item.Review = firstSurfaceNonEmpty(item.Review, artifact.Review)
 	item.ExternalState.Checks = firstSurfaceNonEmpty(item.ExternalState.Checks, artifact.ChecksStatus)
-	if artifact.MergeEligible {
-		item.ExternalState.Merge = "mergeable"
-	}
 	if artifact.MergeBlockReason != "" {
 		item.BlockerReason = artifact.MergeBlockReason
 	}

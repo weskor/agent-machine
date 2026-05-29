@@ -77,7 +77,14 @@ func (w reviewWorker) Execute(ctx context.Context) (reviewWorkerResult, error) {
 	if err != nil {
 		return reviewWorkerResult{Terminal: true}, err
 	}
-	return executeReviewPendingPayload(ctx, w.client, w.config, w.stateStore, payload, w.states, w.githubEnv)
+	result, err := executeReviewPendingPayload(ctx, w.client, w.config, w.stateStore, payload, w.states, w.githubEnv)
+	if completeErr := completeReviewPendingPayloadRef(ctx, w.stateStore, payload, err); completeErr != nil {
+		if err == nil {
+			return result, completeErr
+		}
+		return result, errors.Join(err, completeErr)
+	}
+	return result, err
 }
 
 func executeReviewPendingPayload(ctx context.Context, client linearClient, config runnerConfig, stateStore *state.Store, payload reviewPendingPayload, states []workflowState, githubEnv map[string]string) (reviewWorkerResult, error) {

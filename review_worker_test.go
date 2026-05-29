@@ -157,6 +157,13 @@ func TestReviewWorkerExecutesPersistedPayloadBoundary(t *testing.T) {
 	if result.Terminal || result.Review == nil || result.Review.Status != "passed" {
 		t.Fatalf("result = %+v; want non-terminal passed review", result)
 	}
+	refs, err := store.PendingWorkerPayloadRefs(context.Background(), reviewWorkerRole, runProgressPhaseReviewPending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) != 0 {
+		t.Fatalf("pending review refs = %+v, want inline review payload completed", refs)
+	}
 }
 
 func TestReviewWorkerRecordsNotReadyWithoutRunningReview(t *testing.T) {
@@ -206,5 +213,73 @@ func TestReviewWorkerRecordsNotReadyWithoutRunningReview(t *testing.T) {
 	}
 	if record.Status != runAttemptStatusReviewNotReady || !strings.Contains(record.Error, "review not ready") {
 		t.Fatalf("run record = %+v; want review_not_ready with not-ready error", record)
+	}
+}
+
+func TestReviewWorkerCompletesPendingRefAfterReviewFailure(t *testing.T) {
+	t.Cleanup(resetReviewWorkerHooks)
+	t.Cleanup(resetLinearStatusWorkerHooks)
+	root := t.TempDir()
+	workspace := filepath.Join(root, "CAG-181")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(context.Background(), state.DefaultDBPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	candidate := &issue{ID: "issue-181", Identifier: "CAG-181", Title: "Review repair"}
+	candidate.Team.ID = "team-181"
+	prURL := "https://github.com/acme/repo/pull/181"
+	collectReviewEvidenceForWorker = func(context.Context, runnerConfig, *issue, string, string, scopeGuardResult, []string) (reviewEvidence, error) {
+		return reviewEvidence{ChecksStatus: "success", ChecksSummary: "go-ci=COMPLETED/SUCCESS"}, nil
+	}
+	runReviewForWorker = func(context.Context, string, string, string, *issue, string, map[string]string, time.Duration, *reviewEvidence) (*reviewResult, error) {
+		return &reviewResult{Status: "failed", Classification: reviewClassificationBehaviorSpecBlocker, Findings: "REVIEW_FAIL behavior drift"}, nil
+	}
+	var updatedStates []string
+	var comments []string
+	updateIssueStateForLinearStatusWorker = func(ctx context.Context, client linearClient, issueID, stateID string) error {
+		updatedStates = append(updatedStates, stateID)
+		return nil
+	}
+	createCommentForLinearStatusWorker = func(ctx context.Context, client linearClient, issueID, body string) error {
+		comments = append(comments, body)
+		return nil
+	}
+
+	result, err := reviewWorker{
+		client:          linearClient{},
+		config:          runnerConfig{WorkspaceRoot: root, PiCommand: "pi run", ReviewCommand: "pi review", RunningState: "In Progress", ReadyState: "Ready for Agent"},
+		stateStore:      store,
+		candidate:       candidate,
+		states:          []workflowState{{ID: "ready-id", Name: "Ready for Agent"}, {ID: "running-id", Name: "In Progress"}},
+		workspace:       workspace,
+		branch:          expectedWorkspaceBranch(candidate.Identifier),
+		progressStarted: time.Now().Add(-time.Minute),
+		startedAt:       time.Now().Add(-time.Minute),
+		prURL:           prURL,
+		githubEnv:       map[string]string{"GITHUB_TOKEN": "token"},
+		githubAuth:      "github_app_installation",
+	}.Execute(context.Background())
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !result.Terminal || result.Review == nil || result.Review.Status != "failed" {
+		t.Fatalf("result = %+v; want terminal failed review", result)
+	}
+	if len(updatedStates) != 1 || updatedStates[0] != "ready-id" {
+		t.Fatalf("updated states = %#v, want ready-id", updatedStates)
+	}
+	if len(comments) != 1 || !strings.Contains(comments[0], "moved back to Ready for Agent") {
+		t.Fatalf("comments = %#v, want Ready repair comment", comments)
+	}
+	refs, err := store.PendingWorkerPayloadRefs(context.Background(), reviewWorkerRole, runProgressPhaseReviewPending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) != 0 {
+		t.Fatalf("pending review refs = %+v, want failed inline review payload completed", refs)
 	}
 }

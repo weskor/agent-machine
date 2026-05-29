@@ -1,4 +1,4 @@
-package main
+package stateprojection
 
 import (
 	"context"
@@ -8,17 +8,39 @@ import (
 	"strings"
 	"time"
 
-	artifactio "github.com/weskor/agent-machine/internal/artifacts"
+	"github.com/weskor/agent-machine/internal/artifacts"
+	"github.com/weskor/agent-machine/internal/codehost"
+	"github.com/weskor/agent-machine/internal/domain"
 	"github.com/weskor/agent-machine/internal/state"
 )
 
-// stateProjection owns domain object to SQLite row projection. Attempt writers
-// persist this projection before exporting JSON evidence artifacts; compatibility
-// and non-authoritative mirrors may still call it best-effort.
-type stateProjection struct{}
+type Projection struct {
+	BaseBranch        func(workspace string) string
+	TerminalStatus    func(status string) bool
+	RunLockStaleAfter time.Duration
+}
 
-func (stateProjection) RunArtifact(workspace string, record runRecord, evaluation evaluationArtifact) state.RunArtifactSnapshot {
-	result := stateProjection{}.AttemptResult(workspace, record, evaluation)
+type CleanupDecision struct {
+	Reason          string
+	Category        string
+	IssueIdentifier string
+	ArtifactRef     string
+}
+
+type DaemonHeartbeatInput struct {
+	LaneName            string
+	CycleNumber         int
+	Success             bool
+	Err                 error
+	ActiveTaskKey       string
+	ActiveTaskRole      string
+	ActiveLeaseName     string
+	ActiveTaskStartedAt time.Time
+	At                  time.Time
+}
+
+func (p Projection) RunArtifact(workspace string, record domain.RunRecord, evaluation artifacts.EvaluationArtifact) state.RunArtifactSnapshot {
+	result := p.AttemptResult(workspace, record, evaluation)
 	return state.RunArtifactSnapshot{
 		SchemaVersion:         state.CurrentSchemaVersion,
 		ArtifactSchemaVersion: evaluationArtifactSchemaVersion(evaluation),
@@ -50,27 +72,27 @@ func (stateProjection) RunArtifact(workspace string, record runRecord, evaluatio
 		RetryNextState:        result.RetryNextState,
 		TerminalOutcome:       result.TerminalOutcome,
 		TerminalReason:        result.TerminalReason,
-		RunArtifactRef:        filepath.Join(workspace, ".am-run.json"),
-		EvaluationRef:         filepath.Join(workspace, evaluationArtifactName),
+		RunArtifactRef:        filepath.Join(workspace, artifacts.RunRecordName),
+		EvaluationRef:         filepath.Join(workspace, artifacts.EvaluationName),
 	}
 }
 
-func (stateProjection) AttemptResult(workspace string, record runRecord, evaluation evaluationArtifact) state.AttemptResult {
-	repo, prNumber := parseGitHubPR(record.PRURL)
+func (p Projection) AttemptResult(workspace string, record domain.RunRecord, evaluation artifacts.EvaluationArtifact) state.AttemptResult {
+	repo, prNumber := ParseGitHubPR(record.PRURL)
 	reviewHash := ""
 	if strings.TrimSpace(record.ReviewFindings) != "" {
 		sum := sha256.Sum256([]byte(record.ReviewFindings))
 		reviewHash = fmt.Sprintf("%x", sum[:])
 	}
-	snapshot := artifactio.RunArtifactSnapshot(workspace, record, evaluation, artifactio.SnapshotOptions{
+	snapshot := artifacts.RunArtifactSnapshot(workspace, record, evaluation, artifacts.SnapshotOptions{
 		BranchName:       firstNonEmpty(record.Branch, record.ExpectedBranch),
-		BaseBranch:       baseBranchForWorkspace(workspace),
+		BaseBranch:       p.baseBranch(workspace),
 		Repository:       repo,
 		PRNumber:         prNumber,
 		ReviewOutputHash: reviewHash,
-		TerminalStatus:   terminalRunStatus(record.Status),
+		TerminalStatus:   p.terminalStatus(record.Status),
 	})
-	if retryableRunStatus(record.Status) {
+	if RetryableRunStatus(record.Status) {
 		snapshot.RetryBudgetState = "available"
 		snapshot.RetryReason = firstNonEmpty(record.Error, record.BudgetExceeded, record.Status)
 		snapshot.RetryNextState = "retry_after_backoff"
@@ -106,30 +128,7 @@ func (stateProjection) AttemptResult(workspace string, record runRecord, evaluat
 	}
 }
 
-func evaluationArtifactSchemaVersion(evaluation evaluationArtifact) int {
-	if evaluation.SchemaVersion != 0 {
-		return evaluation.SchemaVersion
-	}
-	return artifactio.CurrentArtifactSchemaVersion
-}
-
-func evaluationArtifactSchemaSource(evaluation evaluationArtifact) string {
-	if evaluation.SchemaSource != "" {
-		return evaluation.SchemaSource
-	}
-	return artifactio.ArtifactSchemaSourceCurrent
-}
-
-func retryableRunStatus(status string) bool {
-	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "failed", "failure", "blocked", "timeout", "budget_exceeded":
-		return true
-	default:
-		return false
-	}
-}
-
-func (stateProjection) Cleanup(decision cleanupResult, eligible bool, deletionResult string, workspaceExists bool, updatedAt time.Time) state.CleanupState {
+func (p Projection) Cleanup(decision CleanupDecision, eligible bool, deletionResult string, workspaceExists bool, updatedAt time.Time) state.CleanupState {
 	blockedReason := ""
 	if !eligible || deletionResult == "failed" {
 		blockedReason = decision.Reason
@@ -147,7 +146,7 @@ func (stateProjection) Cleanup(decision cleanupResult, eligible bool, deletionRe
 	}
 }
 
-func (stateProjection) RunLockLease(lock runLock, observedAt time.Time) state.Lease {
+func (p Projection) RunLockLease(lock domain.RunLock, observedAt time.Time) state.Lease {
 	owner := strings.TrimSpace(lock.Owner)
 	if owner == "" {
 		owner = "unknown"
@@ -164,19 +163,19 @@ func (stateProjection) RunLockLease(lock runLock, observedAt time.Time) state.Le
 		renewedAt = acquiredAt
 	}
 	lease := state.Lease{
-		Name:       stateProjection{}.RunLockLeaseName(lock),
-		Scope:      stateProjection{}.RunLockLeaseScope(lock),
+		Name:       p.RunLockLeaseName(lock),
+		Scope:      p.RunLockLeaseScope(lock),
 		Owner:      owner,
 		AcquiredAt: acquiredAt,
 		RenewedAt:  renewedAt,
 	}
 	if !renewedAt.IsZero() {
-		lease.ExpiresAt = renewedAt.Add(runLockStaleAfter)
+		lease.ExpiresAt = renewedAt.Add(p.runLockStaleAfter())
 	}
 	return lease
 }
 
-func (stateProjection) RunLockLeaseName(lock runLock) string {
+func (Projection) RunLockLeaseName(lock domain.RunLock) string {
 	name := strings.TrimSpace(lock.IssueIdentifier)
 	if name == "" {
 		name = filepath.Base(lock.Workspace)
@@ -184,11 +183,11 @@ func (stateProjection) RunLockLeaseName(lock runLock) string {
 	return "run:" + name
 }
 
-func (stateProjection) RunLockLeaseScope(lock runLock) string {
+func (Projection) RunLockLeaseScope(lock domain.RunLock) string {
 	return filepath.Dir(lock.Workspace)
 }
 
-func (stateProjection) DaemonHeartbeat(processID string, config runnerConfig, heartbeat continuousHeartbeat) state.DaemonHeartbeat {
+func (Projection) DaemonHeartbeat(processID string, config domain.RunnerConfig, heartbeat DaemonHeartbeatInput) state.DaemonHeartbeat {
 	lastError := ""
 	if heartbeat.Err != nil {
 		lastError = heartbeat.Err.Error()
@@ -213,7 +212,7 @@ func (stateProjection) DaemonHeartbeat(processID string, config runnerConfig, he
 	}
 }
 
-func openStateProjectionStore(ctx context.Context, workspaceRoot string) (*state.Store, string, error) {
+func OpenStore(ctx context.Context, workspaceRoot string) (*state.Store, string, error) {
 	dbPath := state.DefaultDBPath(workspaceRoot)
 	if dbPath == "" {
 		return nil, "", fmt.Errorf("state db path is empty")
@@ -222,15 +221,63 @@ func openStateProjectionStore(ctx context.Context, workspaceRoot string) (*state
 	return store, dbPath, err
 }
 
-func commandScopedStateStore(ctx context.Context, workspaceRoot, commandName string) (*state.Store, string) {
-	store, dbPath, err := openStateProjectionStore(ctx, workspaceRoot)
-	if err != nil {
-		if dbPath != "" {
-			log("SQLite %s mirror degraded: open path=%s error=%q", commandName, dbPath, err.Error())
-		} else {
-			log("SQLite %s mirror degraded: %v", commandName, err)
-		}
-		return nil, dbPath
+func (p Projection) baseBranch(workspace string) string {
+	if p.BaseBranch == nil {
+		return ""
 	}
-	return store, dbPath
+	return p.BaseBranch(workspace)
+}
+
+func (p Projection) terminalStatus(status string) bool {
+	if p.TerminalStatus == nil {
+		return false
+	}
+	return p.TerminalStatus(status)
+}
+
+func (p Projection) runLockStaleAfter() time.Duration {
+	if p.RunLockStaleAfter > 0 {
+		return p.RunLockStaleAfter
+	}
+	return time.Hour
+}
+
+func evaluationArtifactSchemaVersion(evaluation artifacts.EvaluationArtifact) int {
+	if evaluation.SchemaVersion != 0 {
+		return evaluation.SchemaVersion
+	}
+	return artifacts.CurrentArtifactSchemaVersion
+}
+
+func evaluationArtifactSchemaSource(evaluation artifacts.EvaluationArtifact) string {
+	if evaluation.SchemaSource != "" {
+		return evaluation.SchemaSource
+	}
+	return artifacts.ArtifactSchemaSourceCurrent
+}
+
+func RetryableRunStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "failed", "failure", "blocked", "timeout", "budget_exceeded":
+		return true
+	default:
+		return false
+	}
+}
+
+func ParseGitHubPR(prURL string) (string, int) {
+	parsed, ok := codehost.ParsePullRequestURL(strings.TrimSpace(prURL))
+	if !ok || parsed.Provider != codehost.ProviderGitHub {
+		return "", 0
+	}
+	return parsed.Owner + "/" + parsed.Repo, parsed.Number
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }

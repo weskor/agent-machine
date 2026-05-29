@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +11,7 @@ import (
 	cfg "github.com/weskor/agent-machine/internal/config"
 	sh "github.com/weskor/agent-machine/internal/shell"
 	"github.com/weskor/agent-machine/internal/state"
+	"github.com/weskor/agent-machine/internal/stateprojection"
 	ws "github.com/weskor/agent-machine/internal/workspace"
 )
 
@@ -222,15 +221,78 @@ func baseBranchForWorkspace(workspace string) string {
 	return base
 }
 
-var githubPRPattern = regexp.MustCompile(`^https://github\.com/([^/]+/[^/]+)/pull/(\d+)`)
+type stateProjection struct{}
 
 func parseGitHubPR(prURL string) (string, int) {
-	matches := githubPRPattern.FindStringSubmatch(strings.TrimSpace(prURL))
-	if len(matches) != 3 {
-		return "", 0
+	return stateprojection.ParseGitHubPR(prURL)
+}
+
+func retryableRunStatus(status string) bool {
+	return stateprojection.RetryableRunStatus(status)
+}
+
+func (stateProjection) RunArtifact(workspace string, record runRecord, evaluation evaluationArtifact) state.RunArtifactSnapshot {
+	return stateProjectionCore().RunArtifact(workspace, record, evaluation)
+}
+
+func (stateProjection) AttemptResult(workspace string, record runRecord, evaluation evaluationArtifact) state.AttemptResult {
+	return stateProjectionCore().AttemptResult(workspace, record, evaluation)
+}
+
+func (stateProjection) Cleanup(decision cleanupResult, eligible bool, deletionResult string, workspaceExists bool, updatedAt time.Time) state.CleanupState {
+	return stateProjectionCore().Cleanup(stateprojection.CleanupDecision{
+		Reason:          decision.Reason,
+		Category:        decision.Category,
+		IssueIdentifier: decision.IssueIdentifier,
+		ArtifactRef:     decision.ArtifactRef,
+	}, eligible, deletionResult, workspaceExists, updatedAt)
+}
+
+func (stateProjection) RunLockLease(lock runLock, observedAt time.Time) state.Lease {
+	return stateProjectionCore().RunLockLease(lock, observedAt)
+}
+
+func (stateProjection) RunLockLeaseName(lock runLock) string {
+	return stateProjectionCore().RunLockLeaseName(lock)
+}
+
+func (stateProjection) RunLockLeaseScope(lock runLock) string {
+	return stateProjectionCore().RunLockLeaseScope(lock)
+}
+
+func (stateProjection) DaemonHeartbeat(processID string, config runnerConfig, heartbeat continuousHeartbeat) state.DaemonHeartbeat {
+	return stateProjectionCore().DaemonHeartbeat(processID, config, stateprojection.DaemonHeartbeatInput{
+		LaneName:            heartbeat.LaneName,
+		CycleNumber:         heartbeat.CycleNumber,
+		Success:             heartbeat.Success,
+		Err:                 heartbeat.Err,
+		ActiveTaskKey:       heartbeat.ActiveTaskKey,
+		ActiveTaskRole:      heartbeat.ActiveTaskRole,
+		ActiveLeaseName:     heartbeat.ActiveLeaseName,
+		ActiveTaskStartedAt: heartbeat.ActiveTaskStartedAt,
+		At:                  heartbeat.At,
+	})
+}
+
+func stateProjectionCore() stateprojection.Projection {
+	return stateprojection.Projection{BaseBranch: baseBranchForWorkspace, TerminalStatus: terminalRunStatus, RunLockStaleAfter: runLockStaleAfter}
+}
+
+func openStateProjectionStore(ctx context.Context, workspaceRoot string) (*state.Store, string, error) {
+	return stateprojection.OpenStore(ctx, workspaceRoot)
+}
+
+func commandScopedStateStore(ctx context.Context, workspaceRoot, commandName string) (*state.Store, string) {
+	store, dbPath, err := openStateProjectionStore(ctx, workspaceRoot)
+	if err != nil {
+		if dbPath != "" {
+			log("SQLite %s mirror degraded: open path=%s error=%q", commandName, dbPath, err.Error())
+		} else {
+			log("SQLite %s mirror degraded: %v", commandName, err)
+		}
+		return nil, dbPath
 	}
-	n, _ := strconv.Atoi(matches[2])
-	return matches[1], n
+	return store, dbPath
 }
 
 func firstNonEmpty(values ...string) string {

@@ -602,6 +602,16 @@ func TestRenderNeedsInfoCommentNumbersQuestions(t *testing.T) {
 	}
 }
 
+func TestValidationLinesExtractsSafeCommandSummariesFromAssistantJSON(t *testing.T) {
+	output := `noise
+{"message":{"role":"assistant","content":[{"type":"text","text":"Validation:\n- bun run am:pi:test\n- git diff --check\n- unrelated prose"}]}}
+`
+	got := validationLines(output)
+	if len(got) != 3 || got[1] != "bun run am:pi:test" || got[2] != "git diff --check" {
+		t.Fatalf("unexpected validation lines: %#v", got)
+	}
+}
+
 func TestRunRecordCapturesWorkspaceIsolationFields(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "CAG-34")

@@ -25,6 +25,27 @@ func TestSectionLinesDeduplicatesAndSanitizes(t *testing.T) {
 	}
 }
 
+func TestValidationLinesExtractsSafeCommandSummaries(t *testing.T) {
+	text := "Validation:\n- bun run am:pi:test\n- git diff --check\n- unrelated prose"
+
+	got := ValidationLines(text)
+
+	if len(got) != 3 || got[0] != "Validation:" || got[1] != "bun run am:pi:test" || got[2] != "git diff --check" {
+		t.Fatalf("ValidationLines() = %#v", got)
+	}
+}
+
+func TestValidationLinesFiltersLongAndDuplicateLines(t *testing.T) {
+	long := strings.Repeat("x", 181)
+	text := strings.Join([]string{"go test ./...", "- go test ./...", long, "unrelated prose"}, "\n")
+
+	got := ValidationLines(text)
+
+	if len(got) != 1 || got[0] != "go test ./..." {
+		t.Fatalf("ValidationLines() = %#v", got)
+	}
+}
+
 func TestWriteBoundedBulletsLimitsAndSanitizes(t *testing.T) {
 	var builder strings.Builder
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/weskor/agent-machine/internal/state"
+	"github.com/weskor/agent-machine/internal/statusreport"
 )
 
 func printStatus(client linearClient, config runnerConfig) error {
@@ -96,234 +97,23 @@ func indexPRsByIssue(prs []pullRequestSummary) map[string]*pullRequestSummary {
 }
 
 func summarizeSnapshotStateStore(workspaceRoot string, snapshot orchestrationSnapshot) []string {
-	path := state.DefaultDBPath(workspaceRoot)
-	lines := []string{fmt.Sprintf("SQLite state path: %s", emptyAsNA(path))}
-	if path == "" {
-		return append(lines, "SQLite state health: degraded path=unconfigured action=set workspace.root")
-	}
-	if snapshot.SQLiteHealthError != "" {
-		return append(lines, fmt.Sprintf("SQLite state health: degraded error=%q action=check state DB path and permissions", snapshot.SQLiteHealthError))
-	}
-	health := snapshot.SQLiteHealth
-	if !health.Exists {
-		return append(lines, "SQLite state health: missing action=run am start to initialize durable state")
-	}
-	status := "degraded"
-	if health.OK {
-		status = "healthy"
-	}
-	lines = append(lines,
-		fmt.Sprintf("SQLite state health: %s schema_version=%d journal_mode=%s busy_timeout_ms=%d", status, health.SchemaVersion, emptyAsNA(health.JournalMode), health.BusyTimeoutMS),
-		formatStateCounts(health.Counts),
-	)
-	lines = append(lines, summarizeActiveLanes(snapshot.ActiveLanes)...)
-	lines = append(lines, summarizeWorkerTasks(snapshot.WorkerTasks)...)
-	lines = append(lines, summarizeWorkerResults(snapshot.WorkerResults)...)
-	if len(snapshot.RecentEvents) > 0 {
-		lines = append(lines, "SQLite recent events:")
-		for _, event := range snapshot.RecentEvents {
-			lines = append(lines, formatEventSummary(event))
-		}
-	}
-	return lines
+	return statusreport.SummarizeSnapshotStateStore(workspaceRoot, statusreport.Snapshot{SQLiteHealth: snapshot.SQLiteHealth, SQLiteHealthError: snapshot.SQLiteHealthError, ActiveLanes: snapshot.ActiveLanes, RecentEvents: snapshot.RecentEvents, WorkerTasks: snapshot.WorkerTasks, WorkerResults: snapshot.WorkerResults})
 }
 
 func summarizeStateStore(workspaceRoot string) []string {
-	path := state.DefaultDBPath(workspaceRoot)
-	lines := []string{fmt.Sprintf("SQLite state path: %s", emptyAsNA(path))}
-	if path == "" {
-		return append(lines, "SQLite state health: degraded path=unconfigured action=set workspace.root")
-	}
-	health, err := state.InspectHealth(context.Background(), path)
-	if err != nil {
-		return append(lines, fmt.Sprintf("SQLite state health: degraded error=%q action=check state DB path and permissions", err.Error()))
-	}
-	if !health.Exists {
-		return append(lines, "SQLite state health: missing action=run am start to initialize durable state")
-	}
-	status := "degraded"
-	if health.OK {
-		status = "healthy"
-	}
-	lines = append(lines,
-		fmt.Sprintf("SQLite state health: %s schema_version=%d journal_mode=%s busy_timeout_ms=%d", status, health.SchemaVersion, emptyAsNA(health.JournalMode), health.BusyTimeoutMS),
-		formatStateCounts(health.Counts),
-	)
-	store, err := state.Open(context.Background(), path)
-	if err != nil {
-		return lines
-	}
-	defer store.Close()
-	heartbeats, err := store.SnapshotHeartbeats(context.Background())
-	if err == nil {
-		lanes := make([]snapshotLane, 0, len(heartbeats))
-		for _, heartbeat := range heartbeats {
-			lanes = append(lanes, snapshotLane{Name: heartbeat.LaneName, ProcessID: heartbeat.ProcessID, CycleNumber: heartbeat.CycleNumber, LastSuccessAt: heartbeat.LastSuccessAt, LastError: heartbeat.LastError, RecoveryRequired: heartbeat.RecoveryRequired, ActiveTaskKey: heartbeat.ActiveTaskKey, ActiveTaskRole: heartbeat.ActiveTaskRole, ActiveLeaseName: heartbeat.ActiveLeaseName, ActiveTaskStartedAt: heartbeat.ActiveTaskStartedAt, UpdatedAt: heartbeat.UpdatedAt, Source: "sqlite"})
-		}
-		lines = append(lines, summarizeActiveLanes(lanes)...)
-	}
-	tasks, err := store.WorkerTasks(context.Background(), "")
-	if err == nil {
-		lines = append(lines, summarizeWorkerTasks(snapshotWorkerTasks(tasks))...)
-	}
-	results, err := store.WorkerResults(context.Background(), "")
-	if err == nil {
-		lines = append(lines, summarizeWorkerResults(snapshotWorkerResults(results))...)
-	}
-	events, err := store.RecentEvents(context.Background(), 5)
-	if err != nil || len(events) == 0 {
-		return lines
-	}
-	lines = append(lines, "SQLite recent events:")
-	for _, event := range events {
-		lines = append(lines, formatEventSummary(eventSummary{Sequence: event.Sequence, OccurredAt: event.OccurredAt, IssueKey: event.IssueKey, Source: event.Source, Type: event.Type}))
-	}
-	return lines
-}
-
-func formatStateCounts(counts state.Counts) string {
-	return fmt.Sprintf("SQLite state counts: issue_attempts=%d pr_mappings=%d review_states=%d terminal_outcomes=%d daemon_heartbeats=%d cleanup_states=%d worker_tasks=%d worker_results=%d worker_payload_refs=%d pr_handoff_intents=%d events=%d", counts.IssueAttempts, counts.PRMappings, counts.ReviewStates, counts.TerminalOutcomes, counts.DaemonHeartbeats, counts.CleanupStates, counts.WorkerTasks, counts.WorkerResults, counts.WorkerPayloadRefs, counts.PRHandoffIntents, counts.Events)
-}
-
-func snapshotWorkerTasks(tasks []state.WorkerTask) []snapshotWorkerTask {
-	out := make([]snapshotWorkerTask, 0, len(tasks))
-	for _, task := range tasks {
-		out = append(out, snapshotWorkerTask{TaskKey: task.TaskKey, Role: task.Role, IssueKey: task.IssueKey, Attempt: task.Attempt, Status: task.Status, Priority: task.Priority, LeaseName: task.LeaseName, AvailableAt: task.AvailableAt, UpdatedAt: task.UpdatedAt})
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if !out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
-			return out[i].UpdatedAt.After(out[j].UpdatedAt)
-		}
-		return out[i].TaskKey < out[j].TaskKey
-	})
-	return out
-}
-
-func snapshotWorkerResults(results []state.WorkerResult) []snapshotWorkerResult {
-	out := make([]snapshotWorkerResult, 0, len(results))
-	for _, result := range results {
-		out = append(out, snapshotWorkerResult{TaskKey: result.TaskKey, Role: result.Role, LaneName: result.LaneName, IssueKey: result.IssueKey, Attempt: result.Attempt, Status: result.Status, DidWork: result.DidWork, Reason: result.Reason, Error: result.Error, StartedAt: result.StartedAt, FinishedAt: result.FinishedAt, UpdatedAt: result.UpdatedAt})
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if !out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
-			return out[i].UpdatedAt.After(out[j].UpdatedAt)
-		}
-		return out[i].TaskKey < out[j].TaskKey
-	})
-	return out
+	return statusreport.SummarizeStateStore(workspaceRoot)
 }
 
 func summarizeActiveLanes(lanes []snapshotLane) []string {
-	if len(lanes) == 0 {
-		return nil
-	}
-	sort.Slice(lanes, func(i, j int) bool {
-		if !lanes[i].UpdatedAt.Equal(lanes[j].UpdatedAt) {
-			return lanes[i].UpdatedAt.After(lanes[j].UpdatedAt)
-		}
-		return lanes[i].Name < lanes[j].Name
-	})
-	lines := []string{fmt.Sprintf("SQLite active lanes: total=%d", len(lanes))}
-	for _, lane := range lanes {
-		lines = append(lines, formatLaneSummary(lane))
-	}
-	return lines
-}
-
-func formatLaneSummary(lane snapshotLane) string {
-	active := ""
-	if lane.ActiveTaskKey != "" {
-		active = fmt.Sprintf(" active_task=%s active_role=%s active_lease=%s active_started_at=%s", emptyAsNA(lane.ActiveTaskKey), emptyAsNA(lane.ActiveTaskRole), emptyAsNA(lane.ActiveLeaseName), formatOptionalTime(lane.ActiveTaskStartedAt))
-	}
-	errorText := ""
-	if lane.LastError != "" {
-		errorText = fmt.Sprintf(" error=%q", lane.LastError)
-	}
-	return fmt.Sprintf("- lane=%s process=%s cycle=%d recovery_required=%t updated_at=%s%s%s", emptyAsNA(lane.Name), emptyAsNA(lane.ProcessID), lane.CycleNumber, lane.RecoveryRequired, formatOptionalTime(lane.UpdatedAt), active, errorText)
+	return statusreport.SummarizeActiveLanes(lanes)
 }
 
 func summarizeWorkerTasks(tasks []snapshotWorkerTask) []string {
-	if len(tasks) == 0 {
-		return nil
-	}
-	counts := map[string]int{}
-	keys := make([]string, 0)
-	for _, task := range tasks {
-		key := fmt.Sprintf("%s:%s", emptyAsUnknown(task.Role), emptyAsUnknown(task.Status))
-		if _, ok := counts[key]; !ok {
-			keys = append(keys, key)
-		}
-		counts[key]++
-	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		parts = append(parts, fmt.Sprintf("%s=%d", key, counts[key]))
-	}
-	lines := []string{fmt.Sprintf("SQLite worker tasks: total=%d %s", len(tasks), strings.Join(parts, " "))}
-	lines = append(lines, "SQLite recent worker tasks:")
-	limit := len(tasks)
-	if limit > 5 {
-		limit = 5
-	}
-	for i := 0; i < limit; i++ {
-		lines = append(lines, formatWorkerTaskSummary(tasks[i]))
-	}
-	return lines
-}
-
-func formatWorkerTaskSummary(task snapshotWorkerTask) string {
-	return fmt.Sprintf("- task=%s role=%s status=%s issue=%s attempt=%d priority=%d lease=%s available_at=%s updated_at=%s", emptyAsNA(task.TaskKey), emptyAsUnknown(task.Role), emptyAsUnknown(task.Status), emptyAsNA(task.IssueKey), task.Attempt, task.Priority, emptyAsNA(task.LeaseName), formatOptionalTime(task.AvailableAt), formatOptionalTime(task.UpdatedAt))
+	return statusreport.SummarizeWorkerTasks(tasks)
 }
 
 func summarizeWorkerResults(results []snapshotWorkerResult) []string {
-	if len(results) == 0 {
-		return nil
-	}
-	counts := map[string]int{}
-	keys := make([]string, 0)
-	for _, result := range results {
-		key := fmt.Sprintf("%s:%s", emptyAsUnknown(result.Role), emptyAsUnknown(result.Status))
-		if _, ok := counts[key]; !ok {
-			keys = append(keys, key)
-		}
-		counts[key]++
-	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		parts = append(parts, fmt.Sprintf("%s=%d", key, counts[key]))
-	}
-	lines := []string{fmt.Sprintf("SQLite worker results: total=%d %s", len(results), strings.Join(parts, " "))}
-	lines = append(lines, "SQLite recent worker results:")
-	limit := len(results)
-	if limit > 5 {
-		limit = 5
-	}
-	for i := 0; i < limit; i++ {
-		lines = append(lines, formatWorkerResultSummary(results[i]))
-	}
-	return lines
-}
-
-func formatWorkerResultSummary(result snapshotWorkerResult) string {
-	errorText := ""
-	if strings.TrimSpace(result.Error) != "" {
-		errorText = fmt.Sprintf(" error=%q", result.Error)
-	}
-	return fmt.Sprintf("- task=%s role=%s lane=%s status=%s did_work=%t reason=%s issue=%s attempt=%d finished_at=%s%s", emptyAsNA(result.TaskKey), emptyAsUnknown(result.Role), emptyAsNA(result.LaneName), emptyAsUnknown(result.Status), result.DidWork, emptyAsNA(result.Reason), emptyAsNA(result.IssueKey), result.Attempt, formatOptionalTime(result.FinishedAt), errorText)
-}
-
-func formatOptionalTime(value time.Time) string {
-	if value.IsZero() {
-		return "UNKNOWN"
-	}
-	return value.UTC().Format(time.RFC3339)
-}
-
-func formatEventSummary(event eventSummary) string {
-	issue := emptyAsNA(event.IssueKey)
-	return fmt.Sprintf("- #%d %s issue=%s source=%s at=%s", event.Sequence, event.Type, issue, event.Source, event.OccurredAt.UTC().Format(time.RFC3339))
+	return statusreport.SummarizeWorkerResults(results)
 }
 
 func openAgentMachinePRs(config runnerConfig) ([]pullRequestSummary, error) {

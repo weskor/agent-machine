@@ -18,7 +18,7 @@ preparing for a v0.1 open-source release and currently dogfoods itself.
 - Runs an implementation Agent through a configured runtime provider.
 - Runs validation hooks before and after the Agent attempt.
 - Performs runner-owned code-host handoff: branch, commit, push, PR/MR
-  create/update, identity validation, and deterministic handoff comments.
+  create/update, identity validation, and deterministic PR body evidence.
 - Optionally runs a separate review pass before moving the Linear issue to
   Human Review.
 - Records local SQLite state, progress snapshots, run records, evaluation

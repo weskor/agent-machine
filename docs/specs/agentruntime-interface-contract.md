@@ -52,7 +52,7 @@ must not be used as architecture names for the runner itself.
 
 `pi_cli` is an Adapter choice, not Agent Machine's architecture. Adding another
 provider must not move issue claiming, branch/PR validation, lifecycle state,
-handoff comments, merge gates, or cleanup policy into provider-specific prompts.
+handoff evidence, merge gates, or cleanup policy into provider-specific prompts.
 Local one-shot CLI providers should share the same shell Adapter implementation
 and differ only by provider name, command shape, and parser hooks.
 

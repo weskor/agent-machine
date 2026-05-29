@@ -19,6 +19,7 @@ type handoffWorker struct {
 	review       *reviewResult
 	prURL        string
 	validation   []string
+	scopeResult  scopeGuardResult
 	githubAuth   string
 }
 
@@ -39,19 +40,25 @@ func (w handoffWorker) Execute(ctx context.Context) (handoffWorkerResult, error)
 	classificationRecord := runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, w.review, w.prURL, runAttemptStatusSuccess, "", w.config.Budget.Active(), "")
 	classification := classifyRunRecord(w.workspace, classificationRecord)
 	summary := handoffSummary{
-		IssueIdentifier: w.candidate.Identifier,
-		IssueTitle:      w.candidate.Title,
-		IssueURL:        w.candidate.URL,
-		PRURL:           w.prURL,
-		RuntimeUsage:    w.runtimeUsage,
-		Review:          w.review,
-		Duration:        time.Since(w.startedAt),
-		Validation:      w.validation,
-		FollowUps:       followUpLines(w.review),
-		Classification:  &classification,
+		IssueIdentifier:  w.candidate.Identifier,
+		IssueTitle:       w.candidate.Title,
+		IssueURL:         w.candidate.URL,
+		IssueDescription: w.candidate.Description,
+		PRURL:            w.prURL,
+		RuntimeUsage:     w.runtimeUsage,
+		Review:           w.review,
+		Duration:         time.Since(w.startedAt),
+		Validation:       w.validation,
+		ScopeResult:      w.scopeResult,
+		FollowUps:        followUpLines(w.review),
+		Classification:   &classification,
 	}
-	if err := postOrUpdatePRHandoffCommentForWorker(summary); err != nil {
-		log("failed to post GitHub handoff comment for %s: %v", w.prURL, err)
+	if progress, err := readRunProgress(w.config.WorkspaceRoot, w.candidate.Identifier); err == nil {
+		summary.Progress = &progress
+	}
+	if err := updatePRHandoffBodyForWorker(summary); err != nil {
+		writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), w.githubAuth, w.startedAt, time.Now(), w.runtimeUsage, w.review, w.prURL, runAttemptStatusFailed, err.Error(), w.config.Budget.Active(), ""))
+		return handoffWorkerResult{Summary: &summary, Terminal: true}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return handoffWorkerResult{Summary: &summary, Terminal: true}, err
@@ -73,10 +80,10 @@ func (w handoffWorker) Execute(ctx context.Context) (handoffWorkerResult, error)
 	return handoffWorkerResult{Summary: &summary}, nil
 }
 
-var postOrUpdatePRHandoffCommentForWorker = postOrUpdatePRHandoffComment
+var updatePRHandoffBodyForWorker = updatePRHandoffBody
 
 func resetHandoffWorkerHooks() {
-	postOrUpdatePRHandoffCommentForWorker = postOrUpdatePRHandoffComment
+	updatePRHandoffBodyForWorker = updatePRHandoffBody
 	readHandoffPendingPayloadForCompletion = readHandoffPendingPayload
 	githubAppEnvFromEnvironmentForHandoffWorker = githubAppEnvFromEnvironment
 	resetLinearStatusWorkerHooks()

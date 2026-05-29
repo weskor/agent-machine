@@ -20,9 +20,6 @@ type Client interface {
 	OpenPullRequests(ctx context.Context) ([]PullRequestSummary, error)
 	PullRequestState(ctx context.Context, prURL string) (string, bool, error)
 	PullRequestFeedback(ctx context.Context, prNumber int) (PRFeedback, error)
-	IssueComments(ctx context.Context, prNumber string) ([]IssueComment, error)
-	UpdateIssueComment(ctx context.Context, commentID int64, body string) error
-	CreateIssueComment(ctx context.Context, prNumber int, body string) error
 	SquashMergePullRequest(ctx context.Context, prNumber int) error
 	DeleteBranch(ctx context.Context, branch string) error
 	PullRequestHandoffDetails(ctx context.Context, prURL string) (PRHandoffDetails, error)
@@ -96,11 +93,6 @@ type PRFeedback struct {
 		Body      string `json:"body"`
 		CreatedAt string `json:"created_at"`
 	} `json:"review_comments"`
-}
-
-type IssueComment struct {
-	ID   int64  `json:"id"`
-	Body string `json:"body"`
 }
 
 type PRHandoffDetails struct {

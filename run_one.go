@@ -222,7 +222,7 @@ func executeClaimedRunAttempt(ctx context.Context, client linearClient, proj pro
 		return true, err
 	}
 	review := reviewResult.Review
-	didWork, err = completeAttemptHandoff(ctx, handoffCompletion{client: client, config: config, stateStore: stateStore, candidate: candidate, states: states, workspace: workspace, branch: branch, progressStarted: progressStarted, startedAt: piStart, runtimeUsage: runtimeUsage, review: review, prURL: prURL, validation: validation, githubAuth: githubAuth})
+	didWork, err = completeAttemptHandoff(ctx, handoffCompletion{client: client, config: config, stateStore: stateStore, candidate: candidate, states: states, workspace: workspace, branch: branch, progressStarted: progressStarted, startedAt: piStart, runtimeUsage: runtimeUsage, review: review, prURL: prURL, validation: validation, scopeResult: scopeResult, githubAuth: githubAuth})
 	if err == nil {
 		log("completed one Pi run for %s; inspect %s", candidate.Identifier, workspace)
 	}

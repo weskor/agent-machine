@@ -187,7 +187,7 @@ Check for:
 Behavior-contract review requirements for refactors, replacements, and rewrites:
 - REVIEW_FAIL if the PR replaces code, dependencies, commands, integrations, workflows, or state-machine logic without an existing-behavior inventory covering inputs/outputs, side effects, cleanup, error handling, security/ownership assumptions, state transitions, and hidden operational contracts.
 - Use docs/specs/ and docs/adr/ as the behavior-contract source when present, including docs/specs/harness-behavior.md and docs/agents/review-policy.md; REVIEW_FAIL if observable behavior contradicts a spec or ADR without an explicit issue-backed update.
-- REVIEW_FAIL if the Behavior Contract Evidence section is missing for broad refactors, replacements, or rewrites: relevant specs/ADRs cited, behavior preserved, behavior intentionally changed with justification, and unknown behavior needing clarification.
+- REVIEW_FAIL if the Behavior Contract Evidence section is missing from the PR body or handoff evidence source for broad refactors, replacements, or rewrites: relevant specs/ADRs cited, behavior preserved, behavior intentionally changed with justification, and unknown behavior needing clarification.
 - REVIEW_FAIL if a broad mechanical move does not cite relevant specs/ADRs or explicitly state that no spec changes were needed.
 - REVIEW_FAIL if observable behavior lacks TDD or characterization-test evidence, or if tests cover only the new abstraction while prior observable behavior is unprotected.
 - REVIEW_FAIL if broad replacement work lacks a complexity/LOC budget: expected files touched, expected LOC direction, why net growth is acceptable, bespoke code removed, and when to split.

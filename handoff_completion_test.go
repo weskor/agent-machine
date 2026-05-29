@@ -25,7 +25,7 @@ func TestCompleteAttemptHandoffWritesPendingProgressBeforeSideEffects(t *testing
 	candidate := &issue{ID: "issue-169", Identifier: "CAG-169", Title: "Handoff pending", URL: "https://linear.app/acme/issue/CAG-169"}
 	prURL := "https://github.com/acme/repo/pull/169"
 	sawPending := false
-	postOrUpdatePRHandoffCommentForWorker = func(handoffSummary) error {
+	updatePRHandoffBodyForWorker = func(handoffSummary) error {
 		snapshot, err := readRunProgress(root, candidate.Identifier)
 		if err != nil {
 			t.Fatal(err)
@@ -99,7 +99,7 @@ func TestCompleteAttemptHandoffExecutesPersistedPayloadBoundary(t *testing.T) {
 		return payload, nil
 	}
 	var postedSummary handoffSummary
-	postOrUpdatePRHandoffCommentForWorker = func(summary handoffSummary) error {
+	updatePRHandoffBodyForWorker = func(summary handoffSummary) error {
 		postedSummary = summary
 		return nil
 	}
@@ -131,7 +131,7 @@ func TestCompleteAttemptHandoffExecutesPersistedPayloadBoundary(t *testing.T) {
 
 func TestHandoffPendingPayloadRoundTripsCompletionInput(t *testing.T) {
 	root := t.TempDir()
-	candidate := &issue{ID: "issue-171", Identifier: "CAG-171", Title: "Payload round trip", URL: "https://linear.app/acme/issue/CAG-171"}
+	candidate := &issue{ID: "issue-171", Identifier: "CAG-171", Title: "Payload round trip", URL: "https://linear.app/acme/issue/CAG-171", Description: "## Scope\n\n* Handoff evidence payloads.\n"}
 	candidate.Team.ID = "team-171"
 	input := handoffCompletion{
 		config:          runnerConfig{WorkspaceRoot: root, PiCommand: "pi run"},
@@ -144,6 +144,7 @@ func TestHandoffPendingPayloadRoundTripsCompletionInput(t *testing.T) {
 		review:          &reviewResult{Status: "passed", Findings: "ship it"},
 		prURL:           "https://github.com/acme/repo/pull/171",
 		validation:      []string{"go test ./...", "git diff --check"},
+		scopeResult:     scopeGuardResult{Checked: true},
 		githubAuth:      "github_app_installation",
 	}
 	if err := writeHandoffPendingPayload(root, handoffPendingPayloadFromCompletion(input)); err != nil {
@@ -154,7 +155,7 @@ func TestHandoffPendingPayloadRoundTripsCompletionInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	completion := payload.Completion(linearClient{}, input.config, nil, []workflowState{{ID: "handoff-id", Name: "Human Review"}})
-	if completion.candidate.Identifier != candidate.Identifier || completion.candidate.Team.ID != "team-171" || completion.workspace != input.workspace || completion.branch != input.branch || completion.prURL != input.prURL || completion.review.Findings != "ship it" || completion.runtimeUsage.TotalTokens != 42 || len(completion.validation) != 2 || completion.githubAuth != input.githubAuth {
+	if completion.candidate.Identifier != candidate.Identifier || completion.candidate.Description != candidate.Description || completion.candidate.Team.ID != "team-171" || completion.workspace != input.workspace || completion.branch != input.branch || completion.prURL != input.prURL || completion.review.Findings != "ship it" || completion.runtimeUsage.TotalTokens != 42 || len(completion.validation) != 2 || !completion.scopeResult.Checked || completion.githubAuth != input.githubAuth {
 		t.Fatalf("completion = %+v; want payload round trip", completion)
 	}
 }
@@ -185,7 +186,7 @@ func TestResumeReviewReadyRunUsesPendingProgressBeforeHandoff(t *testing.T) {
 	runReviewForWorker = func(context.Context, string, string, string, *issue, string, map[string]string, time.Duration, *reviewEvidence) (*reviewResult, error) {
 		return &reviewResult{Status: "passed"}, nil
 	}
-	postOrUpdatePRHandoffCommentForWorker = func(handoffSummary) error {
+	updatePRHandoffBodyForWorker = func(handoffSummary) error {
 		snapshot, err := readRunProgress(root, candidate.Identifier)
 		if err != nil {
 			t.Fatal(err)

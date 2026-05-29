@@ -28,26 +28,29 @@ type handoffCompletion struct {
 	review          *reviewResult
 	prURL           string
 	validation      []string
+	scopeResult     scopeGuardResult
 	githubAuth      string
 }
 
 type handoffPendingPayload struct {
-	SchemaVersion   int           `json:"schema_version"`
-	IssueID         string        `json:"issue_id,omitempty"`
-	IssueIdentifier string        `json:"issue_identifier"`
-	IssueTitle      string        `json:"issue_title,omitempty"`
-	IssueURL        string        `json:"issue_url,omitempty"`
-	TeamID          string        `json:"team_id,omitempty"`
-	Workspace       string        `json:"workspace"`
-	Branch          string        `json:"branch,omitempty"`
-	ProgressStarted time.Time     `json:"progress_started_at"`
-	StartedAt       time.Time     `json:"started_at"`
-	RuntimeUsage    *usage        `json:"runtime_usage,omitempty"`
-	PiUsage         *usage        `json:"pi_usage,omitempty"`
-	Review          *reviewResult `json:"review,omitempty"`
-	PRURL           string        `json:"pr_url"`
-	Validation      []string      `json:"validation,omitempty"`
-	GitHubAuth      string        `json:"github_auth,omitempty"`
+	SchemaVersion    int              `json:"schema_version"`
+	IssueID          string           `json:"issue_id,omitempty"`
+	IssueIdentifier  string           `json:"issue_identifier"`
+	IssueTitle       string           `json:"issue_title,omitempty"`
+	IssueURL         string           `json:"issue_url,omitempty"`
+	IssueDescription string           `json:"issue_description,omitempty"`
+	TeamID           string           `json:"team_id,omitempty"`
+	Workspace        string           `json:"workspace"`
+	Branch           string           `json:"branch,omitempty"`
+	ProgressStarted  time.Time        `json:"progress_started_at"`
+	StartedAt        time.Time        `json:"started_at"`
+	RuntimeUsage     *usage           `json:"runtime_usage,omitempty"`
+	PiUsage          *usage           `json:"pi_usage,omitempty"`
+	Review           *reviewResult    `json:"review,omitempty"`
+	PRURL            string           `json:"pr_url"`
+	Validation       []string         `json:"validation,omitempty"`
+	ScopeResult      scopeGuardResult `json:"scope_result,omitempty"`
+	GitHubAuth       string           `json:"github_auth,omitempty"`
 }
 
 func completeAttemptHandoff(ctx context.Context, input handoffCompletion) (bool, error) {
@@ -79,6 +82,7 @@ func executeAttemptHandoff(ctx context.Context, input handoffCompletion) (bool, 
 		review:       input.review,
 		prURL:        input.prURL,
 		validation:   input.validation,
+		scopeResult:  input.scopeResult,
 		githubAuth:   input.githubAuth,
 	}.Execute(ctx)
 	if err != nil || handoffResult.Terminal {
@@ -103,6 +107,7 @@ func handoffPendingPayloadFromCompletion(input handoffCompletion) handoffPending
 		Review:          input.review,
 		PRURL:           input.prURL,
 		Validation:      boundedHandoffValidation(input.validation),
+		ScopeResult:     input.scopeResult,
 		GitHubAuth:      input.githubAuth,
 	}
 	if input.candidate != nil {
@@ -110,13 +115,14 @@ func handoffPendingPayloadFromCompletion(input handoffCompletion) handoffPending
 		payload.IssueIdentifier = input.candidate.Identifier
 		payload.IssueTitle = input.candidate.Title
 		payload.IssueURL = input.candidate.URL
+		payload.IssueDescription = input.candidate.Description
 		payload.TeamID = input.candidate.Team.ID
 	}
 	return payload
 }
 
 func (p handoffPendingPayload) Completion(client linearClient, config runnerConfig, store *state.Store, states []workflowState) handoffCompletion {
-	candidate := &issue{ID: p.IssueID, Identifier: p.IssueIdentifier, Title: p.IssueTitle, URL: p.IssueURL}
+	candidate := &issue{ID: p.IssueID, Identifier: p.IssueIdentifier, Title: p.IssueTitle, URL: p.IssueURL, Description: p.IssueDescription}
 	candidate.Team.ID = p.TeamID
 	return handoffCompletion{
 		client:          client,
@@ -132,6 +138,7 @@ func (p handoffPendingPayload) Completion(client linearClient, config runnerConf
 		review:          p.Review,
 		prURL:           p.PRURL,
 		validation:      append([]string(nil), p.Validation...),
+		scopeResult:     p.ScopeResult,
 		githubAuth:      p.GitHubAuth,
 	}
 }

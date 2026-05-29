@@ -157,6 +157,7 @@ func TestReviewPromptFailsReplacementWithoutBehaviorContractEvidence(t *testing.
 		"inputs/outputs, side effects, cleanup, error handling, security/ownership assumptions, state transitions, and hidden operational contracts",
 		"docs/specs/ and docs/adr/",
 		"Behavior Contract Evidence",
+		"PR body or handoff evidence source",
 		"relevant specs/ADRs cited",
 		"no spec changes were needed",
 		"TDD or characterization-test evidence",

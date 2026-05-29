@@ -306,7 +306,7 @@ func TestMapPullRequestFeedbackPreservesGhShapedReviewAndCommentFields(t *testin
 	}
 }
 
-func TestPullRequestFeedbackAndIssueCommentsFollowPagination(t *testing.T) {
+func TestPullRequestFeedbackFollowsReviewIssueCommentAndInlinePagination(t *testing.T) {
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -357,11 +357,4 @@ func TestPullRequestFeedbackAndIssueCommentsFollowPagination(t *testing.T) {
 		t.Fatalf("review comments = %+v, want both pages", feedback.ReviewComments)
 	}
 
-	comments, err := api.IssueComments(context.Background(), "7")
-	if err != nil {
-		t.Fatalf("IssueComments() error = %v", err)
-	}
-	if len(comments) != 2 || comments[0].ID != 71 || comments[1].ID != 72 {
-		t.Fatalf("IssueComments() = %+v, want both pages", comments)
-	}
 }

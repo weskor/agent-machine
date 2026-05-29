@@ -145,39 +145,6 @@ func (c *Client) PullRequestFeedback(ctx context.Context, prNumber int) (codehos
 	return feedback, nil
 }
 
-func (c *Client) IssueComments(ctx context.Context, prNumber string) ([]codehost.IssueComment, error) {
-	number, err := strconv.Atoi(strings.TrimSpace(prNumber))
-	if err != nil {
-		return nil, fmt.Errorf("invalid GitLab MR number %q", prNumber)
-	}
-	notes, err := c.mergeRequestNotes(ctx, number)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]codehost.IssueComment, 0, len(notes))
-	for _, note := range notes {
-		if note == nil || note.System {
-			continue
-		}
-		out = append(out, codehost.IssueComment{ID: syntheticGitLabCommentID(number, note.ID), Body: note.Body})
-	}
-	return out, nil
-}
-
-func (c *Client) UpdateIssueComment(ctx context.Context, commentID int64, body string) error {
-	mr, note, ok := splitGitLabCommentID(commentID)
-	if !ok {
-		return fmt.Errorf("invalid GitLab synthetic comment id %d", commentID)
-	}
-	_, _, err := c.client.Notes.UpdateMergeRequestNote(c.project, mr, note, &gitlab.UpdateMergeRequestNoteOptions{Body: gitlab.Ptr(body)}, gitlab.WithContext(ctx))
-	return err
-}
-
-func (c *Client) CreateIssueComment(ctx context.Context, prNumber int, body string) error {
-	_, _, err := c.client.Notes.CreateMergeRequestNote(c.project, prNumber, &gitlab.CreateMergeRequestNoteOptions{Body: gitlab.Ptr(body)}, gitlab.WithContext(ctx))
-	return err
-}
-
 func (c *Client) SquashMergePullRequest(ctx context.Context, prNumber int) error {
 	squash := true
 	removeBranch := true
@@ -425,16 +392,6 @@ func formatTime(value *time.Time) string {
 		return ""
 	}
 	return value.Format(time.RFC3339)
-}
-
-func syntheticGitLabCommentID(mr, note int) int64 {
-	return int64(mr)*1_000_000_000 + int64(note)
-}
-
-func splitGitLabCommentID(id int64) (int, int, bool) {
-	mr := id / 1_000_000_000
-	note := id % 1_000_000_000
-	return int(mr), int(note), mr > 0 && note > 0
 }
 
 func codehostIssueIdentifierFromBranch(branch string) string {

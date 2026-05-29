@@ -49,7 +49,7 @@ A safe blocked state used when Linear, GitHub, SQLite, workspace, or artifact fa
 _Avoid_: unknown failure, flaky state.
 
 **Handoff**:
-The transition after Pi opens or updates a PR: validate the PR, optionally review it, post/update deterministic PR and Linear comments, and move the Linear issue to Human Review.
+The transition after Pi opens or updates a PR: validate the PR, optionally review it, update deterministic PR body evidence and Linear comments, and move the Linear issue to Human Review.
 _Avoid_: completion, done.
 
 **Work lane**:

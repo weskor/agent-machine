@@ -9,7 +9,6 @@ import (
 
 type fakeGitHubAPI struct {
 	prs                 []pullRequestSummary
-	comments            map[string][]githubIssueComment
 	feedback            prFeedback
 	state               string
 	merged              bool
@@ -17,11 +16,10 @@ type fakeGitHubAPI struct {
 	handoffErrorsByURL  map[string]error
 	handoffErr          error
 	details             prHandoffDetails
-	updatedComments     map[int64]string
-	createdComments     map[int]string
 	mergedPRs           map[int]bool
 	deletedBranches     map[string]bool
 	updatedPRs          map[int]bool
+	updatedPRBodies     map[int]string
 	mergeErr            error
 	deleteErr           error
 }
@@ -36,24 +34,6 @@ func (f fakeGitHubAPI) PullRequestState(context.Context, string) (string, bool, 
 
 func (f fakeGitHubAPI) PullRequestFeedback(context.Context, int) (prFeedback, error) {
 	return f.feedback, nil
-}
-
-func (f fakeGitHubAPI) IssueComments(_ context.Context, prNumber string) ([]githubIssueComment, error) {
-	return f.comments[prNumber], nil
-}
-
-func (f fakeGitHubAPI) UpdateIssueComment(_ context.Context, commentID int64, body string) error {
-	if f.updatedComments != nil {
-		f.updatedComments[commentID] = body
-	}
-	return nil
-}
-
-func (f fakeGitHubAPI) CreateIssueComment(_ context.Context, prNumber int, body string) error {
-	if f.createdComments != nil {
-		f.createdComments[prNumber] = body
-	}
-	return nil
 }
 
 func (f fakeGitHubAPI) SquashMergePullRequest(_ context.Context, prNumber int) error {
@@ -102,16 +82,26 @@ func (f fakeGitHubAPI) PullRequestHandoffDetails(_ context.Context, prURL string
 	if f.handoffErr != nil {
 		return prHandoffDetails{}, f.handoffErr
 	}
+	var number int
+	if _, err := fmt.Sscanf(prURL, "https://github.com/weskor/agent-machine/pull/%d", &number); err == nil && number != 0 {
+		return prHandoffDetails{Number: number, URL: prURL, BaseRefName: "main", HeadRefName: expectedWorkspaceBranch("CAG-119"), Author: prAuthor{Login: "app/agent-machine-bot"}}, nil
+	}
 	return f.details, nil
 }
 
 func (f fakeGitHubAPI) CreatePullRequest(_ context.Context, title, body, head, base string) (prHandoffDetails, error) {
+	if f.updatedPRBodies != nil {
+		f.updatedPRBodies[900] = body
+	}
 	return prHandoffDetails{Number: 900, URL: "https://github.com/weskor/agent-machine/pull/900", BaseRefName: base, HeadRefName: head, Author: prAuthor{Login: "app/agent-machine-bot"}}, nil
 }
 
 func (f fakeGitHubAPI) UpdatePullRequest(_ context.Context, number int, title, body, base string) (prHandoffDetails, error) {
 	if f.updatedPRs != nil {
 		f.updatedPRs[number] = true
+	}
+	if f.updatedPRBodies != nil {
+		f.updatedPRBodies[number] = body
 	}
 	url := fmt.Sprintf("https://github.com/weskor/agent-machine/pull/%d", number)
 	if f.handoffDetailsByURL != nil {

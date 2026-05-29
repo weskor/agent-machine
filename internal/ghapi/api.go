@@ -417,32 +417,6 @@ func MapPullRequestFeedback(reviews []*github.PullRequestReview, issueComments [
 	return feedback
 }
 
-func (c *goClient) IssueComments(ctx context.Context, prNumber string) ([]IssueComment, error) {
-	number, err := strconv.Atoi(prNumber)
-	if err != nil {
-		return nil, fmt.Errorf("invalid GitHub PR number %q", prNumber)
-	}
-	comments, err := c.issueComments(ctx, number)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]IssueComment, 0, len(comments))
-	for _, comment := range comments {
-		result = append(result, IssueComment{ID: comment.GetID(), Body: comment.GetBody()})
-	}
-	return result, nil
-}
-
-func (c *goClient) UpdateIssueComment(ctx context.Context, commentID int64, body string) error {
-	_, _, err := c.client.Issues.EditComment(ctx, c.owner, c.repo, commentID, &github.IssueComment{Body: github.Ptr(body)})
-	return err
-}
-
-func (c *goClient) CreateIssueComment(ctx context.Context, prNumber int, body string) error {
-	_, _, err := c.client.Issues.CreateComment(ctx, c.owner, c.repo, prNumber, &github.IssueComment{Body: github.Ptr(body)})
-	return err
-}
-
 func (c *goClient) SquashMergePullRequest(ctx context.Context, prNumber int) error {
 	result, _, err := c.client.PullRequests.Merge(ctx, c.owner, c.repo, prNumber, "", &github.PullRequestOptions{MergeMethod: "squash"})
 	if err != nil {

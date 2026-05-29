@@ -164,6 +164,7 @@ func reviewPayloadHandoffCompletion(payload reviewPendingPayload, client linearC
 		review:          review,
 		prURL:           worker.prURL,
 		validation:      worker.validation,
+		scopeResult:     worker.scopeResult,
 		githubAuth:      worker.githubAuth,
 	}
 }

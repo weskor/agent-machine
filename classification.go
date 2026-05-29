@@ -8,7 +8,7 @@ import (
 )
 
 // runClassification is the shared classification result consumed by evaluation
-// artifacts, handoff comments, status summaries, and terminal-outcome mirrors.
+// artifacts, PR body handoff evidence, Linear handoff comments, status summaries, and terminal-outcome mirrors.
 // It deliberately contains derived policy only; callers still own I/O and
 // external state transitions.
 type runClassification struct {

@@ -3,6 +3,7 @@ package workertask
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +30,59 @@ func TestRetryBackoffByRole(t *testing.T) {
 	} {
 		if got := RetryBackoff(tc.role); got != tc.want {
 			t.Fatalf("RetryBackoff(%q) = %s, want %s", tc.role, got, tc.want)
+		}
+	}
+}
+
+func TestSupportedSelectedRolesIncludesSelectableWorkerModes(t *testing.T) {
+	got := strings.Join(SupportedSelectedRoles(), ",")
+	for _, role := range []string{RoleStatus, RolePlan, RoleCleanup, RoleMerge, RoleReconciliation, RoleReview, RoleImplementation, RoleHandoff, RoleLinearStatus, RoleWork} {
+		if !strings.Contains(got, role) {
+			t.Fatalf("SupportedSelectedRoles() = %q; missing %q", got, role)
+		}
+		if !SupportedSelectedRole(" " + role + " ") {
+			t.Fatalf("SupportedSelectedRole(%q) = false, want true", role)
+		}
+	}
+	if SupportedSelectedRole(RoleScheduler) {
+		t.Fatalf("scheduler is a continuous lane role, not a selected worker mode")
+	}
+}
+
+func TestRequireSupportedSelectedRoleReportsSupportedRoles(t *testing.T) {
+	err := RequireSupportedSelectedRole("not-a-worker")
+	if err == nil {
+		t.Fatal("RequireSupportedSelectedRole() error = nil, want unsupported role error")
+	}
+	for _, expected := range []string{"unsupported worker role", RoleReconciliation, RoleImplementation, RoleLinearStatus} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("RequireSupportedSelectedRole() error = %q; missing %q", err.Error(), expected)
+		}
+	}
+}
+
+func TestSelectedRoleNeedsWorkspaceRoot(t *testing.T) {
+	for _, role := range []string{RoleCleanup, RoleMerge, RoleReconciliation, RoleReview, RoleImplementation, RoleHandoff, RoleWork} {
+		if !SelectedRoleNeedsWorkspaceRoot(role) {
+			t.Fatalf("SelectedRoleNeedsWorkspaceRoot(%q) = false, want true", role)
+		}
+	}
+	for _, role := range []string{RoleStatus, RolePlan, RoleLinearStatus, RoleScheduler, "unknown"} {
+		if SelectedRoleNeedsWorkspaceRoot(role) {
+			t.Fatalf("SelectedRoleNeedsWorkspaceRoot(%q) = true, want false", role)
+		}
+	}
+}
+
+func TestBlocksDispatch(t *testing.T) {
+	for _, status := range []string{state.WorkerTaskStatusQueued, state.WorkerTaskStatusClaimed, state.WorkerTaskStatusReconciliationNeeded} {
+		if !BlocksDispatch(status) {
+			t.Fatalf("BlocksDispatch(%q) = false, want true", status)
+		}
+	}
+	for _, status := range []string{"", state.WorkerTaskStatusCompleted, state.WorkerTaskStatusFailed, state.WorkerTaskStatusCanceled} {
+		if BlocksDispatch(status) {
+			t.Fatalf("BlocksDispatch(%q) = true, want false", status)
 		}
 	}
 }

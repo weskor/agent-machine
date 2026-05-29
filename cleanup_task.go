@@ -71,7 +71,7 @@ func enqueueCleanupWorkerTask(ctx context.Context, store *state.Store, workspace
 		if task.TaskKey != taskKey {
 			continue
 		}
-		if workerTaskBlocksDispatch(task.Status) {
+		if workertask.BlocksDispatch(task.Status) {
 			return task, false, nil
 		}
 		break

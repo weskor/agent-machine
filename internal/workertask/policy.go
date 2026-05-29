@@ -25,6 +25,50 @@ const (
 	RepairReasonOperatorRequeuedReconciliationTask = "operator_requeued_reconciliation_task"
 )
 
+func SupportedSelectedRole(role string) bool {
+	role = NormalizeRole(role)
+	for _, supported := range SupportedSelectedRoles() {
+		if role == supported {
+			return true
+		}
+	}
+	return false
+}
+
+func RequireSupportedSelectedRole(role string) error {
+	role = NormalizeRole(role)
+	if SupportedSelectedRole(role) {
+		return nil
+	}
+	return fmt.Errorf("unsupported worker role %q; supported roles: %s", role, strings.Join(SupportedSelectedRoles(), ", "))
+}
+
+func SelectedRoleNeedsWorkspaceRoot(role string) bool {
+	switch NormalizeRole(role) {
+	case RoleCleanup, RoleMerge, RoleReconciliation, RoleReview, RoleImplementation, RoleHandoff, RoleWork:
+		return true
+	default:
+		return false
+	}
+}
+
+func SupportedSelectedRoles() []string {
+	return []string{RoleStatus, RolePlan, RoleCleanup, RoleMerge, RoleReconciliation, RoleReview, RoleImplementation, RoleHandoff, RoleLinearStatus, RoleWork}
+}
+
+func BlocksDispatch(status string) bool {
+	switch status {
+	case state.WorkerTaskStatusQueued, state.WorkerTaskStatusClaimed, state.WorkerTaskStatusReconciliationNeeded:
+		return true
+	default:
+		return false
+	}
+}
+
+func NormalizeRole(role string) string {
+	return strings.TrimSpace(role)
+}
+
 func RetryBackoff(role string) time.Duration {
 	switch role {
 	case RoleImplementation, RoleWork:

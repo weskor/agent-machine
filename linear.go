@@ -4,6 +4,7 @@ import (
 	"context"
 
 	linearapi "github.com/weskor/agent-machine/internal/linear"
+	"github.com/weskor/agent-machine/internal/linearstatus"
 )
 
 type linearClient struct {
@@ -63,4 +64,40 @@ func (c linearClient) issueByIdentifierContext(ctx context.Context, identifier s
 		return nil, err
 	}
 	return c.adapter().IssueByIdentifierContext(ctx, identifier)
+}
+
+type linearStatusClient struct {
+	client linearClient
+}
+
+func (c linearStatusClient) UpdateIssueStateContext(ctx context.Context, issueID, stateID string) error {
+	return updateIssueStateForLinearStatusWorker(ctx, c.client, issueID, stateID)
+}
+
+func (c linearStatusClient) CreateCommentContext(ctx context.Context, issueID, body string) error {
+	return createCommentForLinearStatusWorker(ctx, c.client, issueID, body)
+}
+
+func newLinearStatusWorker(client linearClient, candidate *issue, states []workflowState) linearstatus.Worker {
+	return linearstatus.Worker{Client: linearStatusClient{client: client}, Candidate: candidate, States: states, Logf: log}
+}
+
+var updateIssueStateForLinearStatusWorker = func(ctx context.Context, client linearClient, issueID, stateID string) error {
+	return client.updateIssueStateContext(ctx, issueID, stateID)
+}
+
+var createCommentForLinearStatusWorker = func(ctx context.Context, client linearClient, issueID, body string) error {
+	return client.createCommentContext(ctx, issueID, body)
+}
+
+func resetLinearStatusWorkerHooks() {
+	updateIssueStateForLinearStatusWorker = func(ctx context.Context, client linearClient, issueID, stateID string) error {
+		return client.updateIssueStateContext(ctx, issueID, stateID)
+	}
+	createCommentForLinearStatusWorker = func(ctx context.Context, client linearClient, issueID, body string) error {
+		return client.createCommentContext(ctx, issueID, body)
+	}
+	workflowStatesForLinearStatusWorker = func(ctx context.Context, client linearClient, teamID string) ([]workflowState, error) {
+		return client.workflowStatesContext(ctx, teamID)
+	}
 }

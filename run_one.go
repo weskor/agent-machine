@@ -126,7 +126,7 @@ func executeClaimedRunAttempt(ctx context.Context, client linearClient, proj pro
 	if err != nil {
 		return true, err
 	}
-	linearStatus := linearStatusWorker{client: client, candidate: candidate, states: states}
+	linearStatus := newLinearStatusWorker(client, candidate, states)
 	if candidate.State.Name == config.ReadyState {
 		if _, err := linearStatus.MoveToContext(ctx, config.RunningState); err != nil {
 			return true, err

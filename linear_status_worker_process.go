@@ -108,7 +108,7 @@ func executeLinearStatusTransitionTask(ctx context.Context, client linearClient,
 	}
 	candidate := &issue{ID: payload.IssueID, Identifier: payload.IssueIdentifier, Title: payload.IssueTitle, URL: payload.IssueURL}
 	candidate.Team.ID = payload.TeamID
-	moved, err := (linearStatusWorker{client: client, candidate: candidate, states: states}).MoveToContext(ctx, payload.TargetState)
+	moved, err := newLinearStatusWorker(client, candidate, states).MoveToContext(ctx, payload.TargetState)
 	if err != nil {
 		return true, completeLinearStatusTask(ctx, store, task.TaskKey, "failed", err)
 	}

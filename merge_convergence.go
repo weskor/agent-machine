@@ -38,7 +38,7 @@ func handleAlreadyMergedMissingMergeTaskPR(ctx context.Context, client linearCli
 	if err != nil {
 		return true, terminalpr.ReasonAlreadyMerged, err
 	}
-	linearStatus := linearStatusWorker{client: client, candidate: candidate, states: states}
+	linearStatus := newLinearStatusWorker(client, candidate, states)
 	prNumber := firstNonZero(payload.PRNumber, taskPRNumberFromKey(task.TaskKey))
 	recordMergeEventContext(ctx, store, orchstate.EventMergeSucceeded, candidate.Identifier, candidate.ID, prNumber, map[string]any{"pr_url": facts.PRURL, "head_ref": payload.HeadRefName, "state": facts.State, "result": "already_merged"})
 	if candidate.State.Name != config.DoneState && stateID(states, config.DoneState) != "" {

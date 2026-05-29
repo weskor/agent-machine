@@ -6,6 +6,7 @@ import (
 	"github.com/weskor/agent-machine/internal/attemptlifecycle"
 	"github.com/weskor/agent-machine/internal/attemptoutcome"
 	"github.com/weskor/agent-machine/internal/domain"
+	"github.com/weskor/agent-machine/internal/runtimeadapter"
 	"github.com/weskor/agent-machine/internal/scopeguard"
 )
 
@@ -43,6 +44,12 @@ const (
 	runAttemptStatusNeedsInfoFail  = attemptoutcome.StatusNeedsInfoFail
 	runAttemptStatusTimeout        = attemptoutcome.StatusTimeout
 	runAttemptStatusBudgetExceeded = attemptoutcome.StatusBudgetExceeded
+)
+
+const (
+	runtimeProviderPiCLI     = runtimeadapter.ProviderPiCLI
+	runtimeProviderCodexCLI  = runtimeadapter.ProviderCodexCLI
+	runtimeProviderClaudeCLI = runtimeadapter.ProviderClaudeCLI
 )
 
 type attemptLifecyclePhase = attemptlifecycle.Phase

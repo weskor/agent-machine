@@ -2,16 +2,19 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/weskor/agent-machine/internal/agentruntime"
 	artifactio "github.com/weskor/agent-machine/internal/artifacts"
 	"github.com/weskor/agent-machine/internal/codehost"
+	"github.com/weskor/agent-machine/internal/rawoutput"
 	"github.com/weskor/agent-machine/internal/reviewpolicy"
 )
 
@@ -23,6 +26,10 @@ const (
 	runtimeProviderCodexCLI  = "codex_cli"
 	runtimeProviderClaudeCLI = "claude_cli"
 )
+
+func captureAgentOutput(ctx context.Context, command, workspace string, env map[string]string, timeout time.Duration, phase string) (string, error) {
+	return rawoutput.Capture(ctx, command, workspace, env, timeout, phase, log)
+}
 
 func parseUsage(output string) *usage {
 	return artifactio.ParseUsage(output)

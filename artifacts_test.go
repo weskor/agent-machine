@@ -3,8 +3,10 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,6 +49,29 @@ func TestWriteRunRecordPersistsBudgetTerminalStatus(t *testing.T) {
 	}
 	if !terminalRunStatus(persisted.Status) {
 		t.Fatalf("expected timeout to be terminal")
+	}
+}
+
+func TestWriteRunRecordLogsConciseFinalSummary(t *testing.T) {
+	workspace := t.TempDir()
+	record := runRecord{
+		IssueIdentifier: "CAG-86",
+		Workspace:       workspace,
+		WorkspaceRoot:   workspace,
+		Status:          "success",
+		PRURL:           "https://github.com/weskor/agent-machine/pull/25",
+		ReviewStatus:    "passed",
+		DurationMS:      1234,
+	}
+
+	stdout := captureStdout(t, func() {
+		writeRunRecord(workspace, record)
+	})
+
+	for _, expected := range []string{"run summary:", "issue=CAG-86", "status=success", "pr=https://github.com/weskor/agent-machine/pull/25", "review=passed", "duration_ms=1234", ".am-run.json", ".am-evaluation.json"} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected %q in concise run summary %q", expected, stdout)
+		}
 	}
 }
 
@@ -147,6 +172,26 @@ func TestWriteRunRecordWithoutWorkspaceRootSkipsSQLiteMirror(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(workspace, "state", "am.db")); !os.IsNotExist(err) {
 		t.Fatalf("unexpected sqlite state for legacy helper path: %v", err)
 	}
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stdout: %v", err)
+	}
+	os.Stdout = w
+	fn()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close stdout pipe: %v", err)
+	}
+	os.Stdout = old
+	data, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read stdout pipe: %v", err)
+	}
+	return string(data)
 }
 
 func assertCount(t *testing.T, db *sql.DB, table string, want int) {

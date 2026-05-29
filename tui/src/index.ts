@@ -292,10 +292,11 @@ function body(snapshot?: SurfaceSnapshot, message = "") {
 }
 
 function panel(title: string, lines: string[], color: string, width: number) {
+  const maxLines = Math.max(8, (process.stdout.rows ?? 28) - 9)
   return Box(
     { borderStyle: "single", borderColor: color, padding: 1, flexDirection: "column", gap: 0, width },
     Text({ content: fit(title, width - 4).padEnd(width - 4), fg: color }),
-    ...lines.slice(0, 22).map((line) => Text({ content: fit(line, width - 4).padEnd(width - 4), fg: line.startsWith(">") ? "#f4f7fb" : line.endsWith(":") ? "#8ab4f8" : "#aeb6bf" })),
+    ...lines.slice(0, maxLines).map((line) => Text({ content: fit(line, width - 4).padEnd(width - 4), fg: line.startsWith(">") ? "#f4f7fb" : line.endsWith(":") ? "#8ab4f8" : "#aeb6bf" })),
   )
 }
 
@@ -352,37 +353,21 @@ function evidenceLines(snapshot: SurfaceSnapshot, row: IssueRow) {
   const task = hasIssueProjection ? undefined : snapshot.worker_tasks.find((candidate) => candidate.issue_key === key)
   const result = hasIssueProjection ? undefined : snapshot.worker_results.find((candidate) => candidate.issue_key === key)
   const lock = hasIssueProjection ? undefined : snapshot.active_locks.find((candidate) => candidate.issue === key)
-  const lane = task ? snapshot.active_lanes.find((candidate) => candidate.active_task_key === task.task_key || candidate.active_task_role === task.role) : undefined
+  const lane = task ? snapshot.active_lanes.find((candidate) => candidate.active_task_key === task.task_key) : undefined
   const events = issueEvents(snapshot, issue)
   const activity = recordValue(issue.current_activity)
   const external = recordValue(issue.external_state)
   const evidence = recordValue(issue.agent_evidence_summary)
 
   return [
-    "Header:",
-    `issue: ${key}  status: ${row.status}`,
-    `title: ${row.title}`,
-    `source: ${clean(issue.source) || "n/a"}`,
-    "",
-    "Next:",
-    compactValueLine(issue.next_action, "next action", "n/a"),
-    "",
-    "Why:",
-    compactValueLine(issue.blocker_reason, "reason", row.attention === "none" || row.attention === "n/a" ? "none" : row.attention),
-    "",
-    "Current Activity:",
-    `lane: ${field(activity, "lane") || clean(lane?.name) || row.lane}  task: ${field(activity, "task") || clean(task?.task_key) || "n/a"}`,
-    `lease: ${field(activity, "lease") || clean(task?.lease_name) || clean(lock?.owner) || clean(lane?.active_lease_name) || "n/a"}  attempt: ${field(activity, "attempt") || numberValue(issue.attempt) || numberValue(task?.attempt) || "n/a"}`,
-    `workspace: ${field(activity, "workspace") || clean(issue.workspace) || clean(lock?.workspace) || "n/a"}  branch: ${field(activity, "branch") || clean(issue.branch) || "n/a"}  timing: ${field(activity, "timing") || formatTime(issue.updated_at || task?.updated_at || lock?.renewed_at) || "n/a"}`,
-    "",
-    "External State:",
-    `linear: ${field(external, "linear") || clean(issue.linear_state) || "n/a"}  pr: ${field(external, "pr") || clean(issue.pr_url) || "n/a"}  review: ${field(external, "review") || clean(issue.review) || "n/a"}`,
-    `checks: ${field(external, "checks") || "n/a"}  merge: ${field(external, "merge") || "n/a"}`,
-    "",
-    "Agent Output/Evidence:",
-    compactValueLine(issue.agent_evidence_summary, "evidence", "none"),
-    `outcome: ${clean(issue.outcome) || field(evidence, "outcome") || "n/a"}  worker: ${workerEvidence(evidence, result)}  error: ${field(evidence, "worker_error") || result?.error || "none"}`,
-    "",
+    `Header: ${key} ${row.status}  title: ${row.title}  source: ${clean(issue.source) || "n/a"}`,
+    `Next: ${compactValueLine(issue.next_action, "next action", "n/a").replace(/^next action: /, "")}`,
+    `Why: ${compactValueLine(issue.blocker_reason, "reason", row.attention === "none" || row.attention === "n/a" ? "none" : row.attention).replace(/^reason: /, "")}`,
+    `Current Activity: lane ${field(activity, "lane") || clean(lane?.name) || row.lane}  task ${field(activity, "task") || clean(task?.task_key) || "n/a"}  lease ${field(activity, "lease") || clean(task?.lease_name) || clean(lock?.owner) || clean(lane?.active_lease_name) || "n/a"}  attempt ${field(activity, "attempt") || numberValue(issue.attempt) || numberValue(task?.attempt) || "n/a"}`,
+    `Workspace/Branch/Timing: ${field(activity, "workspace") || clean(issue.workspace) || clean(lock?.workspace) || "n/a"}  ${field(activity, "branch") || clean(issue.branch) || "n/a"}  ${field(activity, "timing") || formatTime(issue.updated_at || task?.updated_at || lock?.renewed_at) || "n/a"}`,
+    `External State: linear ${field(external, "linear") || clean(issue.linear_state) || "n/a"}  pr ${field(external, "pr") || clean(issue.pr_url) || "n/a"}  review ${field(external, "review") || clean(issue.review) || "n/a"}  checks ${field(external, "checks") || "n/a"}  merge ${field(external, "merge") || "n/a"}`,
+    `Agent Output/Evidence: ${compactValueLine(issue.agent_evidence_summary, "evidence", "none").replace(/^evidence: /, "")}`,
+    `Outcome/Worker/Error: ${clean(issue.outcome) || field(evidence, "outcome") || "n/a"}  ${workerEvidence(evidence, result)}  ${field(evidence, "worker_error") || result?.error || "none"}`,
     "Recent Events:",
     ...(events.length > 0 ? events.slice(0, 3).map((event) => `${formatTime(event.occurred_at) || "n/a"} ${event.type} ${event.source}`) : ["none"]),
   ]

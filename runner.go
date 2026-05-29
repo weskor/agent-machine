@@ -10,11 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weskor/agent-machine/internal/agentruntime"
 	backfillstate "github.com/weskor/agent-machine/internal/backfill"
 	"github.com/weskor/agent-machine/internal/cli"
 	cfg "github.com/weskor/agent-machine/internal/config"
 	"github.com/weskor/agent-machine/internal/doctor"
 	"github.com/weskor/agent-machine/internal/orchestrator"
+	"github.com/weskor/agent-machine/internal/runtimeadapter"
 	"github.com/weskor/agent-machine/internal/workertask"
 )
 
@@ -289,4 +291,68 @@ func convertBackfillSkipped(skipped []backfillstate.Skip) []cli.BackfillSkipped 
 		converted = append(converted, cli.BackfillSkipped{Workspace: item.Workspace, Reason: item.Reason})
 	}
 	return converted
+}
+
+func parseUsage(output string) *usage {
+	return runtimeadapter.ParseUsage(output)
+}
+
+func newAgentRuntime(provider string) (agentruntime.AgentRuntime, error) {
+	return runtimeadapter.New(provider, runtimeadapter.Dependencies{
+		CurrentRepository:  currentGitHubRepo,
+		NeedsInfoQuestions: needsInfoQuestionsToRuntime,
+		Logf:               log,
+	})
+}
+
+func recordRuntimeUsage(record runRecord) *usage {
+	return runtimeadapter.RecordRuntimeUsage(record)
+}
+
+func usageFromRuntime(u *agentruntime.AttemptUsage) *usage {
+	return runtimeadapter.UsageFromRuntime(u)
+}
+
+func reviewResultFromRuntime(result agentruntime.ReviewResult) *reviewResult {
+	return runtimeadapter.ReviewResultFromRuntime(result)
+}
+
+func firstPRURL(output string) string {
+	return runtimeadapter.FirstPRURL(output, currentGitHubRepo)
+}
+
+func firstPRURLFromClaudeOutput(output string) string {
+	return runtimeadapter.FirstPRURLFromClaudeOutput(output, currentGitHubRepo)
+}
+
+func claudeNeedsInfoQuestionsToRuntime(output string) []string {
+	return runtimeadapter.ClaudeNeedsInfoQuestions(output, needsInfoQuestionsToRuntime)
+}
+
+func claudeReviewStatus(output string) string {
+	return runtimeadapter.ClaudeReviewStatus(output)
+}
+
+func claudeReviewClassification(status, output string) string {
+	return runtimeadapter.ClaudeReviewClassification(status, output)
+}
+
+func needsInfoQuestionsToRuntime(output string) []string {
+	needsInfo := parseNeedsInfo(output)
+	if !needsInfo.NeedsInfo {
+		return nil
+	}
+	return needsInfo.Questions
+}
+
+func usageSummary(u *usage) string {
+	return runtimeadapter.UsageSummary(u)
+}
+
+func assistantText(output string) string {
+	return runtimeadapter.AssistantText(output)
+}
+
+func reviewSummary(r *reviewResult) string {
+	return runtimeadapter.ReviewSummary(r)
 }

@@ -1,4 +1,4 @@
-package main
+package scopeguard
 
 import (
 	"context"
@@ -11,28 +11,28 @@ import (
 	sh "github.com/weskor/agent-machine/internal/shell"
 )
 
-type scopeGuardResult struct {
+type Result struct {
 	Checked    bool
 	Warnings   []string
 	Violations []string
 }
 
-func (r scopeGuardResult) Blocks() bool {
+func (r Result) Blocks() bool {
 	return len(r.Violations) > 0
 }
 
-func (r scopeGuardResult) Summary() string {
+func (r Result) Summary() string {
 	parts := append([]string{}, r.Violations...)
 	parts = append(parts, r.Warnings...)
 	return strings.Join(parts, "; ")
 }
 
-func checkScopeGuardContext(ctx context.Context, description, workspace, baseBranch string) (scopeGuardResult, error) {
+func CheckContext(ctx context.Context, description, workspace, baseBranch string) (Result, error) {
 	changed, err := scopeGuardChangedFilesContext(ctx, workspace, baseBranch)
 	if err != nil {
-		return scopeGuardResult{}, err
+		return Result{}, err
 	}
-	return evaluateScopeGuard(description, changed), nil
+	return Evaluate(description, changed), nil
 }
 
 func scopeGuardChangedFilesContext(ctx context.Context, workspace, baseBranch string) ([]string, error) {
@@ -47,9 +47,9 @@ func scopeGuardChangedFilesContext(ctx context.Context, workspace, baseBranch st
 	return nonEmptyLines(output), nil
 }
 
-func evaluateScopeGuard(description string, changedFiles []string) scopeGuardResult {
+func Evaluate(description string, changedFiles []string) Result {
 	contract := parseScopeContract(description)
-	result := scopeGuardResult{Checked: contract.HasContract}
+	result := Result{Checked: contract.HasContract}
 	if len(changedFiles) == 0 {
 		return result
 	}

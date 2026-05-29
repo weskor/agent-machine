@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/weskor/agent-machine/internal/agentruntime"
+	"github.com/weskor/agent-machine/internal/scopeguard"
 	"github.com/weskor/agent-machine/internal/state"
 )
 
@@ -168,7 +169,7 @@ func executeClaimedRunAttempt(ctx context.Context, client linearClient, proj pro
 	runtimeUsage := implementationResult.Usage
 	piOutput := implementationResult.Output
 	piStart := implementationResult.Started
-	scopeResult, err := checkScopeGuardContext(ctx, candidate.Description, workspace, config.BaseBranch)
+	scopeResult, err := scopeguard.CheckContext(ctx, candidate.Description, workspace, config.BaseBranch)
 	if err != nil {
 		decision := decideAttemptLifecycle(attemptLifecycleInput{Phase: attemptLifecyclePhaseScopeGuard, PRURL: prURL, ScopeError: err.Error()})
 		writeRunRecordWithCommandStateContext(ctx, stateStore, workspace, runRecordFor(candidate, workspace, config.RuntimeImplementationCommand(), githubAuth, piStart, time.Now(), runtimeUsage, nil, prURL, decision.Status, err.Error(), config.Budget.Active(), err.Error()))

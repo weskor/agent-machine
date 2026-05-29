@@ -1,7 +1,10 @@
 package main
 
 import (
+	"time"
+
 	"github.com/weskor/agent-machine/internal/attemptlifecycle"
+	"github.com/weskor/agent-machine/internal/attemptoutcome"
 	"github.com/weskor/agent-machine/internal/domain"
 	"github.com/weskor/agent-machine/internal/scopeguard"
 )
@@ -28,6 +31,20 @@ type runnerConfig = domain.RunnerConfig
 
 type scopeGuardResult = scopeguard.Result
 
+type runAttemptOutcome = attemptoutcome.Outcome
+
+const (
+	runAttemptStatusSuccess        = attemptoutcome.StatusSuccess
+	runAttemptStatusFailed         = attemptoutcome.StatusFailed
+	runAttemptStatusReviewFailed   = attemptoutcome.StatusReviewFailed
+	runAttemptStatusReviewNotReady = attemptoutcome.StatusReviewNotReady
+	runAttemptStatusGitHubAppError = attemptoutcome.StatusGitHubAppError
+	runAttemptStatusNeedsInfo      = attemptoutcome.StatusNeedsInfo
+	runAttemptStatusNeedsInfoFail  = attemptoutcome.StatusNeedsInfoFail
+	runAttemptStatusTimeout        = attemptoutcome.StatusTimeout
+	runAttemptStatusBudgetExceeded = attemptoutcome.StatusBudgetExceeded
+)
+
 type attemptLifecyclePhase = attemptlifecycle.Phase
 
 const (
@@ -49,4 +66,8 @@ type attemptLifecycleDecision = attemptlifecycle.Decision
 
 func decideAttemptLifecycle(input attemptLifecycleInput) attemptLifecycleDecision {
 	return attemptlifecycle.Decide(input)
+}
+
+func runRecordFor(candidate *issue, workspace, runtimeCommand, githubAuth string, startedAt, endedAt time.Time, runtimeUsage *usage, review *reviewResult, prURL, status, errorMessage string, budget *runBudget, budgetExceeded string) runRecord {
+	return attemptoutcome.RecordFor(candidate, workspace, runtimeCommand, githubAuth, startedAt, endedAt, runtimeUsage, review, prURL, status, errorMessage, budget, budgetExceeded)
 }

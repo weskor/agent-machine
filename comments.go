@@ -34,7 +34,7 @@ func renderPRHandoffBody(summary handoffSummary) string {
 	writeBoundedBullets(&builder, summary.Validation, "No validation commands detected in runner output.", 5)
 
 	builder.WriteString("\n### Behavior Contract Evidence\n")
-	writeBoundedBullets(&builder, behaviorContractEvidenceNotes(summary), "No behavior-contract evidence recorded.", 5)
+	writeBoundedBullets(&builder, behaviorContractEvidenceNotes(summary), "No behavior-contract evidence recorded.", 8)
 
 	builder.WriteString("\n### Changed files\n")
 	writeBoundedBullets(&builder, changedFilesNotes(summary), "Changed file summary not recorded.", 3)
@@ -54,7 +54,11 @@ func renderPRHandoffBody(summary handoffSummary) string {
 func behaviorContractEvidenceNotes(summary handoffSummary) []string {
 	notes := []string{
 		"References: docs/specs/harness-behavior.md and docs/agents/review-policy.md.",
-		"Specs: preserved unless explicitly changed in this PR.",
+		"Behavior inventory: runner-owned PR identity, branch/base validation, review classification, Linear handoff comments/state movement, and run/evaluation artifacts.",
+		"Preserved behavior: implementation agents still do not create, update, push, or comment on code-host PRs directly.",
+		"Handoff evidence source: runner-owned PR body; separate code-host PR summary comments are not used.",
+		"Spec compatibility: observable behavior is preserved unless the issue and docs/specs explicitly describe a change.",
+		"Complexity/LOC budget: changed-file counts and additions/deletions are recorded below when reported by the code host.",
 		"Review classification: " + reviewClassificationSummary(summary.Review),
 	}
 	if summary.Classification != nil {

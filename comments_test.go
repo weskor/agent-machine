@@ -22,7 +22,7 @@ func TestRenderPRHandoffBodyIsReadableAndBounded(t *testing.T) {
 	}
 
 	markdown := renderPRHandoffBody(summary)
-	for _, expected := range []string{"## Agent Machine handoff", "### Validation", "### Behavior Contract Evidence", "docs/specs/harness-behavior.md", "docs/agents/review-policy.md", "Specs: preserved", "Run classification: outcome=handoff_ready", "### Changed files", "Files changed: 3", "### Risks and out of scope", "### Progress status", "handoff_pending", "### Remaining follow-up", "bun run am:pi:test", "passed"} {
+	for _, expected := range []string{"## Agent Machine handoff", "### Validation", "### Behavior Contract Evidence", "docs/specs/harness-behavior.md", "docs/agents/review-policy.md", "Behavior inventory", "Preserved behavior", "Handoff evidence source", "Complexity/LOC budget", "Run classification: outcome=handoff_ready", "### Changed files", "Files changed: 3", "### Risks and out of scope", "### Progress status", "handoff_pending", "### Remaining follow-up", "bun run am:pi:test", "passed"} {
 		if !strings.Contains(markdown, expected) {
 			t.Fatalf("expected %q in markdown:\n%s", expected, markdown)
 		}

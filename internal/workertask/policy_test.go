@@ -78,3 +78,46 @@ func TestAvailableAtAfterLatestFailureReturnsNowWhenBackoffElapsed(t *testing.T)
 		t.Fatalf("AvailableAtAfterLatestFailure() = %s, want now %s", got, now)
 	}
 }
+
+func TestRequeueReconciliationNeededTrimsTaskKeyAndRecordsRepair(t *testing.T) {
+	ctx := context.Background()
+	store, err := state.Open(ctx, filepath.Join(t.TempDir(), "am.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
+	task := state.WorkerTask{
+		TaskKey:   "implementation:CAG-242:1",
+		Role:      RoleImplementation,
+		IssueKey:  "CAG-242",
+		IssueID:   "issue-id",
+		Attempt:   1,
+		Status:    state.WorkerTaskStatusReconciliationNeeded,
+		UpdatedAt: now.Add(-time.Minute),
+	}
+	if err := store.UpsertWorkerTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+
+	requeued, err := RequeueReconciliationNeeded(ctx, store, " "+task.TaskKey+" ", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requeued.TaskKey != task.TaskKey || requeued.Status != state.WorkerTaskStatusQueued || !requeued.AvailableAt.Equal(now) {
+		t.Fatalf("requeued task = %+v; want queued at %s", requeued, now)
+	}
+	events, err := store.Events(ctx, state.EventFilter{IssueKey: task.IssueKey, Type: state.EventWorkerTaskRepaired, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events = %+v; want one repair event", events)
+	}
+}
+
+func TestRequeueReconciliationNeededRequiresTaskKey(t *testing.T) {
+	if _, err := RequeueReconciliationNeeded(context.Background(), nil, " ", time.Time{}); err == nil {
+		t.Fatal("RequeueReconciliationNeeded() error = nil; want task key error")
+	}
+}

@@ -2,6 +2,8 @@ package workertask
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/weskor/agent-machine/internal/state"
@@ -19,6 +21,8 @@ const (
 	RoleHandoff        = "handoff"
 	RoleLinearStatus   = "linear-status"
 	RoleWork           = "work"
+
+	RepairReasonOperatorRequeuedReconciliationTask = "operator_requeued_reconciliation_task"
 )
 
 func RetryBackoff(role string) time.Duration {
@@ -60,4 +64,15 @@ func AvailableAtAfterLatestFailure(ctx context.Context, store *state.Store, task
 		return now, nil
 	}
 	return now, nil
+}
+
+func RequeueReconciliationNeeded(ctx context.Context, store *state.Store, taskKey string, now time.Time) (state.WorkerTask, error) {
+	taskKey = strings.TrimSpace(taskKey)
+	if taskKey == "" {
+		return state.WorkerTask{}, fmt.Errorf("repair worker task: task key is required")
+	}
+	if store == nil {
+		return state.WorkerTask{}, fmt.Errorf("repair worker task: state store is required")
+	}
+	return store.RequeueReconciliationNeededWorkerTask(ctx, taskKey, RepairReasonOperatorRequeuedReconciliationTask, now)
 }

@@ -88,15 +88,11 @@ func TestGitHubContractFixtureCoversChecksConflictsAndChangesRequested(t *testin
 
 func TestGitHubContractHandoffEvidenceUpdatesPRBodyOnly(t *testing.T) {
 	updatedBodies := map[int]string{}
-	updatedComments := map[int64]string{}
-	createdComments := map[int]string{}
 	withFakeGitHubAPI(t, fakeGitHubAPI{
 		handoffDetailsByURL: map[string]prHandoffDetails{
 			"https://github.com/acme/widget/pull/501": {Number: 501, URL: "https://github.com/acme/widget/pull/501", BaseRefName: "main", ChangedFiles: 4, Additions: 30, Deletions: 8},
 		},
 		updatedPRBodies: updatedBodies,
-		updatedComments: updatedComments,
-		createdComments: createdComments,
 	})
 
 	summary := handoffSummary{
@@ -118,9 +114,6 @@ func TestGitHubContractHandoffEvidenceUpdatesPRBodyOnly(t *testing.T) {
 	}
 	if strings.Contains(patchBody, "<!-- am-summary -->") {
 		t.Fatalf("updated PR body should not include retired comment marker:\n%s", patchBody)
-	}
-	if len(updatedComments) != 0 || len(createdComments) != 0 {
-		t.Fatalf("handoff evidence should not create or update PR comments; updated=%#v created=%#v", updatedComments, createdComments)
 	}
 }
 

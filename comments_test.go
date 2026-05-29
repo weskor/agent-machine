@@ -9,7 +9,7 @@ import (
 func TestRenderPRHandoffBodyIsReadableAndBounded(t *testing.T) {
 	summary := handoffSummary{
 		IssueIdentifier: "CAG-15",
-		IssueTitle:      "Readable handoff comments",
+		IssueTitle:      "Readable handoff body",
 		IssueURL:        "https://linear.app/wessismore/issue/CAG-15/example",
 		PRURL:           "https://github.com/weskor/agent-machine/pull/407",
 		RuntimeUsage:    &usage{Input: 10, Output: 5, TotalTokens: 15, Cost: &usageCost{Total: 0.25}},

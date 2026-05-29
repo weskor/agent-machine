@@ -8,5 +8,4 @@ type PRCommit = codehost.PRCommit
 type PRCommitAuthor = codehost.PRCommitAuthor
 type StatusCheck = codehost.StatusCheck
 type PRFeedback = codehost.PRFeedback
-type IssueComment = codehost.IssueComment
 type PRHandoffDetails = codehost.PRHandoffDetails

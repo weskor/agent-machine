@@ -8,5 +8,4 @@ type prCommit = ghapi.PRCommit
 type prCommitAuthor = ghapi.PRCommitAuthor
 type statusCheck = ghapi.StatusCheck
 type prFeedback = ghapi.PRFeedback
-type githubIssueComment = ghapi.IssueComment
 type prHandoffDetails = ghapi.PRHandoffDetails

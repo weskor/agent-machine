@@ -852,8 +852,7 @@ func TestRunOneCreatesRunnerOwnedPRWhenPiFinishesWithChangesAndNoPRURL(t *testin
 	defer server.Close()
 
 	prBodies := map[int]string{}
-	createdPRComments := map[int]string{}
-	withFakeGitHubAPI(t, fakeGitHubAPI{updatedPRBodies: prBodies, createdComments: createdPRComments})
+	withFakeGitHubAPI(t, fakeGitHubAPI{updatedPRBodies: prBodies})
 	client := linearClient{apiKey: "test-key", endpoint: server.URL}
 	config := testRunnerConfig(root)
 	config.RunningState = "In Progress"
@@ -881,9 +880,6 @@ func TestRunOneCreatesRunnerOwnedPRWhenPiFinishesWithChangesAndNoPRURL(t *testin
 	}
 	if body := prBodies[900]; !strings.Contains(body, "## Agent Machine handoff") || !strings.Contains(body, "### Behavior Contract Evidence") {
 		t.Fatalf("expected deterministic PR body handoff evidence on runner-created PR, got %#v", prBodies)
-	}
-	if len(createdPRComments) != 0 {
-		t.Fatalf("expected no separate PR handoff comment, got %#v", createdPRComments)
 	}
 	if err := sh.Run("git --git-dir "+sh.Quote(remote)+" rev-parse --verify refs/heads/"+sh.Quote(expectedWorkspaceBranch("CAG-119")), ""); err != nil {
 		t.Fatalf("expected runner to push handoff branch: %v", err)

@@ -9,7 +9,6 @@ import (
 
 type fakeGitHubAPI struct {
 	prs                 []pullRequestSummary
-	comments            map[string][]githubIssueComment
 	feedback            prFeedback
 	state               string
 	merged              bool
@@ -17,8 +16,6 @@ type fakeGitHubAPI struct {
 	handoffErrorsByURL  map[string]error
 	handoffErr          error
 	details             prHandoffDetails
-	updatedComments     map[int64]string
-	createdComments     map[int]string
 	mergedPRs           map[int]bool
 	deletedBranches     map[string]bool
 	updatedPRs          map[int]bool
@@ -37,24 +34,6 @@ func (f fakeGitHubAPI) PullRequestState(context.Context, string) (string, bool, 
 
 func (f fakeGitHubAPI) PullRequestFeedback(context.Context, int) (prFeedback, error) {
 	return f.feedback, nil
-}
-
-func (f fakeGitHubAPI) IssueComments(_ context.Context, prNumber string) ([]githubIssueComment, error) {
-	return f.comments[prNumber], nil
-}
-
-func (f fakeGitHubAPI) UpdateIssueComment(_ context.Context, commentID int64, body string) error {
-	if f.updatedComments != nil {
-		f.updatedComments[commentID] = body
-	}
-	return nil
-}
-
-func (f fakeGitHubAPI) CreateIssueComment(_ context.Context, prNumber int, body string) error {
-	if f.createdComments != nil {
-		f.createdComments[prNumber] = body
-	}
-	return nil
 }
 
 func (f fakeGitHubAPI) SquashMergePullRequest(_ context.Context, prNumber int) error {

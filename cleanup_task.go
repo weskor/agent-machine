@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/weskor/agent-machine/internal/state"
+	"github.com/weskor/agent-machine/internal/workertask"
 )
 
 type cleanupWorkerTaskPayload struct {
@@ -75,7 +76,7 @@ func enqueueCleanupWorkerTask(ctx context.Context, store *state.Store, workspace
 		}
 		break
 	}
-	availableAt, err := workerTaskAvailableAtAfterLatestFailure(ctx, store, taskKey, cleanupWorkerRole, now)
+	availableAt, err := workertask.AvailableAtAfterLatestFailure(ctx, store, taskKey, cleanupWorkerRole, now)
 	if err != nil {
 		return state.WorkerTask{}, false, err
 	}

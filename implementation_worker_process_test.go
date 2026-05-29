@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/weskor/agent-machine/internal/state"
+	"github.com/weskor/agent-machine/internal/workertask"
 )
 
 func TestClaimNextImplementationAttemptSkipsReviewReadyResume(t *testing.T) {
@@ -196,7 +197,7 @@ func TestEnqueueImplementationWorkerTaskBacksOffAfterFailure(t *testing.T) {
 	if !enqueued {
 		t.Fatal("enqueued = false; want failed task requeued with backoff")
 	}
-	wantAvailableAt := finishedAt.Add(workerTaskRetryBackoff(implementationWorkerRole))
+	wantAvailableAt := finishedAt.Add(workertask.RetryBackoff(implementationWorkerRole))
 	if task.Status != state.WorkerTaskStatusQueued || !task.AvailableAt.Equal(wantAvailableAt) {
 		t.Fatalf("task = %+v; want queued at %s", task, wantAvailableAt)
 	}

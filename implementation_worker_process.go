@@ -47,7 +47,7 @@ func enqueueImplementationWorkerTask(ctx context.Context, store *state.Store, ca
 		if task.TaskKey != taskKey {
 			continue
 		}
-		if workerTaskBlocksDispatch(task.Status) {
+		if workertask.BlocksDispatch(task.Status) {
 			return task, false, nil
 		}
 		break

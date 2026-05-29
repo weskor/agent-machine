@@ -9,6 +9,7 @@ import (
 
 	cfg "github.com/weskor/agent-machine/internal/config"
 	"github.com/weskor/agent-machine/internal/state"
+	"github.com/weskor/agent-machine/internal/workertask"
 )
 
 type candidateSelectionOptions struct {
@@ -120,20 +121,11 @@ func hasActiveWorkerTask(ctx context.Context, store *state.Store, role, issueKey
 		return false, err
 	}
 	for _, task := range tasks {
-		if task.IssueKey == issueKey && workerTaskBlocksDispatch(task.Status) {
+		if task.IssueKey == issueKey && workertask.BlocksDispatch(task.Status) {
 			return true, nil
 		}
 	}
 	return false, nil
-}
-
-func workerTaskBlocksDispatch(status string) bool {
-	switch status {
-	case state.WorkerTaskStatusQueued, state.WorkerTaskStatusClaimed, state.WorkerTaskStatusReconciliationNeeded:
-		return true
-	default:
-		return false
-	}
 }
 
 func skipCandidateForSelectionOptionsContext(ctx context.Context, config runnerConfig, candidate issue, pr *pullRequestSummary, store *state.Store, options candidateSelectionOptions) bool {

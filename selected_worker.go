@@ -30,9 +30,9 @@ func runSelectedWorkerContext(ctx context.Context, client linearClient, proj pro
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	role = strings.TrimSpace(role)
-	if !supportedWorkerRole(role) {
-		return fmt.Errorf("unsupported worker role %q; supported roles: %s", role, strings.Join(supportedWorkerRoles(), ", "))
+	role = workertask.NormalizeRole(role)
+	if err := workertask.RequireSupportedSelectedRole(role); err != nil {
+		return err
 	}
 	if selectedWorkerNeedsWorkspaceRoot(role) {
 		if _, err := ensureWorkspaceRoot(config.WorkspaceRoot); err != nil {
@@ -61,30 +61,20 @@ func runSelectedWorkerContext(ctx context.Context, client linearClient, proj pro
 	case workWorkerRole:
 		return runWorkWorkerProcessContext(ctx, client, proj, config)
 	default:
-		return fmt.Errorf("unsupported worker role %q; supported roles: %s", role, strings.Join(supportedWorkerRoles(), ", "))
+		return workertask.RequireSupportedSelectedRole(role)
 	}
 }
 
 func supportedWorkerRole(role string) bool {
-	for _, supported := range supportedWorkerRoles() {
-		if role == supported {
-			return true
-		}
-	}
-	return false
+	return workertask.SupportedSelectedRole(role)
 }
 
 func selectedWorkerNeedsWorkspaceRoot(role string) bool {
-	switch role {
-	case cleanupWorkerRole, mergeWorkerRole, reconciliationWorkerRole, reviewWorkerRole, implementationWorkerRole, handoffWorkerRole, workWorkerRole:
-		return true
-	default:
-		return false
-	}
+	return workertask.SelectedRoleNeedsWorkspaceRoot(role)
 }
 
 func supportedWorkerRoles() []string {
-	return []string{statusWorkerRole, planWorkerRole, cleanupWorkerRole, mergeWorkerRole, reconciliationWorkerRole, reviewWorkerRole, implementationWorkerRole, handoffWorkerRole, linearStatusWorkerRole, workWorkerRole}
+	return workertask.SupportedSelectedRoles()
 }
 
 func runStatusWorkerProcess(client linearClient, config runnerConfig) error {

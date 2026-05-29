@@ -16,8 +16,6 @@ import (
 	"github.com/weskor/agent-machine/internal/state"
 )
 
-const runProgressPhaseReviewPending = "review_pending"
-
 type reviewWorker struct {
 	client          linearClient
 	config          runnerConfig

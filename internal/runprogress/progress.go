@@ -1,4 +1,4 @@
-package main
+package runprogress
 
 import (
 	"encoding/json"
@@ -9,16 +9,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weskor/agent-machine/internal/artifacts"
+	"github.com/weskor/agent-machine/internal/attemptoutcome"
+	"github.com/weskor/agent-machine/internal/domain"
 	"github.com/weskor/agent-machine/internal/runledger"
-	"github.com/weskor/agent-machine/internal/terminalpr"
 )
 
-const runProgressArtifactName = "progress.json"
-const prHandoffPendingPayloadArtifactName = "pr-handoff-pending.json"
-const reviewPendingPayloadArtifactName = "review-pending.json"
-const handoffPendingPayloadArtifactName = "handoff-pending.json"
+const (
+	ArtifactName                = "progress.json"
+	PRHandoffPendingPayloadName = "pr-handoff-pending.json"
+	ReviewPendingPayloadName    = "review-pending.json"
+	HandoffPendingPayloadName   = "handoff-pending.json"
+	PhasePRHandoffPending       = "pr_handoff_pending"
+	PhaseReviewPending          = "review_pending"
+	PhaseHandoffPending         = "handoff_pending"
+)
 
-type runProgressSnapshot struct {
+type Snapshot struct {
 	IssueIdentifier      string    `json:"issue_identifier"`
 	IssueTitle           string    `json:"issue_title,omitempty"`
 	Phase                string    `json:"phase"`
@@ -44,7 +51,7 @@ type runProgressSnapshot struct {
 	HandoffPayloadPath   string    `json:"handoff_payload_path,omitempty"`
 }
 
-func runProgressRoot(workspaceRoot string) string {
+func Root(workspaceRoot string) string {
 	if strings.TrimSpace(workspaceRoot) == "" {
 		return ""
 	}
@@ -55,8 +62,8 @@ func runProgressRoot(workspaceRoot string) string {
 	return filepath.Join(clean, "state", "run-progress")
 }
 
-func runProgressPath(workspaceRoot, issueIdentifier string) (string, error) {
-	root := runProgressRoot(workspaceRoot)
+func Path(workspaceRoot, issueIdentifier string) (string, error) {
+	root := Root(workspaceRoot)
 	if root == "" {
 		return "", errors.New("workspace root is required")
 	}
@@ -64,65 +71,35 @@ func runProgressPath(workspaceRoot, issueIdentifier string) (string, error) {
 	if issue == "" || filepath.Base(filepath.Clean(issue)) != issue {
 		return "", fmt.Errorf("issue identifier %q is not a safe run progress name", issueIdentifier)
 	}
-	return filepath.Join(root, issue, runProgressArtifactName), nil
+	return filepath.Join(root, issue, ArtifactName), nil
 }
 
-func handoffPendingPayloadPath(workspaceRoot, issueIdentifier string) (string, error) {
-	progressPath, err := runProgressPath(workspaceRoot, issueIdentifier)
+func HandoffPendingPayloadPath(workspaceRoot, issueIdentifier string) (string, error) {
+	progressPath, err := Path(workspaceRoot, issueIdentifier)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(filepath.Dir(progressPath), handoffPendingPayloadArtifactName), nil
+	return filepath.Join(filepath.Dir(progressPath), HandoffPendingPayloadName), nil
 }
 
-func prHandoffPendingPayloadPath(workspaceRoot, issueIdentifier string) (string, error) {
-	progressPath, err := runProgressPath(workspaceRoot, issueIdentifier)
+func PRHandoffPendingPayloadPath(workspaceRoot, issueIdentifier string) (string, error) {
+	progressPath, err := Path(workspaceRoot, issueIdentifier)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(filepath.Dir(progressPath), prHandoffPendingPayloadArtifactName), nil
+	return filepath.Join(filepath.Dir(progressPath), PRHandoffPendingPayloadName), nil
 }
 
-func reviewPendingPayloadPath(workspaceRoot, issueIdentifier string) (string, error) {
-	progressPath, err := runProgressPath(workspaceRoot, issueIdentifier)
+func ReviewPendingPayloadPath(workspaceRoot, issueIdentifier string) (string, error) {
+	progressPath, err := Path(workspaceRoot, issueIdentifier)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(filepath.Dir(progressPath), reviewPendingPayloadArtifactName), nil
+	return filepath.Join(filepath.Dir(progressPath), ReviewPendingPayloadName), nil
 }
 
-func writeRunProgress(workspaceRoot string, snapshot runProgressSnapshot) {
-	if err := writeRunProgressResult(workspaceRoot, snapshot); err != nil {
-		log("failed to write run progress for %s: %v", snapshot.IssueIdentifier, err)
-	}
-}
-
-func writeTerminalPullRequestProgress(config runnerConfig, candidate *issue, workspace, branch string, progressStarted time.Time, facts terminalpr.Facts) {
-	snapshot := runProgressForIssue(candidate, workspace, "completed", progressStarted)
-	snapshot.Status = runAttemptStatusSuccess
-	snapshot.Outcome = facts.Reason
-	snapshot.Branch = branch
-	snapshot.PRURL = facts.PRURL
-	snapshot.NextAction = "cleanup_workspace"
-	writeRunProgress(config.WorkspaceRoot, snapshot)
-}
-
-func completeTerminalPullRequestHandoffProgress(config runnerConfig, candidate *issue, workspace, branch string, progressStarted time.Time, fallbackPRURL string, err error) bool {
-	facts, ok := terminalpr.FactsFromError(err, fallbackPRURL)
-	if !ok {
-		return false
-	}
-	writeTerminalPullRequestProgress(config, candidate, workspace, branch, progressStarted, facts)
-	identifier := ""
-	if candidate != nil {
-		identifier = candidate.Identifier
-	}
-	log("%s PR handoff stopped because PR is already merged: %s", emptyAsUnknown(identifier), facts.PRURL)
-	return true
-}
-
-func writeRunProgressResult(workspaceRoot string, snapshot runProgressSnapshot) error {
-	path, err := runProgressPath(workspaceRoot, snapshot.IssueIdentifier)
+func WriteResult(workspaceRoot string, snapshot Snapshot, logf func(string, ...any)) error {
+	path, err := Path(workspaceRoot, snapshot.IssueIdentifier)
 	if err != nil {
 		return err
 	}
@@ -151,80 +128,80 @@ func writeRunProgressResult(workspaceRoot string, snapshot runProgressSnapshot) 
 	if err := os.Rename(tmp, path); err != nil {
 		return err
 	}
-	if err := appendRunLedger(workspaceRoot, snapshot); err != nil {
-		log("failed to append run ledger for %s: %v", snapshot.IssueIdentifier, err)
+	if err := AppendLedger(workspaceRoot, snapshot); err != nil && logf != nil {
+		logf("failed to append run ledger for %s: %v", snapshot.IssueIdentifier, err)
 	}
 	return nil
 }
 
-func readRunProgress(workspaceRoot, issueIdentifier string) (runProgressSnapshot, error) {
-	path, err := runProgressPath(workspaceRoot, issueIdentifier)
+func Read(workspaceRoot, issueIdentifier string) (Snapshot, error) {
+	path, err := Path(workspaceRoot, issueIdentifier)
 	if err != nil {
-		return runProgressSnapshot{}, err
+		return Snapshot{}, err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return runProgressSnapshot{}, fmt.Errorf("no run progress snapshot for %s at %s", issueIdentifier, path)
+			return Snapshot{}, fmt.Errorf("no run progress snapshot for %s at %s", issueIdentifier, path)
 		}
-		return runProgressSnapshot{}, err
+		return Snapshot{}, err
 	}
-	var snapshot runProgressSnapshot
+	var snapshot Snapshot
 	if err := json.Unmarshal(data, &snapshot); err != nil {
-		return runProgressSnapshot{}, err
+		return Snapshot{}, err
 	}
 	if snapshot.ProgressPath == "" {
 		snapshot.ProgressPath = path
 	}
-	if snapshot.PRHandoffPayloadPath == "" && snapshot.Phase == runProgressPhasePRHandoffPending {
-		if payloadPath, err := prHandoffPendingPayloadPath(workspaceRoot, issueIdentifier); err == nil {
+	if snapshot.PRHandoffPayloadPath == "" && snapshot.Phase == PhasePRHandoffPending {
+		if payloadPath, err := PRHandoffPendingPayloadPath(workspaceRoot, issueIdentifier); err == nil {
 			snapshot.PRHandoffPayloadPath = payloadPath
 		}
 	}
-	if snapshot.ReviewPayloadPath == "" && snapshot.Phase == runProgressPhaseReviewPending {
-		if payloadPath, err := reviewPendingPayloadPath(workspaceRoot, issueIdentifier); err == nil {
+	if snapshot.ReviewPayloadPath == "" && snapshot.Phase == PhaseReviewPending {
+		if payloadPath, err := ReviewPendingPayloadPath(workspaceRoot, issueIdentifier); err == nil {
 			snapshot.ReviewPayloadPath = payloadPath
 		}
 	}
-	if snapshot.HandoffPayloadPath == "" && snapshot.Phase == runProgressPhaseHandoffPending {
-		if payloadPath, err := handoffPendingPayloadPath(workspaceRoot, issueIdentifier); err == nil {
+	if snapshot.HandoffPayloadPath == "" && snapshot.Phase == PhaseHandoffPending {
+		if payloadPath, err := HandoffPendingPayloadPath(workspaceRoot, issueIdentifier); err == nil {
 			snapshot.HandoffPayloadPath = payloadPath
 		}
 	}
 	return snapshot, nil
 }
 
-func printRunProgress(workspaceRoot, issueIdentifier string) error {
-	snapshot, err := readRunProgress(workspaceRoot, issueIdentifier)
+func PrintProgress(workspaceRoot, issueIdentifier string) error {
+	snapshot, err := Read(workspaceRoot, issueIdentifier)
 	if err != nil {
 		return err
 	}
-	fmt.Println(formatRunProgress(snapshot))
+	fmt.Println(Format(snapshot))
 	return nil
 }
 
-func printRunLedger(workspaceRoot, issueIdentifier string) error {
+func PrintLedger(workspaceRoot, issueIdentifier string) error {
 	events, path, err := runledger.Read(workspaceRoot, issueIdentifier)
 	if err != nil {
 		if !errors.Is(err, runledger.ErrNotFound) {
 			return err
 		}
-		snapshot, progressErr := readRunProgress(workspaceRoot, issueIdentifier)
+		snapshot, progressErr := Read(workspaceRoot, issueIdentifier)
 		if progressErr != nil {
 			return err
 		}
 		path, _ = runledger.Path(workspaceRoot, issueIdentifier)
-		events = []runledger.Event{runLedgerEventFromProgress(snapshot)}
+		events = []runledger.Event{LedgerEventFromSnapshot(snapshot)}
 	}
 	fmt.Println(runledger.Format(issueIdentifier, events, path))
 	return nil
 }
 
-func appendRunLedger(workspaceRoot string, snapshot runProgressSnapshot) error {
-	return runledger.Append(workspaceRoot, runLedgerEventFromProgress(snapshot))
+func AppendLedger(workspaceRoot string, snapshot Snapshot) error {
+	return runledger.Append(workspaceRoot, LedgerEventFromSnapshot(snapshot))
 }
 
-func runLedgerEventFromProgress(snapshot runProgressSnapshot) runledger.Event {
+func LedgerEventFromSnapshot(snapshot Snapshot) runledger.Event {
 	return runledger.Event{
 		IssueIdentifier:      snapshot.IssueIdentifier,
 		IssueTitle:           snapshot.IssueTitle,
@@ -252,7 +229,7 @@ func runLedgerEventFromProgress(snapshot runProgressSnapshot) runledger.Event {
 	}
 }
 
-func formatRunProgress(snapshot runProgressSnapshot) string {
+func Format(snapshot Snapshot) string {
 	parts := []string{
 		fmt.Sprintf("issue=%s", emptyAsUnknown(snapshot.IssueIdentifier)),
 		fmt.Sprintf("phase=%s", emptyAsUnknown(snapshot.Phase)),
@@ -303,32 +280,28 @@ func formatRunProgress(snapshot runProgressSnapshot) string {
 	return strings.Join(parts, " ")
 }
 
-func runProgressForIssue(candidate *issue, workspace, phase string, startedAt time.Time) runProgressSnapshot {
-	branch := ""
-	if info, err := os.Stat(workspace); err == nil && info.IsDir() {
-		branch, _ = currentGitBranch(workspace)
-	}
-	return runProgressSnapshot{
+func ForIssue(candidate domain.Issue, workspace, branch, phase string, startedAt time.Time) Snapshot {
+	return Snapshot{
 		IssueIdentifier: candidate.Identifier,
 		IssueTitle:      candidate.Title,
 		Phase:           phase,
 		Branch:          branch,
-		ExpectedBranch:  expectedWorkspaceBranch(candidate.Identifier),
+		ExpectedBranch:  attemptoutcome.ExpectedWorkspaceBranch(candidate.Identifier),
 		Workspace:       workspace,
 		StartedAt:       startedAt,
 		UpdatedAt:       time.Now().UTC(),
 	}
 }
 
-func runProgressForRecord(workspace string, record runRecord, evaluation evaluationArtifact) runProgressSnapshot {
+func ForRecord(workspace string, record domain.RunRecord, evaluation artifacts.EvaluationArtifact) Snapshot {
 	phase := record.Status
 	switch record.Status {
-	case runAttemptStatusSuccess:
+	case attemptoutcome.StatusSuccess:
 		phase = "completed"
-	case runAttemptStatusFailed, runAttemptStatusTimeout, runAttemptStatusBudgetExceeded, runAttemptStatusGitHubAppError, runAttemptStatusNeedsInfoFail:
+	case attemptoutcome.StatusFailed, attemptoutcome.StatusTimeout, attemptoutcome.StatusBudgetExceeded, attemptoutcome.StatusGitHubAppError, attemptoutcome.StatusNeedsInfoFail:
 		phase = "failed"
 	}
-	return runProgressSnapshot{
+	return Snapshot{
 		IssueIdentifier:      record.IssueIdentifier,
 		IssueTitle:           record.IssueTitle,
 		Phase:                phase,
@@ -346,7 +319,14 @@ func runProgressForRecord(workspace string, record runRecord, evaluation evaluat
 		DurationMS:           record.DurationMS,
 		NextAction:           evaluation.NextAction,
 		Error:                record.Error,
-		RunRecordPath:        filepath.Join(workspace, ".am-run.json"),
-		EvaluationPath:       filepath.Join(workspace, evaluationArtifactName),
+		RunRecordPath:        artifacts.RunRecordPath(workspace),
+		EvaluationPath:       artifacts.EvaluationPath(workspace),
 	}
+}
+
+func emptyAsUnknown(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "unknown"
+	}
+	return value
 }

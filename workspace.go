@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -11,6 +12,8 @@ import (
 	cfg "github.com/weskor/agent-machine/internal/config"
 	evaluationstate "github.com/weskor/agent-machine/internal/evaluation"
 	"github.com/weskor/agent-machine/internal/runclassification"
+	"github.com/weskor/agent-machine/internal/runledger"
+	"github.com/weskor/agent-machine/internal/runprogress"
 	sh "github.com/weskor/agent-machine/internal/shell"
 	"github.com/weskor/agent-machine/internal/state"
 	"github.com/weskor/agent-machine/internal/stateprojection"
@@ -215,6 +218,72 @@ func feedbackRetryCount(workspace string) int {
 		return 0
 	}
 	return 1
+}
+
+func runProgressRoot(workspaceRoot string) string {
+	return runprogress.Root(workspaceRoot)
+}
+
+func runProgressPath(workspaceRoot, issueIdentifier string) (string, error) {
+	return runprogress.Path(workspaceRoot, issueIdentifier)
+}
+
+func handoffPendingPayloadPath(workspaceRoot, issueIdentifier string) (string, error) {
+	return runprogress.HandoffPendingPayloadPath(workspaceRoot, issueIdentifier)
+}
+
+func prHandoffPendingPayloadPath(workspaceRoot, issueIdentifier string) (string, error) {
+	return runprogress.PRHandoffPendingPayloadPath(workspaceRoot, issueIdentifier)
+}
+
+func reviewPendingPayloadPath(workspaceRoot, issueIdentifier string) (string, error) {
+	return runprogress.ReviewPendingPayloadPath(workspaceRoot, issueIdentifier)
+}
+
+func writeRunProgress(workspaceRoot string, snapshot runProgressSnapshot) {
+	if err := writeRunProgressResult(workspaceRoot, snapshot); err != nil {
+		log("failed to write run progress for %s: %v", snapshot.IssueIdentifier, err)
+	}
+}
+
+func writeRunProgressResult(workspaceRoot string, snapshot runProgressSnapshot) error {
+	return runprogress.WriteResult(workspaceRoot, snapshot, log)
+}
+
+func readRunProgress(workspaceRoot, issueIdentifier string) (runProgressSnapshot, error) {
+	return runprogress.Read(workspaceRoot, issueIdentifier)
+}
+
+func printRunProgress(workspaceRoot, issueIdentifier string) error {
+	return runprogress.PrintProgress(workspaceRoot, issueIdentifier)
+}
+
+func printRunLedger(workspaceRoot, issueIdentifier string) error {
+	return runprogress.PrintLedger(workspaceRoot, issueIdentifier)
+}
+
+func appendRunLedger(workspaceRoot string, snapshot runProgressSnapshot) error {
+	return runprogress.AppendLedger(workspaceRoot, snapshot)
+}
+
+func runLedgerEventFromProgress(snapshot runProgressSnapshot) runledger.Event {
+	return runprogress.LedgerEventFromSnapshot(snapshot)
+}
+
+func formatRunProgress(snapshot runProgressSnapshot) string {
+	return runprogress.Format(snapshot)
+}
+
+func runProgressForIssue(candidate *issue, workspace, phase string, startedAt time.Time) runProgressSnapshot {
+	branch := ""
+	if info, err := os.Stat(workspace); err == nil && info.IsDir() {
+		branch, _ = currentGitBranch(workspace)
+	}
+	return runprogress.ForIssue(*candidate, workspace, branch, phase, startedAt)
+}
+
+func runProgressForRecord(workspace string, record runRecord, evaluation evaluationArtifact) runProgressSnapshot {
+	return runprogress.ForRecord(workspace, record, evaluation)
 }
 
 func stateStoreForRunRecordExportContext(ctx context.Context, store *state.Store, fallbackOpen bool, workspaceRoot string) (*state.Store, string, func(), error) {

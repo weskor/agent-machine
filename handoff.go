@@ -16,8 +16,6 @@ import (
 	"github.com/weskor/agent-machine/internal/terminalpr"
 )
 
-const runProgressPhasePRHandoffPending = "pr_handoff_pending"
-
 type prHandoffPendingPayload struct {
 	SchemaVersion    int              `json:"schema_version"`
 	IssueID          string           `json:"issue_id,omitempty"`
@@ -128,6 +126,30 @@ func stripQuestionNumber(question string) string {
 
 func expectedWorkspaceBranch(identifier string) string {
 	return "am/" + strings.TrimSpace(identifier) + "-workspace"
+}
+
+func writeTerminalPullRequestProgress(config runnerConfig, candidate *issue, workspace, branch string, progressStarted time.Time, facts terminalpr.Facts) {
+	snapshot := runProgressForIssue(candidate, workspace, "completed", progressStarted)
+	snapshot.Status = runAttemptStatusSuccess
+	snapshot.Outcome = facts.Reason
+	snapshot.Branch = branch
+	snapshot.PRURL = facts.PRURL
+	snapshot.NextAction = "cleanup_workspace"
+	writeRunProgress(config.WorkspaceRoot, snapshot)
+}
+
+func completeTerminalPullRequestHandoffProgress(config runnerConfig, candidate *issue, workspace, branch string, progressStarted time.Time, fallbackPRURL string, err error) bool {
+	facts, ok := terminalpr.FactsFromError(err, fallbackPRURL)
+	if !ok {
+		return false
+	}
+	writeTerminalPullRequestProgress(config, candidate, workspace, branch, progressStarted, facts)
+	identifier := ""
+	if candidate != nil {
+		identifier = candidate.Identifier
+	}
+	log("%s PR handoff stopped because PR is already merged: %s", emptyAsUnknown(identifier), facts.PRURL)
+	return true
 }
 
 func validatePRForHandoff(config runnerConfig, candidate *issue, prURL string) (string, string, error) {

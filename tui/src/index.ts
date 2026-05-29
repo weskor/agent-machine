@@ -308,16 +308,18 @@ function footer() {
 }
 
 function issueRows(snapshot: SurfaceSnapshot): IssueRow[] {
-  return issueRecords(snapshot).map((issue) => {
+  const records = issueRecords(snapshot)
+  const hasIssueProjection = snapshot.issue_queue !== undefined || snapshot.work_items !== undefined
+  return records.map((issue) => {
     const key = issueKey(issue)
-    const task = snapshot.worker_tasks.find((candidate) => candidate.issue_key === key)
-    const lock = snapshot.active_locks.find((candidate) => candidate.issue === key)
+    const task = hasIssueProjection ? undefined : snapshot.worker_tasks.find((candidate) => candidate.issue_key === key)
+    const lock = hasIssueProjection ? undefined : snapshot.active_locks.find((candidate) => candidate.issue === key)
     return {
       key,
       title: clean(issue.title) || "n/a",
       status: clean(issue.am_status) || clean(issue.status) || "n/a",
-      lane: clean(issue.lane_role_hint) || clean(task?.role) || "n/a",
-      age: clean(issue.age) || relativeAge(issue.updated_at || task?.updated_at || lock?.renewed_at, snapshot.observed_at) || "n/a",
+      lane: clean(issue.lane_role_hint) || (!hasIssueProjection ? clean(task?.role) : "") || "n/a",
+      age: clean(issue.age) || (!hasIssueProjection ? relativeAge(issue.updated_at || task?.updated_at || lock?.renewed_at, snapshot.observed_at) : "") || "n/a",
       attention: clean(issue.attention) || "n/a",
       issue,
     }
@@ -325,7 +327,7 @@ function issueRows(snapshot: SurfaceSnapshot): IssueRow[] {
 }
 
 function issueRecords(snapshot: SurfaceSnapshot): IssueRecord[] {
-  return snapshot.work_items ?? snapshot.issue_queue ?? snapshot.issues
+  return snapshot.issue_queue ?? snapshot.work_items ?? snapshot.issues
 }
 
 function queueLines(rows: IssueRow[]) {
@@ -347,6 +349,8 @@ function evidenceLines(snapshot: SurfaceSnapshot, row: IssueRow) {
   const lock = snapshot.active_locks.find((candidate) => candidate.issue === key)
   const lane = task ? snapshot.active_lanes.find((candidate) => candidate.active_task_key === task.task_key || candidate.active_task_role === task.role) : undefined
   const events = issueEvents(snapshot, issue)
+  const activity = recordValue(issue.current_activity)
+  const external = recordValue(issue.external_state)
 
   return [
     "Header:",
@@ -361,13 +365,13 @@ function evidenceLines(snapshot: SurfaceSnapshot, row: IssueRow) {
     compactValueLine(issue.blocker_reason, "reason", row.attention === "none" || row.attention === "n/a" ? "none" : row.attention),
     "",
     "Current Activity:",
-    `lane: ${clean(lane?.name) || row.lane}  task: ${clean(task?.task_key) || "n/a"}`,
-    `lease: ${clean(task?.lease_name) || clean(lock?.owner) || clean(lane?.active_lease_name) || "n/a"}  attempt: ${numberValue(issue.attempt) || numberValue(task?.attempt) || "n/a"}`,
-    `workspace: ${clean(issue.workspace) || clean(lock?.workspace) || "n/a"}  branch: ${clean(issue.branch) || "n/a"}  timing: ${formatTime(issue.updated_at || task?.updated_at || lock?.renewed_at) || "n/a"}`,
+    `lane: ${field(activity, "lane") || clean(lane?.name) || row.lane}  task: ${field(activity, "task") || clean(task?.task_key) || "n/a"}`,
+    `lease: ${field(activity, "lease") || clean(task?.lease_name) || clean(lock?.owner) || clean(lane?.active_lease_name) || "n/a"}  attempt: ${field(activity, "attempt") || numberValue(issue.attempt) || numberValue(task?.attempt) || "n/a"}`,
+    `workspace: ${field(activity, "workspace") || clean(issue.workspace) || clean(lock?.workspace) || "n/a"}  branch: ${field(activity, "branch") || clean(issue.branch) || "n/a"}  timing: ${field(activity, "timing") || formatTime(issue.updated_at || task?.updated_at || lock?.renewed_at) || "n/a"}`,
     "",
     "External State:",
-    compactValueLine(issue.external_state, "external", "n/a"),
-    `linear: ${clean(issue.linear_state) || "n/a"}  pr: ${clean(issue.pr_url) || "n/a"}  review: ${clean(issue.review) || "n/a"}`,
+    `linear: ${field(external, "linear") || clean(issue.linear_state) || "n/a"}  pr: ${field(external, "pr") || clean(issue.pr_url) || "n/a"}  review: ${field(external, "review") || clean(issue.review) || "n/a"}`,
+    `checks: ${field(external, "checks") || "n/a"}  merge: ${field(external, "merge") || "n/a"}`,
     "",
     "Agent Output/Evidence:",
     compactValueLine(issue.agent_evidence_summary, "evidence", "none"),
@@ -432,6 +436,17 @@ function compactValueLine(value: unknown, label: string, fallback: string): stri
     return `${label}: ${fallback}`
   }
   return lines.map((line) => line.replace(/^- /, "")).join(" | ")
+}
+
+function recordValue(value: unknown): Dict | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Dict : undefined
+}
+
+function field(record: Dict | undefined, key: string) {
+  if (!record) {
+    return ""
+  }
+  return stringifyValue(record[key]).replace(/^n\/a$/, "")
 }
 
 async function loadSurfaceSnapshot(): Promise<SurfaceSnapshot> {

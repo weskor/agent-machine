@@ -22,6 +22,23 @@ func testManager() Manager {
 	}
 }
 
+func TestCorrectedPRURLFromReviewFindings(t *testing.T) {
+	got := CorrectedPRURL(
+		"https://github.com/weskor/agent-machine/pull/2",
+		"REVIEW_PASS\n\nFindings:\n- Actual CAG-11 branch PR is #400, not prompt-listed #2.",
+	)
+	want := "https://github.com/weskor/agent-machine/pull/400"
+	if got != want {
+		t.Fatalf("CorrectedPRURL() = %q, want %q", got, want)
+	}
+}
+
+func TestCorrectedPRURLNoFinding(t *testing.T) {
+	if got := CorrectedPRURL("https://github.com/example/repo/pull/2", "REVIEW_PASS"); got != "" {
+		t.Fatalf("CorrectedPRURL() = %q, want empty", got)
+	}
+}
+
 func TestManagerWriteReadBackfillArtifacts(t *testing.T) {
 	workspace := t.TempDir()
 	started := time.Date(2026, 5, 20, 1, 0, 0, 0, time.UTC)

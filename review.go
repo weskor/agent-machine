@@ -8,6 +8,7 @@ import (
 
 	"github.com/weskor/agent-machine/internal/agentruntime"
 	"github.com/weskor/agent-machine/internal/attemptlifecycle"
+	mergegate "github.com/weskor/agent-machine/internal/mergegate"
 	"github.com/weskor/agent-machine/internal/reviewpolicy"
 	"github.com/weskor/agent-machine/internal/reviewprompt"
 )
@@ -53,43 +54,7 @@ func collectReviewEvidenceContext(parent context.Context, config runnerConfig, c
 }
 
 func reviewChecksStatus(checks []statusCheck) (string, string) {
-	if len(checks) == 0 {
-		return "unavailable", "no status checks were reported by the code host"
-	}
-	if reason := checksBlockReason(checks); reason == "" {
-		return "success", summarizeStatusChecks(checks)
-	}
-	for _, check := range checks {
-		if check.Typename == "CheckRun" && (strings.EqualFold(check.Status, "UNKNOWN") || strings.EqualFold(check.Conclusion, "UNKNOWN")) {
-			return "unavailable", checksBlockReason(checks)
-		}
-		if check.Typename == "StatusContext" && strings.EqualFold(check.State, "UNKNOWN") {
-			return "unavailable", checksBlockReason(checks)
-		}
-		if check.Typename == "CheckRun" && !strings.EqualFold(check.Status, "COMPLETED") {
-			return "pending", checksBlockReason(checks)
-		}
-		if check.Typename == "StatusContext" && strings.EqualFold(check.State, "PENDING") {
-			return "pending", checksBlockReason(checks)
-		}
-	}
-	return "failed", checksBlockReason(checks)
-}
-
-func summarizeStatusChecks(checks []statusCheck) string {
-	parts := make([]string, 0, len(checks))
-	for _, check := range checks {
-		label := checkLabel(check)
-		switch check.Typename {
-		case "CheckRun":
-			parts = append(parts, fmt.Sprintf("%s=%s/%s", label, emptyAsUnknown(check.Status), emptyAsUnknown(check.Conclusion)))
-		case "StatusContext":
-			parts = append(parts, fmt.Sprintf("%s=%s", label, emptyAsUnknown(check.State)))
-		default:
-			parts = append(parts, fmt.Sprintf("%s=%s", label, emptyAsUnknown(check.Typename)))
-		}
-	}
-	return strings.Join(parts, "; ")
+	return mergegate.ChecksStatus(mergegateStatusChecks(checks))
 }
 
 func reviewEvidenceNotReadyError(e reviewEvidence) error {

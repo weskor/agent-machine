@@ -67,6 +67,54 @@ func TestChecksBlockReason(t *testing.T) {
 	}
 }
 
+func TestChecksStatusClassifiesReviewReadiness(t *testing.T) {
+	tests := []struct {
+		name        string
+		checks      []StatusCheck
+		wantStatus  string
+		wantSummary string
+	}{
+		{
+			name:        "none unavailable",
+			wantStatus:  "unavailable",
+			wantSummary: "no status checks were reported by the code host",
+		},
+		{
+			name:        "success summarizes all checks",
+			checks:      []StatusCheck{{Typename: "CheckRun", Name: "go-ci", Status: "COMPLETED", Conclusion: "SUCCESS"}, {Typename: "StatusContext", Context: "Vercel", State: "SUCCESS"}},
+			wantStatus:  "success",
+			wantSummary: "go-ci=COMPLETED/SUCCESS; Vercel=SUCCESS",
+		},
+		{
+			name:        "pending check run",
+			checks:      []StatusCheck{{Typename: "CheckRun", Name: "go-ci", Status: "IN_PROGRESS"}},
+			wantStatus:  "pending",
+			wantSummary: `check run "go-ci" is status=IN_PROGRESS conclusion=UNKNOWN`,
+		},
+		{
+			name:        "unknown status context unavailable",
+			checks:      []StatusCheck{{Typename: "StatusContext", Context: "GitHub commit statuses", State: "UNKNOWN"}},
+			wantStatus:  "unavailable",
+			wantSummary: `status context "GitHub commit statuses" is state=UNKNOWN`,
+		},
+		{
+			name:        "failed check run",
+			checks:      []StatusCheck{{Typename: "CheckRun", Name: "go-ci", Status: "COMPLETED", Conclusion: "FAILURE"}},
+			wantStatus:  "failed",
+			wantSummary: `check run "go-ci" is status=COMPLETED conclusion=FAILURE`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status, summary := ChecksStatus(tt.checks)
+			if status != tt.wantStatus || summary != tt.wantSummary {
+				t.Fatalf("ChecksStatus() = %q, %q; want %q, %q", status, summary, tt.wantStatus, tt.wantSummary)
+			}
+		})
+	}
+}
+
 func contains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

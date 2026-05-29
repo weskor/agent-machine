@@ -29,24 +29,25 @@ The OpenTUI Adapter renders the snapshot into an operator dashboard:
   errors.
 - Summary: counts for issues, active locks, lanes, worker tasks, and
   reconciliation-needed worker tasks.
-- Views rail: Issues, Overview, Lanes, Tasks, and Logs. Issues is the
-  issue-centric default view.
-- List pane: a flat prioritized issue work queue for the Issues view, or rows
-  for the active secondary view.
-- Details pane: stable key/value fields for the selected row. In the Issues
-  view this is the selected-issue evidence pane.
-- Logs view: typed worker results and recent orchestration events from the
-  snapshot. It must not stream raw Agent output or daemon stdout directly.
+- Primary view: a flat prioritized issue work queue. Secondary diagnostics such
+  as Overview, Lanes, Tasks, and Logs may exist, but they must be demoted behind
+  the issue-centric default view.
+- List pane: the flat prioritized issue work queue.
+- Details pane: the selected-issue evidence pane.
+- Logs or diagnostics views, when implemented: typed worker results and recent
+  orchestration events from the snapshot. They must not stream raw Agent output
+  or daemon stdout directly.
 
-The Adapter owns only presentation state: active view, selected row, local
-refresh state, and terminal key handling. It must not infer scheduler,
-handoff, retry, cleanup, merge, or repair decisions from presentation state.
+The Adapter owns only presentation state: selected row, optional active
+secondary view, local refresh state, and terminal key handling. It must not
+infer scheduler, handoff, retry, cleanup, merge, or repair decisions from
+presentation state.
 
 Keyboard controls are local UI controls only:
 
-- `tab`, `h`/`l`, or left/right arrows switch views.
 - `j`/`k` or up/down arrows move the selected row.
-- `1`-`5` jump to Issues, Overview, Lanes, Tasks, or Logs.
+- `tab`, `h`/`l`, left/right arrows, or number keys may switch secondary views
+  only when those views are implemented and visible in the footer.
 - `r` refreshes the snapshot.
 - `q` exits.
 

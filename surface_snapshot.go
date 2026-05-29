@@ -412,6 +412,7 @@ func surfaceBucketForTask(task snapshotWorkerTask) string {
 
 func surfaceBucket(item surfaceWorkItem) string {
 	status := strings.ToLower(surfaceFirstNonEmpty(item.CurrentActivity.TaskStatus, item.AMStatus, item.Outcome))
+	outcome := strings.ToLower(item.Outcome)
 	if status == "reconciliation_needed" {
 		return "reconciliation_needed"
 	}
@@ -421,11 +422,14 @@ func surfaceBucket(item surfaceWorkItem) string {
 	if status == "active" || status == "claimed" || status == "running" {
 		return "running_work"
 	}
-	if strings.Contains(status, "review") || strings.Contains(status, "handoff") || strings.Contains(status, "merge") {
+	if strings.Contains(status, "review") || strings.Contains(status, "handoff") || strings.Contains(status, "merge") || strings.Contains(outcome, "review") || strings.Contains(outcome, "handoff") || strings.Contains(outcome, "merge") {
 		return "review_or_merge_blockers"
 	}
 	if item.ExternalState.Merge == "mergeable" {
 		return "mergeable"
+	}
+	if item.ExternalState.PRURL != "" && status == "success" {
+		return "review_or_merge_blockers"
 	}
 	if status == "queued" || status == "ready" {
 		return "queued_runnable"

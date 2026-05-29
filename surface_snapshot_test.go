@@ -45,11 +45,11 @@ func TestSurfaceSnapshotBuildsReadOnlyControlPlaneJSON(t *testing.T) {
 	if len(snap.WorkItems) != 2 {
 		t.Fatalf("work items = %+v; want run artifact and task-only issue", snap.WorkItems)
 	}
-	if snap.WorkItems[0].IssueIdentifier != "CAG-202" || snap.WorkItems[0].AMStatus != "queued" || snap.WorkItems[0].LaneRoleHint != "implementation" {
-		t.Fatalf("first work item = %+v; want queued task before terminal artifact", snap.WorkItems[0])
+	if snap.WorkItems[0].IssueIdentifier != "CAG-201" || snap.WorkItems[0].PriorityBucket != "review_or_merge_blockers" || snap.WorkItems[0].NextAction.Code == "" || snap.WorkItems[0].ExternalState.PRURL == "" {
+		t.Fatalf("first work item = %+v; want handoff-ready PR before queued work", snap.WorkItems[0])
 	}
-	if snap.WorkItems[1].IssueIdentifier != "CAG-201" || snap.WorkItems[1].NextAction.Code == "" || snap.WorkItems[1].ExternalState.PRURL == "" {
-		t.Fatalf("second work item = %+v; want selected issue evidence", snap.WorkItems[1])
+	if snap.WorkItems[1].IssueIdentifier != "CAG-202" || snap.WorkItems[1].AMStatus != "queued" || snap.WorkItems[1].LaneRoleHint != "implementation" {
+		t.Fatalf("second work item = %+v; want queued task after handoff-ready PR", snap.WorkItems[1])
 	}
 
 	data, err := json.Marshal(snap)

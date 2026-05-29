@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/weskor/agent-machine/internal/codehost"
-	gatepkg "github.com/weskor/agent-machine/internal/gate"
 	orchstate "github.com/weskor/agent-machine/internal/state"
 	ws "github.com/weskor/agent-machine/internal/workspace"
 )
@@ -234,13 +233,6 @@ func recordCleanupErrorContext(ctx context.Context, store *orchstate.Store, deci
 	recordCleanupEventContext(ctx, store, orchstate.EventErrorRecorded, decision, map[string]any{"error": err.Error(), "lane": "cleanup"})
 }
 
-func cleanupDeletionResult(decision cleanupResult, fallback string) string {
-	if decision.Category == "reconciliation-needed" {
-		return "reconciliation_needed"
-	}
-	return fallback
-}
-
 func removeDoneWorkspaceContext(ctx context.Context, workspaceRoot, identifier string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -270,54 +262,6 @@ func removeDoneWorkspaceContext(ctx context.Context, workspaceRoot, identifier s
 	}
 	log("deleted Done issue workspace %s", workspace)
 	return nil
-}
-
-type cleanupResult struct {
-	Delete          bool
-	Reason          string
-	Category        string
-	IssueIdentifier string
-	ArtifactRef     string
-	WorkspacePath   string
-}
-
-func cleanupGateResult(decision cleanupResult) gatepkg.Result {
-	subject := firstNonEmpty(decision.IssueIdentifier, decision.WorkspacePath)
-	result := gatepkg.NewResult("cleanup", subject)
-	result.ReasonText = decision.Reason
-	result.Metadata = map[string]string{}
-	if decision.Category != "" {
-		result.Metadata["category"] = decision.Category
-	}
-	if decision.ArtifactRef != "" {
-		result.Metadata["artifact_ref"] = decision.ArtifactRef
-	}
-	if decision.WorkspacePath != "" {
-		result.Metadata["workspace_path"] = decision.WorkspacePath
-	}
-	if len(result.Metadata) == 0 {
-		result.Metadata = nil
-	}
-	if decision.Delete {
-		result.NextAction = "delete_workspace"
-		return result
-	}
-	code := cleanupGateCode(decision.Category)
-	if decision.Category == "reconciliation-needed" {
-		result.ReconciliationNeeded(code, decision.Reason, "repair_or_reconcile_cleanup_state")
-		return result
-	}
-	result.Block(code, decision.Reason)
-	result.NextAction = "keep_workspace"
-	return result
-}
-
-func cleanupGateCode(category string) string {
-	category = strings.TrimSpace(category)
-	if category == "" {
-		return "cleanup_blocked"
-	}
-	return "cleanup_" + strings.ReplaceAll(category, "-", "_")
 }
 
 func cleanupDecision(workspace string, doneIssues map[string]bool) (cleanupResult, error) {
@@ -539,31 +483,6 @@ func mirrorCleanupState(store *orchstate.Store, workspaceRoot string, decision c
 	}
 }
 
-func cleanupCategoryForTerminalStatus(status string) string {
-	switch status {
-	case "success":
-		return "completed"
-	case "canceled", "cancelled":
-		return "canceled"
-	case "review_failed":
-		return "failed-review"
-	case "needs_info", "needs_info_failed":
-		return "needs-info"
-	case "timeout":
-		return "timeout"
-	case "budget_exceeded":
-		return "budget-exceeded"
-	case "merged":
-		return "merged"
-	case "superseded":
-		return "superseded"
-	case "manual_repair":
-		return "manual-repair"
-	default:
-		return "failed"
-	}
-}
-
 func formatCleanupCategories(categories map[string]int) string {
 	if len(categories) == 0 {
 		return "none"
@@ -581,15 +500,6 @@ func formatCleanupCategories(categories map[string]int) string {
 		parts = append(parts, fmt.Sprintf("%s=%d", key, categories[key]))
 	}
 	return strings.Join(parts, ",")
-}
-
-func terminalRunStatus(status string) bool {
-	switch status {
-	case "success", "review_failed", "failed", "github_app_error", "canceled", "cancelled", "needs_info", "needs_info_failed", "timeout", "budget_exceeded", "merged", "superseded", "manual_repair":
-		return true
-	default:
-		return false
-	}
 }
 
 func insufficientArtifactReason(record runRecord, workspace string) string {

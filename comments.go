@@ -7,18 +7,20 @@ import (
 )
 
 type handoffSummary struct {
-	IssueIdentifier string
-	IssueTitle      string
-	IssueURL        string
-	PRURL           string
-	RuntimeUsage    *usage
-	Review          *reviewResult
-	Duration        time.Duration
-	Validation      []string
-	FollowUps       []string
-	Classification  *runClassification
-	PRDetails       *prHandoffDetails
-	Progress        *runProgressSnapshot
+	IssueIdentifier  string
+	IssueTitle       string
+	IssueURL         string
+	IssueDescription string
+	PRURL            string
+	RuntimeUsage     *usage
+	Review           *reviewResult
+	Duration         time.Duration
+	Validation       []string
+	ScopeResult      scopeGuardResult
+	FollowUps        []string
+	Classification   *runClassification
+	PRDetails        *prHandoffDetails
+	Progress         *runProgressSnapshot
 }
 
 func renderPRHandoffBody(summary handoffSummary) string {
@@ -30,8 +32,14 @@ func renderPRHandoffBody(summary handoffSummary) string {
 	fmt.Fprintf(&builder, "- Usage: %s\n", sanitizeMarkdownLine(usageSummary(summary.RuntimeUsage)))
 	fmt.Fprintf(&builder, "- Duration: %s\n\n", summary.Duration.Round(time.Second))
 
+	builder.WriteString("### Issue scope\n")
+	writeBoundedBullets(&builder, issueScopeNotes(summary), "Issue scope summary not recorded.", 6)
+
 	builder.WriteString("### Validation\n")
 	writeBoundedBullets(&builder, summary.Validation, "No validation commands detected in runner output.", 5)
+
+	builder.WriteString("\n### Tests and characterization\n")
+	writeBoundedBullets(&builder, testEvidenceNotes(summary), "No test or characterization evidence detected in runner output.", 5)
 
 	builder.WriteString("\n### Behavior Contract Evidence\n")
 	writeBoundedBullets(&builder, behaviorContractEvidenceNotes(summary), "No behavior-contract evidence recorded.", 8)
@@ -48,12 +56,12 @@ func renderPRHandoffBody(summary handoffSummary) string {
 	builder.WriteString("\n### Remaining follow-up\n")
 	writeBoundedBullets(&builder, summary.FollowUps, "No follow-up recorded.", 4)
 
-	return truncateMarkdown(builder.String(), 3800)
+	return truncateMarkdown(builder.String(), 12000)
 }
 
 func behaviorContractEvidenceNotes(summary handoffSummary) []string {
 	notes := []string{
-		"References: docs/specs/harness-behavior.md and docs/agents/review-policy.md.",
+		"References: docs/specs/end-to-end-orchestration.md, docs/specs/harness-behavior.md, and docs/agents/review-policy.md.",
 		"Behavior inventory: runner-owned PR identity, branch/base validation, review classification, Linear handoff comments/state movement, and run/evaluation artifacts.",
 		"Preserved behavior: implementation agents still do not create, update, push, or comment on code-host PRs directly.",
 		"Handoff evidence source: runner-owned PR body; separate code-host PR summary comments are not used.",
@@ -67,6 +75,34 @@ func behaviorContractEvidenceNotes(summary handoffSummary) []string {
 	return notes
 }
 
+func issueScopeNotes(summary handoffSummary) []string {
+	var notes []string
+	for _, line := range issueDescriptionSectionLines(summary.IssueDescription, "scope") {
+		notes = append(notes, "Scope: "+line)
+	}
+	scopeSummary := strings.TrimSpace(summary.ScopeResult.Summary())
+	if scopeSummary != "" {
+		notes = append(notes, "Scope guard: "+scopeSummary)
+	} else if summary.ScopeResult.Checked {
+		notes = append(notes, "Scope guard: changed files matched the Linear ticket path contract.")
+	}
+	if len(notes) == 0 && strings.TrimSpace(summary.IssueIdentifier) != "" {
+		notes = append(notes, "Issue identifier: "+summary.IssueIdentifier+".")
+	}
+	return uniqueStrings(notes)
+}
+
+func testEvidenceNotes(summary handoffSummary) []string {
+	var notes []string
+	for _, line := range summary.Validation {
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "test") || strings.Contains(lower, "characterization") || strings.Contains(lower, "make ci") || strings.Contains(lower, "go test") {
+			notes = append(notes, line)
+		}
+	}
+	return uniqueStrings(notes)
+}
+
 func changedFilesNotes(summary handoffSummary) []string {
 	if summary.PRDetails == nil {
 		return nil
@@ -78,13 +114,17 @@ func changedFilesNotes(summary handoffSummary) []string {
 }
 
 func riskAndScopeNotes(summary handoffSummary) []string {
-	notes := []string{
-		"Out of scope: merge gate policy, Linear handoff comments, and implementation-agent code-host ownership.",
+	var notes []string
+	for _, line := range issueDescriptionSectionLines(summary.IssueDescription, "out of scope", "out-of-scope", "out of scope paths", "out-of-scope paths") {
+		notes = append(notes, "Out of scope: "+line)
 	}
 	if summary.PRDetails != nil && summary.PRDetails.ChangedFiles > 80 {
 		notes = append(notes, fmt.Sprintf("Risk: PR changes %d files, above the scoped-run warning threshold.", summary.PRDetails.ChangedFiles))
 	}
-	return notes
+	if summary.Review != nil && strings.TrimSpace(summary.Review.Status) != "" && summary.Review.Status != "passed" {
+		notes = append(notes, "Risk: review status is "+summary.Review.Status+"; see follow-up and review artifacts.")
+	}
+	return uniqueStrings(notes)
 }
 
 func progressStatusNotes(summary handoffSummary) []string {
@@ -158,6 +198,63 @@ func validationLines(output string) []string {
 		}
 	}
 	return uniqueStrings(lines)
+}
+
+func issueDescriptionSectionLines(description string, names ...string) []string {
+	if strings.TrimSpace(description) == "" {
+		return nil
+	}
+	wanted := map[string]bool{}
+	for _, name := range names {
+		wanted[normalizeIssueSectionName(name)] = true
+	}
+	inSection := false
+	var lines []string
+	for _, line := range strings.Split(description, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			if inSection && len(lines) > 0 {
+				break
+			}
+			continue
+		}
+		if name, ok := issueSectionHeading(trimmed); ok {
+			if inSection && len(lines) > 0 {
+				break
+			}
+			inSection = wanted[normalizeIssueSectionName(name)]
+			continue
+		}
+		if !inSection {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "-") || strings.HasPrefix(trimmed, "*") {
+			lines = append(lines, sanitizeMarkdownLine(strings.TrimSpace(strings.TrimLeft(trimmed, "-* "))))
+			continue
+		}
+		lines = append(lines, sanitizeMarkdownLine(trimmed))
+	}
+	return uniqueStrings(lines)
+}
+
+func issueSectionHeading(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	trimmed = strings.TrimLeft(trimmed, "#")
+	trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, ":"))
+	if trimmed == "" || len(trimmed) > 80 {
+		return "", false
+	}
+	lower := strings.ToLower(trimmed)
+	switch lower {
+	case "goal", "scope", "requirements", "acceptance criteria", "validation", "out of scope", "out-of-scope", "out of scope paths", "out-of-scope paths", "risks":
+		return lower, true
+	default:
+		return "", false
+	}
+}
+
+func normalizeIssueSectionName(name string) string {
+	return strings.ToLower(strings.TrimSpace(strings.Trim(name, "#: ")))
 }
 
 func followUpLines(review *reviewResult) []string {

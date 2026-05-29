@@ -366,6 +366,7 @@ func (p prHandoffPendingPayload) HandoffCompletion(client linearClient, config r
 		review:          review,
 		prURL:           prURL,
 		validation:      append([]string(nil), p.Validation...),
+		scopeResult:     p.ScopeResult,
 		githubAuth:      githubAuth,
 	}
 }

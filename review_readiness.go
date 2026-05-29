@@ -75,7 +75,7 @@ func resumeReviewReadyRunContext(ctx context.Context, client linearClient, state
 		return true, err
 	}
 	review := result.Review
-	return completeAttemptHandoff(ctx, handoffCompletion{client: client, config: config, stateStore: stateStore, candidate: candidate, states: states, workspace: workspace, branch: branch, progressStarted: progressStarted, startedAt: runStarted, review: review, prURL: prURL, validation: validation, githubAuth: githubAuth})
+	return completeAttemptHandoff(ctx, handoffCompletion{client: client, config: config, stateStore: stateStore, candidate: candidate, states: states, workspace: workspace, branch: branch, progressStarted: progressStarted, startedAt: runStarted, review: review, prURL: prURL, validation: validation, scopeResult: scopeResult, githubAuth: githubAuth})
 }
 
 var checkScopeGuardForReviewResume = checkScopeGuardContext

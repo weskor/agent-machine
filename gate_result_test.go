@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	gatepkg "github.com/weskor/agent-machine/internal/gate"
 )
 
 func TestMergeGateUsesDeterministicGateResult(t *testing.T) {
@@ -10,7 +12,7 @@ func TestMergeGateUsesDeterministicGateResult(t *testing.T) {
 
 	gate := evaluatePullRequestMergeGate(pr)
 
-	if gate.Eligible || gate.Status != deterministicGateStatusBlocked {
+	if gate.Eligible || gate.Status != gatepkg.StatusBlocked {
 		t.Fatalf("gate status = eligible %t status %q, want blocked", gate.Eligible, gate.Status)
 	}
 	if !hasString(gate.Codes(), "merge_conflict") {
@@ -20,7 +22,7 @@ func TestMergeGateUsesDeterministicGateResult(t *testing.T) {
 		t.Fatalf("gate reason = %q, want conflict reason", gate.Reason())
 	}
 	payload := gate.Payload()
-	if payload["domain"] != "merge" || payload["status"] != deterministicGateStatusBlocked || payload["subject"] != pr.URL {
+	if payload["domain"] != "merge" || payload["status"] != gatepkg.StatusBlocked || payload["subject"] != pr.URL {
 		t.Fatalf("gate payload = %+v, want merge blocked payload for PR", payload)
 	}
 }
@@ -28,7 +30,7 @@ func TestMergeGateUsesDeterministicGateResult(t *testing.T) {
 func TestCleanupGateResultUsesDeterministicStatuses(t *testing.T) {
 	deleteDecision := cleanupResult{Delete: true, IssueIdentifier: "CAG-1", Category: "completed", Reason: "SQLite issue CAG-1 is Done and durable status is success"}
 	deleteGate := cleanupGateResult(deleteDecision)
-	if !deleteGate.Passed() || deleteGate.Status != deterministicGateStatusPassed || deleteGate.NextAction != "delete_workspace" {
+	if !deleteGate.Passed() || deleteGate.Status != gatepkg.StatusPassed || deleteGate.NextAction != "delete_workspace" {
 		t.Fatalf("delete gate = %+v, want passed delete gate", deleteGate)
 	}
 	if deleteGate.Reason() != deleteDecision.Reason {
@@ -37,7 +39,7 @@ func TestCleanupGateResultUsesDeterministicStatuses(t *testing.T) {
 
 	reconcileDecision := cleanupResult{IssueIdentifier: "CAG-2", Category: "reconciliation-needed", Reason: "SQLite has no issue attempt row for workspace CAG-2"}
 	reconcileGate := cleanupGateResult(reconcileDecision)
-	if reconcileGate.Status != deterministicGateStatusReconciliationNeeded || reconcileGate.Passed() {
+	if reconcileGate.Status != gatepkg.StatusReconciliationNeeded || reconcileGate.Passed() {
 		t.Fatalf("reconcile gate = %+v, want reconciliation_needed", reconcileGate)
 	}
 	if !hasString(reconcileGate.Codes(), "cleanup_reconciliation_needed") {

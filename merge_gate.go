@@ -3,11 +3,13 @@ package main
 import (
 	"fmt"
 	"strings"
+
+	gatepkg "github.com/weskor/agent-machine/internal/gate"
 )
 
 type mergeGateDecision struct {
 	Eligible bool
-	deterministicGateResult
+	gatepkg.Result
 }
 
 func evaluatePullRequestMergeGate(pr pullRequestSummary) mergeGateDecision {
@@ -41,7 +43,7 @@ func evaluateRunRecordMergeGate(record runRecord) mergeGateDecision {
 }
 
 func newMergeGateDecision(subject string) mergeGateDecision {
-	return mergeGateDecision{Eligible: true, deterministicGateResult: newDeterministicGateResult("merge", subject)}
+	return mergeGateDecision{Eligible: true, Result: gatepkg.NewResult("merge", subject)}
 }
 
 func (d *mergeGateDecision) block(code, reason string) {

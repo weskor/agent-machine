@@ -85,6 +85,46 @@ func ChecksPassed(checks []StatusCheck) bool {
 	return ChecksBlockReason(checks) == ""
 }
 
+func ChecksStatus(checks []StatusCheck) (string, string) {
+	if len(checks) == 0 {
+		return "unavailable", "no status checks were reported by the code host"
+	}
+	if reason := ChecksBlockReason(checks); reason == "" {
+		return "success", SummarizeStatusChecks(checks)
+	}
+	for _, check := range checks {
+		if check.Typename == "CheckRun" && (strings.EqualFold(check.Status, "UNKNOWN") || strings.EqualFold(check.Conclusion, "UNKNOWN")) {
+			return "unavailable", ChecksBlockReason(checks)
+		}
+		if check.Typename == "StatusContext" && strings.EqualFold(check.State, "UNKNOWN") {
+			return "unavailable", ChecksBlockReason(checks)
+		}
+		if check.Typename == "CheckRun" && !strings.EqualFold(check.Status, "COMPLETED") {
+			return "pending", ChecksBlockReason(checks)
+		}
+		if check.Typename == "StatusContext" && strings.EqualFold(check.State, "PENDING") {
+			return "pending", ChecksBlockReason(checks)
+		}
+	}
+	return "failed", ChecksBlockReason(checks)
+}
+
+func SummarizeStatusChecks(checks []StatusCheck) string {
+	parts := make([]string, 0, len(checks))
+	for _, check := range checks {
+		label := CheckLabel(check)
+		switch check.Typename {
+		case "CheckRun":
+			parts = append(parts, fmt.Sprintf("%s=%s/%s", label, emptyAsUnknown(check.Status), emptyAsUnknown(check.Conclusion)))
+		case "StatusContext":
+			parts = append(parts, fmt.Sprintf("%s=%s", label, emptyAsUnknown(check.State)))
+		default:
+			parts = append(parts, fmt.Sprintf("%s=%s", label, emptyAsUnknown(check.Typename)))
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
 func ChecksBlockReason(checks []StatusCheck) string {
 	if len(checks) == 0 {
 		return "no status checks were reported by GitHub"

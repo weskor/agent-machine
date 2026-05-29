@@ -417,6 +417,14 @@ func (d *reconciliationDecision) applyPRInvariants(config runnerConfig, candidat
 		d.ShouldRetry = true
 		return
 	}
+	if d.RunRecord != nil && d.RunRecord.Status == runAttemptStatusSuccess && feedbackRetryAvailable(workspace, &candidate, *d.RunRecord, config, &pr) {
+		d.Lifecycle = lifecycleFeedbackRetry
+		d.CanRun = true
+		d.CanMerge = false
+		d.NextAction = "retry_with_unresolved_pr_feedback"
+		d.ShouldRetry = true
+		return
+	}
 	if candidate.State.Name != config.HandoffState {
 		d.block(lifecycleBlocked, fmt.Sprintf("PR exists while Linear state is %q", candidate.State.Name), "reconcile_linear_state")
 		return

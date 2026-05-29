@@ -74,6 +74,18 @@ func TestHandoffWorkerUpdatesPRBodyAndMovesToHandoffState(t *testing.T) {
 	}
 }
 
+func TestHandoffRunSummaryIncludesConcisePRReviewAndValidation(t *testing.T) {
+	stdout := captureStdout(t, func() {
+		logHandoffRunSummary("CAG-86", "https://github.com/weskor/agent-machine/pull/25", &reviewResult{Status: "passed"}, []string{"make ci passed", "git diff --check passed"})
+	})
+
+	for _, expected := range []string{"handoff summary:", "issue=CAG-86", "pr=https://github.com/weskor/agent-machine/pull/25", "review=passed", "validation=make ci passed | git diff --check passed"} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected %q in concise handoff summary %q", expected, stdout)
+		}
+	}
+}
+
 func TestHandoffWorkerHonorsCanceledContextBeforeSideEffects(t *testing.T) {
 	t.Cleanup(resetHandoffWorkerHooks)
 	ctx, cancel := context.WithCancel(context.Background())

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weskor/agent-machine/internal/cleanupworker"
 	"github.com/weskor/agent-machine/internal/codehost"
 	orchstate "github.com/weskor/agent-machine/internal/state"
 	ws "github.com/weskor/agent-machine/internal/workspace"
@@ -32,6 +33,52 @@ var cleanupPRFactsForURL = githubCleanupPRFactsForURL
 
 func cleanupWorkspaces(workspaceRoot string, options cleanupOptions) error {
 	return cleanupWorkspacesContext(context.Background(), workspaceRoot, options)
+}
+
+type cleanupWorkerTaskPayload = cleanupworker.Payload
+
+func cleanupWorkerTaskKey(workspaceName string) string {
+	return cleanupworker.TaskKey(workspaceName)
+}
+
+func scheduleCleanupWorkerTasks(ctx context.Context, config runnerConfig, store *orchstate.Store) (bool, error) {
+	return cleanupworker.Schedule(ctx, cleanupWorkerConfig(config), store, cleanupWorkerDependencies(linearClient{}))
+}
+
+func enqueueCleanupWorkerTask(ctx context.Context, store *orchstate.Store, workspaceName, workspace string, now time.Time) (orchstate.WorkerTask, bool, error) {
+	return cleanupworker.Enqueue(ctx, store, workspaceName, workspace, now, cleanupWorkerDependencies(linearClient{}))
+}
+
+func runQueuedCleanupWorkerTask(client linearClient, config runnerConfig, store *orchstate.Store) (bool, error) {
+	return runQueuedCleanupWorkerTaskContext(context.Background(), client, config, store)
+}
+
+func runQueuedCleanupWorkerTaskContext(ctx context.Context, client linearClient, config runnerConfig, store *orchstate.Store) (bool, error) {
+	return cleanupworker.RunQueued(ctx, cleanupWorkerConfig(config), store, cleanupWorkerDependencies(client))
+}
+
+func cleanupWorkerConfig(config runnerConfig) cleanupworker.Config {
+	return cleanupworker.Config{ProjectSlug: config.ProjectSlug, DoneState: config.DoneState, WorkspaceRoot: config.WorkspaceRoot}
+}
+
+func cleanupWorkerDependencies(client linearClient) cleanupworker.Dependencies {
+	return cleanupworker.Dependencies{
+		SafeWorkspaceRoot:    safeWorkspaceRoot,
+		SafeWorkspacePath:    safeWorkspacePath,
+		AssertSafeDeletePath: assertSafeDeletePath,
+		DoneIssues: func(ctx context.Context, projectSlug, stateName string) (map[string]bool, error) {
+			return issueIdentifiersByStateForContinuousCleanup(ctx, client, projectSlug, stateName)
+		},
+		Decision: func(ctx context.Context, safeRoot, workspace string, doneIssues map[string]bool, store *orchstate.Store, hasChanges cleanupworker.WorkspaceChangeChecker) (cleanupResult, error) {
+			return cleanupDecisionForWorkspace(ctx, safeRoot, workspace, doneIssues, store, workspaceChangeChecker(hasChanges))
+		},
+		WorkspaceHasChanges: cleanupworker.WorkspaceChangeChecker(workspaceHasChanges),
+		MirrorState:         mirrorCleanupState,
+		RecordCleanupEvent:  recordCleanupEventContext,
+		RecordCleanupError:  recordCleanupErrorContext,
+		RecordTaskEvent:     recordContinuousWorkerTaskEvent,
+		Logf:                log,
+	}
 }
 
 func cleanupWorkspacesContext(ctx context.Context, workspaceRoot string, options cleanupOptions) error {

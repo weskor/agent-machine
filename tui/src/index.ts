@@ -309,7 +309,7 @@ function footer() {
 
 function issueRows(snapshot: SurfaceSnapshot): IssueRow[] {
   const records = issueRecords(snapshot)
-  const hasIssueProjection = snapshot.issue_queue !== undefined || snapshot.work_items !== undefined
+  const hasIssueProjection = usesIssueProjection(snapshot)
   return records.map((issue) => {
     const key = issueKey(issue)
     const task = hasIssueProjection ? undefined : snapshot.worker_tasks.find((candidate) => candidate.issue_key === key)
@@ -330,6 +330,10 @@ function issueRecords(snapshot: SurfaceSnapshot): IssueRecord[] {
   return snapshot.issue_queue ?? snapshot.work_items ?? snapshot.issues
 }
 
+function usesIssueProjection(snapshot: SurfaceSnapshot) {
+  return snapshot.issue_queue !== undefined || snapshot.work_items !== undefined
+}
+
 function queueLines(rows: IssueRow[]) {
   if (rows.length === 0) {
     return ["No issues in snapshot."]
@@ -344,13 +348,15 @@ function queueLines(rows: IssueRow[]) {
 function evidenceLines(snapshot: SurfaceSnapshot, row: IssueRow) {
   const issue = row.issue
   const key = row.key
-  const task = snapshot.worker_tasks.find((candidate) => candidate.issue_key === key)
-  const result = snapshot.worker_results.find((candidate) => candidate.issue_key === key)
-  const lock = snapshot.active_locks.find((candidate) => candidate.issue === key)
+  const hasIssueProjection = usesIssueProjection(snapshot)
+  const task = hasIssueProjection ? undefined : snapshot.worker_tasks.find((candidate) => candidate.issue_key === key)
+  const result = hasIssueProjection ? undefined : snapshot.worker_results.find((candidate) => candidate.issue_key === key)
+  const lock = hasIssueProjection ? undefined : snapshot.active_locks.find((candidate) => candidate.issue === key)
   const lane = task ? snapshot.active_lanes.find((candidate) => candidate.active_task_key === task.task_key || candidate.active_task_role === task.role) : undefined
   const events = issueEvents(snapshot, issue)
   const activity = recordValue(issue.current_activity)
   const external = recordValue(issue.external_state)
+  const evidence = recordValue(issue.agent_evidence_summary)
 
   return [
     "Header:",
@@ -375,11 +381,20 @@ function evidenceLines(snapshot: SurfaceSnapshot, row: IssueRow) {
     "",
     "Agent Output/Evidence:",
     compactValueLine(issue.agent_evidence_summary, "evidence", "none"),
-    `outcome: ${clean(issue.outcome) || "n/a"}  worker: ${result ? `${result.status}${result.reason ? ` (${result.reason})` : ""}` : "n/a"}  error: ${result?.error || "none"}`,
+    `outcome: ${clean(issue.outcome) || field(evidence, "outcome") || "n/a"}  worker: ${workerEvidence(evidence, result)}  error: ${field(evidence, "worker_error") || result?.error || "none"}`,
     "",
     "Recent Events:",
     ...(events.length > 0 ? events.slice(0, 3).map((event) => `${formatTime(event.occurred_at) || "n/a"} ${event.type} ${event.source}`) : ["none"]),
   ]
+}
+
+function workerEvidence(evidence: Dict | undefined, result: SurfaceSnapshot["worker_results"][number] | undefined) {
+  const status = field(evidence, "worker_status") || clean(result?.status)
+  const reason = field(evidence, "worker_reason") || clean(result?.reason)
+  if (!status) {
+    return "n/a"
+  }
+  return reason ? `${status} (${reason})` : status
 }
 
 function contentWidth() {

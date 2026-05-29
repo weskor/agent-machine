@@ -117,6 +117,22 @@ type IssueRow = {
   issue: IssueRecord
 }
 
+type SectionID = "issues" | "overview" | "lanes" | "tasks" | "logs"
+
+type RowItem = {
+  label: string
+  value: string
+  details: string[]
+}
+
+const sections: Array<{ id: SectionID; label: string }> = [
+  { id: "issues", label: "Issues" },
+  { id: "overview", label: "Overview" },
+  { id: "lanes", label: "Lanes" },
+  { id: "tasks", label: "Tasks" },
+  { id: "logs", label: "Logs" },
+]
+
 const moduleRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const runnerRoot = resolveRunnerRoot()
 const appNodeID = "agent-machine-tui"
@@ -125,6 +141,8 @@ const configPath = configuredPath ? resolve(process.cwd(), configuredPath) : res
 
 let selectedIssueKey: string | undefined
 let selectedIndex = 0
+const selectedBySection = new Map<SectionID, number>()
+let currentSection = 0
 let lastSnapshot: SurfaceSnapshot | undefined
 let lastMessage = ""
 let refreshInFlight = false
@@ -143,6 +161,15 @@ renderer.addInputHandler((sequence: string) => {
     case "r":
       void requestRefresh()
       return true
+    case "\t":
+    case "l":
+    case "\x1B[C":
+      moveSection(1)
+      return true
+    case "h":
+    case "\x1B[D":
+      moveSection(-1)
+      return true
     case "j":
     case "\x1B[B":
       moveRow(1)
@@ -150,6 +177,15 @@ renderer.addInputHandler((sequence: string) => {
     case "k":
     case "\x1B[A":
       moveRow(-1)
+      return true
+    case "1":
+    case "2":
+    case "3":
+    case "4":
+    case "5":
+      currentSection = Number(sequence) - 1
+      clampSelection()
+      render(lastSnapshot, lastMessage)
       return true
     default:
       return false
@@ -187,7 +223,27 @@ async function refresh() {
   render(lastSnapshot, lastMessage)
 }
 
+function moveSection(delta: number) {
+  currentSection = (currentSection + delta + sections.length) % sections.length
+  clampSelection()
+  render(lastSnapshot, lastMessage)
+}
+
 function moveRow(delta: number) {
+  const section = activeSection()
+  if (section !== "issues") {
+    const rows = lastSnapshot ? secondaryRowsForSection(lastSnapshot, section) : []
+    if (rows.length === 0) {
+      selectedBySection.set(section, 0)
+      render(lastSnapshot, lastMessage)
+      return
+    }
+    const current = selectedBySection.get(section) ?? 0
+    selectedBySection.set(section, Math.max(0, Math.min(rows.length - 1, current + delta)))
+    render(lastSnapshot, lastMessage)
+    return
+  }
+
   const rows = lastSnapshot ? issueRows(lastSnapshot) : []
   if (rows.length === 0) {
     selectedIndex = 0
@@ -201,6 +257,14 @@ function moveRow(delta: number) {
 }
 
 function clampSelection() {
+  const section = activeSection()
+  if (section !== "issues") {
+    const rows = lastSnapshot ? secondaryRowsForSection(lastSnapshot, section) : []
+    const current = selectedBySection.get(section) ?? 0
+    selectedBySection.set(section, Math.max(0, Math.min(Math.max(0, rows.length - 1), current)))
+    return
+  }
+
   const rows = lastSnapshot ? issueRows(lastSnapshot) : []
   if (rows.length === 0) {
     selectedIndex = 0
@@ -273,21 +337,23 @@ function body(snapshot?: SurfaceSnapshot, message = "") {
     return panel("Issue Queue", [message || "Reading local surface snapshot..."], "#8ab4f8", Math.min(width, 44))
   }
 
-  const rows = issueRows(snapshot)
-  const selected = rows[selectedIndex]
+  const section = activeSection()
   if (width < 82) {
     return Box(
       { flexDirection: "column", gap: 1, flexGrow: 1 },
-      panel("Prioritized Issues", queueLines(rows), "#8ab4f8", width),
-      panel("Selected Issue Evidence", selected ? evidenceLines(snapshot, selected) : ["No issues in snapshot."], "#c3e88d", width),
+      ...sectionPanels(snapshot, section, width),
+      panel("Views", navLines(), "#d0d7de", width),
     )
   }
-  const leftWidth = Math.max(44, Math.floor(width * 0.58))
-  const rightWidth = Math.max(32, width - leftWidth - 1)
+
+  const railWidth = 16
+  const remaining = width - railWidth - 2
+  const leftWidth = Math.max(44, Math.floor(remaining * 0.56))
+  const rightWidth = Math.max(32, remaining - leftWidth - 1)
   return Box(
     { flexDirection: "row", gap: 1, flexGrow: 1 },
-    panel("Prioritized Issues", queueLines(rows), "#8ab4f8", leftWidth),
-    panel("Selected Issue Evidence", selected ? evidenceLines(snapshot, selected) : ["No issues in snapshot."], "#c3e88d", rightWidth),
+    panel("Views", navLines(), "#d0d7de", railWidth),
+    ...sectionPanels(snapshot, section, leftWidth, rightWidth),
   )
 }
 
@@ -303,8 +369,44 @@ function panel(title: string, lines: string[], color: string, width: number) {
 function footer() {
   const width = contentWidth()
   return Text({
-    content: fit("j/k or up/down select   r refresh   q quit   read-only surface", width).padEnd(width),
+    content: fit("tab/h/l view   j/k or up/down select   1-5 jump   r refresh   q quit   read-only", width).padEnd(width),
     fg: "#8d99a6",
+  })
+}
+
+function navLines() {
+  return sections.map((section, index) => {
+    const marker = index === currentSection ? ">" : " "
+    return `${marker} ${index + 1} ${section.label}`
+  })
+}
+
+function sectionPanels(snapshot: SurfaceSnapshot, section: SectionID, leftWidth: number, rightWidth = leftWidth) {
+  if (section === "issues") {
+    const rows = issueRows(snapshot)
+    const selected = rows[selectedIndex]
+    return [
+      panel("Prioritized Issues", queueLines(rows), "#8ab4f8", leftWidth),
+      panel("Selected Issue Evidence", selected ? evidenceLines(snapshot, selected) : ["No issues in snapshot."], "#c3e88d", rightWidth),
+    ]
+  }
+
+  const rows = secondaryRowsForSection(snapshot, section)
+  const selected = selectedBySection.get(section) ?? 0
+  const item = rows[selected]
+  return [
+    panel(sections[currentSection].label, listLines(rows, selected), sectionColor(section), leftWidth),
+    panel("Details", item ? item.details : ["No rows in this view."], "#c3e88d", rightWidth),
+  ]
+}
+
+function listLines(rows: RowItem[], selected: number) {
+  if (rows.length === 0) {
+    return ["No rows."]
+  }
+  return rows.map((row, index) => {
+    const marker = index === selected ? ">" : " "
+    return `${marker} ${compact(row.label, 14).padEnd(14)} ${compact(row.value, 20)}`
   })
 }
 
@@ -344,6 +446,121 @@ function queueLines(rows: IssueRow[]) {
     const title = row.title === "n/a" ? "" : ` ${compact(row.title, 18)}`
     return `${marker} ${compact(row.key, 9).padEnd(9)} ${compact(row.status, 16).padEnd(16)} ${compact(row.lane, 13).padEnd(13)} ${compact(row.age, 6).padStart(6)} ${compact(row.attention, 12)}${title}`
   })
+}
+
+function secondaryRowsForSection(snapshot: SurfaceSnapshot, section: SectionID): RowItem[] {
+  switch (section) {
+    case "issues":
+      return []
+    case "overview":
+      return overviewRows(snapshot)
+    case "lanes":
+      return laneRows(snapshot)
+    case "tasks":
+      return taskRows(snapshot)
+    case "logs":
+      return logRows(snapshot)
+  }
+}
+
+function overviewRows(snapshot: SurfaceSnapshot): RowItem[] {
+  const counts = snapshot.sqlite.counts
+  return [
+    {
+      label: "SQLite",
+      value: snapshot.sqlite.ok ? "healthy" : snapshot.sqlite.exists ? "degraded" : "missing",
+      details: [
+        `schema: ${snapshot.sqlite.schema_version || "n/a"}`,
+        `journal: ${snapshot.sqlite.journal_mode || "n/a"}`,
+        `busy timeout: ${snapshot.sqlite.busy_timeout_ms || 0}ms`,
+        snapshot.sqlite.error ? `error: ${snapshot.sqlite.error}` : "error: none",
+      ],
+    },
+    {
+      label: "Attempts",
+      value: String(counts.issue_attempts ?? issueRecords(snapshot).length),
+      details: [`issues in snapshot: ${issueRecords(snapshot).length}`, `terminal outcomes: ${counts.terminal_outcomes ?? 0}`, `review states: ${counts.review_states ?? 0}`],
+    },
+    {
+      label: "Workers",
+      value: `${snapshot.worker_tasks.length} tasks`,
+      details: [`tasks: ${snapshot.worker_tasks.length}`, `results: ${snapshot.worker_results.length}`, `payload refs: ${counts.worker_payload_refs ?? 0}`],
+    },
+    {
+      label: "Precedence",
+      value: snapshot.source_precedence[0] ?? "n/a",
+      details: snapshot.source_precedence.map((source, index) => `${index + 1}. ${source}`),
+    },
+  ]
+}
+
+function laneRows(snapshot: SurfaceSnapshot): RowItem[] {
+  return snapshot.active_lanes.map((lane) => ({
+    label: lane.name,
+    value: lane.recovery_required ? "recovery" : `cycle ${lane.cycle_number}`,
+    details: [
+      `lane: ${lane.name}`,
+      `cycle: ${lane.cycle_number}`,
+      `process: ${lane.process_id || "n/a"}`,
+      `active task: ${lane.active_task_key || "n/a"}`,
+      `active role: ${lane.active_task_role || "n/a"}`,
+      `lease: ${lane.active_lease_name || "n/a"}`,
+      `started: ${formatTime(lane.active_task_started_at) || "n/a"}`,
+      `updated: ${formatTime(lane.updated_at) || "n/a"}`,
+      `last error: ${lane.last_error || "none"}`,
+    ],
+  }))
+}
+
+function taskRows(snapshot: SurfaceSnapshot): RowItem[] {
+  return snapshot.worker_tasks.map((task) => ({
+    label: task.role,
+    value: task.status,
+    details: [
+      `task: ${task.task_key}`,
+      `role: ${task.role}`,
+      `issue: ${task.issue_key || "n/a"}`,
+      `attempt: ${numberValue(task.attempt) || "n/a"}`,
+      `status: ${task.status}`,
+      `priority: ${task.priority}`,
+      `lease: ${task.lease_name || "n/a"}`,
+      `available: ${formatTime(task.available_at) || "n/a"}`,
+      `updated: ${formatTime(task.updated_at) || "n/a"}`,
+    ],
+  }))
+}
+
+function logRows(snapshot: SurfaceSnapshot): RowItem[] {
+  const results = snapshot.worker_results.map((result) => ({
+    label: result.role,
+    value: result.status,
+    details: [
+      `task: ${result.task_key}`,
+      `role: ${result.role}`,
+      `lane: ${result.lane_name || "n/a"}`,
+      `issue: ${result.issue_key || "n/a"}`,
+      `attempt: ${numberValue(result.attempt) || "n/a"}`,
+      `status: ${result.status}`,
+      `did work: ${result.did_work ? "yes" : "no"}`,
+      `reason: ${result.reason || "n/a"}`,
+      `error: ${result.error || "none"}`,
+      `started: ${formatTime(result.started_at) || "n/a"}`,
+      `finished: ${formatTime(result.finished_at) || "n/a"}`,
+      `updated: ${formatTime(result.updated_at) || "n/a"}`,
+    ],
+  }))
+  const events = snapshot.recent_events.map((event) => ({
+    label: `#${event.sequence}`,
+    value: event.type,
+    details: [
+      `sequence: ${event.sequence}`,
+      `type: ${event.type}`,
+      `source: ${event.source}`,
+      `issue: ${event.issue_key || "n/a"}`,
+      `at: ${formatTime(event.occurred_at) || "n/a"}`,
+    ],
+  }))
+  return [...results, ...events]
 }
 
 function evidenceLines(snapshot: SurfaceSnapshot, row: IssueRow) {
@@ -589,6 +806,25 @@ function stringifyValue(value: unknown): string {
       .join(" ") || "n/a"
   }
   return "n/a"
+}
+
+function activeSection(): SectionID {
+  return sections[currentSection].id
+}
+
+function sectionColor(section: SectionID) {
+  switch (section) {
+    case "issues":
+      return "#8ab4f8"
+    case "overview":
+      return "#a78bfa"
+    case "lanes":
+      return "#38d996"
+    case "tasks":
+      return "#e6b450"
+    case "logs":
+      return "#d0d7de"
+  }
 }
 
 function resolveRunnerRoot() {

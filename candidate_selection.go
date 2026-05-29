@@ -53,7 +53,7 @@ func nextRunnableCandidateWithOptionsContext(ctx context.Context, client linearC
 		decision := reconcileCandidateForSelectionContext(ctx, config, candidates[i], pr, store)
 		retryDecision, retryDecisionFound := retryBackoffDecision(ctx, store, candidates[i], config, time.Now().UTC())
 		if store != nil {
-			if retryDecisionFound && !retryDecision.runnable && !retryGateAllowsRepairableReviewFailedPR(decision, retryDecision) {
+			if retryDecisionFound && !retryDecision.runnable && !retryGateAllowsRepair(decision, retryDecision) {
 				log("skipping %s: %s", candidates[i].Identifier, retryDecision.reason)
 				emitCandidateEventContext(ctx, store, state.EventCandidateSkipped, candidates[i], map[string]any{"reason": retryDecision.reason})
 				continue
@@ -87,7 +87,7 @@ func nextRunnableCandidateWithOptionsContext(ctx context.Context, client linearC
 		decision := reconcileCandidateForSelectionContext(ctx, config, candidates[i], pr, store)
 		retryDecision, retryDecisionFound := retryBackoffDecision(ctx, store, candidates[i], config, time.Now().UTC())
 		if store != nil {
-			if retryDecisionFound && !retryDecision.runnable && !retryGateAllowsRepairableReviewFailedPR(decision, retryDecision) {
+			if retryDecisionFound && !retryDecision.runnable && !retryGateAllowsRepair(decision, retryDecision) {
 				continue
 			}
 		}
@@ -196,6 +196,17 @@ func retryGateAllowsRepairableReviewFailedPR(decision reconciliationDecision, re
 		decision.CanRun &&
 		decision.ShouldRetry &&
 		decision.NextAction == repairReviewFindingsNextAction &&
+		!decision.ReconciliationNeeded
+}
+
+func retryGateAllowsRepair(decision reconciliationDecision, retryDecision candidateRetryDecision) bool {
+	if retryGateAllowsRepairableReviewFailedPR(decision, retryDecision) {
+		return true
+	}
+	return decision.CanRun &&
+		decision.ShouldRetry &&
+		decision.Lifecycle == lifecycleFeedbackRetry &&
+		decision.NextAction == "retry_with_unresolved_pr_feedback" &&
 		!decision.ReconciliationNeeded
 }
 

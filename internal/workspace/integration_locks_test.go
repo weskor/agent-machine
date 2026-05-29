@@ -1,4 +1,4 @@
-package main
+package workspace
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weskor/agent-machine/internal/domain"
 	"github.com/weskor/agent-machine/internal/state"
 )
 
@@ -19,18 +20,18 @@ func TestAcquireRunLockWritesOwnerAndReleaseRemovesLock(t *testing.T) {
 	candidate := testIssue("CAG-21", "In Progress")
 	now := time.Date(2026, 5, 17, 12, 0, 0, 0, time.UTC)
 
-	lock, release, err := acquireRunLock(workspace, &candidate, "am/CAG-21", now)
+	lock, release, err := (LockManager{}).Acquire(workspace, &candidate, "am/CAG-21", now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if lock.IssueIdentifier != "CAG-21" || lock.Branch != "am/CAG-21" || lock.Workspace != workspace || lock.PID == 0 {
 		t.Fatalf("unexpected lock: %#v", lock)
 	}
-	if _, err := os.Stat(runLockPath(workspace)); err != nil {
+	if _, err := os.Stat(Path(workspace)); err != nil {
 		t.Fatalf("expected lock file: %v", err)
 	}
 	release()
-	if _, err := os.Stat(runLockPath(workspace)); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(Path(workspace)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected released lock to be removed, err=%v", err)
 	}
 }
@@ -41,12 +42,12 @@ func TestAcquireRunLockMirrorsLeaseAndReleaseMarksReleased(t *testing.T) {
 	candidate := testIssue("CAG-64", "In Progress")
 	now := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
 
-	_, release, err := acquireRunLock(workspace, &candidate, "am/CAG-64", now)
+	_, release, err := (LockManager{}).Acquire(workspace, &candidate, "am/CAG-64", now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	row := readLeaseFixture(t, root, "run:CAG-64")
-	if row.scope != root || row.owner == "" || row.acquiredAt != now.Format(time.RFC3339Nano) || row.renewedAt != now.Format(time.RFC3339Nano) || row.expiresAt != now.Add(runLockStaleAfter).Format(time.RFC3339Nano) || row.releasedAt != "" {
+	if row.scope != root || row.owner == "" || row.acquiredAt != now.Format(time.RFC3339Nano) || row.renewedAt != now.Format(time.RFC3339Nano) || row.expiresAt != now.Add(RunLockStaleAfter).Format(time.RFC3339Nano) || row.releasedAt != "" {
 		t.Fatalf("unexpected acquired lease row: %#v", row)
 	}
 
@@ -55,7 +56,7 @@ func TestAcquireRunLockMirrorsLeaseAndReleaseMarksReleased(t *testing.T) {
 	if row.releasedAt == "" || row.releaseReason != "released" {
 		t.Fatalf("expected released lease row, got %#v", row)
 	}
-	if _, err := os.Stat(runLockPath(workspace)); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(Path(workspace)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected JSON lock removed, err=%v", err)
 	}
 }
@@ -65,16 +66,16 @@ func TestHeartbeatRunLockRenewsMirroredLease(t *testing.T) {
 	workspace := filepath.Join(root, "CAG-64")
 	candidate := testIssue("CAG-64", "In Progress")
 	now := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
-	_, release, err := acquireRunLock(workspace, &candidate, "am/CAG-64", now)
+	_, release, err := (LockManager{}).Acquire(workspace, &candidate, "am/CAG-64", now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer release()
 
 	renewed := now.Add(5 * time.Minute)
-	heartbeatRunLock(workspace, renewed)
+	(LockManager{}).Heartbeat(workspace, renewed)
 	row := readLeaseFixture(t, root, "run:CAG-64")
-	if row.renewedAt != renewed.Format(time.RFC3339Nano) || row.expiresAt != renewed.Add(runLockStaleAfter).Format(time.RFC3339Nano) {
+	if row.renewedAt != renewed.Format(time.RFC3339Nano) || row.expiresAt != renewed.Add(RunLockStaleAfter).Format(time.RFC3339Nano) {
 		t.Fatalf("expected renewed lease row, got %#v", row)
 	}
 }
@@ -89,16 +90,16 @@ func TestHeartbeatRunLockWithStateUsesCommandScopedStore(t *testing.T) {
 	defer store.Close()
 	candidate := testIssue("CAG-107", "In Progress")
 	now := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
-	_, release, err := acquireRunLockWithState(store, workspace, &candidate, "am/CAG-107", now)
+	_, release, err := (LockManager{StateStore: store}).Acquire(workspace, &candidate, "am/CAG-107", now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer release()
 
 	renewed := now.Add(5 * time.Minute)
-	heartbeatRunLockWithState(store, workspace, renewed)
+	(LockManager{StateStore: store}).Heartbeat(workspace, renewed)
 	row := readLeaseFixture(t, root, "run:CAG-107")
-	if row.renewedAt != renewed.Format(time.RFC3339Nano) || row.expiresAt != renewed.Add(runLockStaleAfter).Format(time.RFC3339Nano) {
+	if row.renewedAt != renewed.Format(time.RFC3339Nano) || row.expiresAt != renewed.Add(RunLockStaleAfter).Format(time.RFC3339Nano) {
 		t.Fatalf("expected command-scoped store heartbeat renewal, got %#v", row)
 	}
 }
@@ -113,15 +114,15 @@ func TestAcquireRunLockWithStateBlocksConcurrentSQLiteLease(t *testing.T) {
 	defer store.Close()
 	candidate := testIssue("CAG-109", "In Progress")
 	now := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
-	_, release, err := acquireRunLockWithState(store, workspace, &candidate, "am/CAG-109", now)
+	_, release, err := (LockManager{StateStore: store}).Acquire(workspace, &candidate, "am/CAG-109", now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer release()
 
-	_, _, err = acquireRunLockWithState(store, workspace, &candidate, "am/CAG-109-retry", now.Add(time.Minute))
-	if !errors.Is(err, errRunLocked) {
-		t.Fatalf("second acquire err=%v, want errRunLocked", err)
+	_, _, err = (LockManager{StateStore: store}).Acquire(workspace, &candidate, "am/CAG-109-retry", now.Add(time.Minute))
+	if !errors.Is(err, ErrRunLocked) {
+		t.Fatalf("second acquire err=%v, want ErrRunLocked", err)
 	}
 }
 
@@ -134,10 +135,10 @@ func TestAcquireRunLockWithStateTreatsJSONLockAsExport(t *testing.T) {
 	}
 	defer store.Close()
 	now := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
-	writeRunLockFixture(t, workspace, runLock{IssueIdentifier: "CAG-109", Workspace: workspace, Owner: "stale-json", HeartbeatAt: now})
+	writeRunLockFixture(t, workspace, domain.RunLock{IssueIdentifier: "CAG-109", Workspace: workspace, Owner: "stale-json", HeartbeatAt: now})
 	candidate := testIssue("CAG-109", "In Progress")
 
-	lock, release, err := acquireRunLockWithState(store, workspace, &candidate, "am/CAG-109", now)
+	lock, release, err := (LockManager{StateStore: store}).Acquire(workspace, &candidate, "am/CAG-109", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,22 +162,22 @@ func TestHeartbeatRunLockWithStateDoesNotRenewWithoutJSONExport(t *testing.T) {
 	defer store.Close()
 	candidate := testIssue("CAG-109", "In Progress")
 	now := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
-	_, release, err := acquireRunLockWithState(store, workspace, &candidate, "am/CAG-109", now)
+	_, release, err := (LockManager{StateStore: store}).Acquire(workspace, &candidate, "am/CAG-109", now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer release()
-	if err := os.Remove(runLockPath(workspace)); err != nil {
+	if err := os.Remove(Path(workspace)); err != nil {
 		t.Fatal(err)
 	}
 
 	renewed := now.Add(10 * time.Minute)
-	heartbeatRunLockWithState(store, workspace, renewed)
+	(LockManager{StateStore: store}).Heartbeat(workspace, renewed)
 	row := readLeaseFixture(t, root, "run:CAG-109")
-	if row.renewedAt != now.Format(time.RFC3339Nano) || row.expiresAt != now.Add(runLockStaleAfter).Format(time.RFC3339Nano) {
+	if row.renewedAt != now.Format(time.RFC3339Nano) || row.expiresAt != now.Add(RunLockStaleAfter).Format(time.RFC3339Nano) {
 		t.Fatalf("expected SQLite lease not to renew without JSON export, got %#v", row)
 	}
-	if _, err := os.Stat(runLockPath(workspace)); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(Path(workspace)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected heartbeat to leave missing JSON export absent, got %v", err)
 	}
 }
@@ -185,7 +186,7 @@ func TestAcquireRunLockDoesNotDirtyFreshWorkspace(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "CAG-21")
 	candidate := testIssue("CAG-21", "In Progress")
 
-	_, release, err := acquireRunLock(workspace, &candidate, "am/CAG-21", time.Now())
+	_, release, err := (LockManager{}).Acquire(workspace, &candidate, "am/CAG-21", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +216,7 @@ func TestAcquireRunLockAllowsFreshWorkspaceClone(t *testing.T) {
 	runGit(t, source, "add", "README.md")
 	runGit(t, source, "commit", "-m", "initial")
 
-	_, release, err := acquireRunLock(workspace, &candidate, "", time.Now())
+	_, release, err := (LockManager{}).Acquire(workspace, &candidate, "", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +226,7 @@ func TestAcquireRunLockAllowsFreshWorkspaceClone(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(workspace, ".git")); err != nil {
 		t.Fatalf("expected cloned workspace: %v", err)
 	}
-	if _, err := os.Stat(runLockPath(workspace)); err != nil {
+	if _, err := os.Stat(Path(workspace)); err != nil {
 		t.Fatalf("expected external run lock to remain after clone: %v", err)
 	}
 }
@@ -233,15 +234,15 @@ func TestAcquireRunLockAllowsFreshWorkspaceClone(t *testing.T) {
 func TestAcquireRunLockConflictReturnsOperatorDetails(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "CAG-21")
 	candidate := testIssue("CAG-21", "In Progress")
-	_, release, err := acquireRunLock(workspace, &candidate, "branch-a", time.Now())
+	_, release, err := (LockManager{}).Acquire(workspace, &candidate, "branch-a", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer release()
 
-	_, _, err = acquireRunLock(workspace, &candidate, "branch-b", time.Now())
-	if !errors.Is(err, errRunLocked) {
-		t.Fatalf("expected errRunLocked, got %v", err)
+	_, _, err = (LockManager{}).Acquire(workspace, &candidate, "branch-b", time.Now())
+	if !errors.Is(err, ErrRunLocked) {
+		t.Fatalf("expected ErrRunLocked, got %v", err)
 	}
 	if !strings.Contains(err.Error(), "pid=") || !strings.Contains(err.Error(), "CAG-21") {
 		t.Fatalf("conflict error missing operator details: %v", err)
@@ -251,12 +252,12 @@ func TestAcquireRunLockConflictReturnsOperatorDetails(t *testing.T) {
 func TestAcquireRunLockStaleLockIsConservative(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "CAG-21")
 	candidate := testIssue("CAG-21", "In Progress")
-	stale := time.Now().Add(-runLockStaleAfter - time.Hour)
-	lock := runLock{Owner: "agent", PID: 123, Host: "host", IssueIdentifier: "CAG-21", Branch: "branch-a", Workspace: workspace, StartedAt: stale, HeartbeatAt: stale}
+	stale := time.Now().Add(-RunLockStaleAfter - time.Hour)
+	lock := domain.RunLock{Owner: "agent", PID: 123, Host: "host", IssueIdentifier: "CAG-21", Branch: "branch-a", Workspace: workspace, StartedAt: stale, HeartbeatAt: stale}
 	writeRunLockFixture(t, workspace, lock)
 
-	_, _, err := acquireRunLock(workspace, &candidate, "branch-b", time.Now())
-	if !errors.Is(err, errRunLocked) {
+	_, _, err := (LockManager{}).Acquire(workspace, &candidate, "branch-b", time.Now())
+	if !errors.Is(err, ErrRunLocked) {
 		t.Fatalf("expected stale lock to remain blocking, got %v", err)
 	}
 	if !strings.Contains(err.Error(), "repair-artifacts") || !strings.Contains(err.Error(), "stale") {
@@ -269,20 +270,20 @@ func TestCleanupStaleRunLocksRemovesOnlyStaleLocks(t *testing.T) {
 	now := time.Now()
 	staleWorkspace := filepath.Join(root, "CAG-1")
 	activeWorkspace := filepath.Join(root, "CAG-2")
-	writeRunLockFixture(t, staleWorkspace, runLock{IssueIdentifier: "CAG-1", Workspace: staleWorkspace, HeartbeatAt: now.Add(-runLockStaleAfter - time.Second)})
-	writeRunLockFixture(t, activeWorkspace, runLock{IssueIdentifier: "CAG-2", Workspace: activeWorkspace, HeartbeatAt: now})
+	writeRunLockFixture(t, staleWorkspace, domain.RunLock{IssueIdentifier: "CAG-1", Workspace: staleWorkspace, HeartbeatAt: now.Add(-RunLockStaleAfter - time.Second)})
+	writeRunLockFixture(t, activeWorkspace, domain.RunLock{IssueIdentifier: "CAG-2", Workspace: activeWorkspace, HeartbeatAt: now})
 
-	removed, err := cleanupStaleRunLocks(root, now)
+	removed, err := (LockManager{}).CleanupStale(root, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if removed != 1 {
 		t.Fatalf("removed=%d, want 1", removed)
 	}
-	if _, err := os.Stat(runLockPath(staleWorkspace)); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(Path(staleWorkspace)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected stale lock removed, err=%v", err)
 	}
-	if _, err := os.Stat(runLockPath(activeWorkspace)); err != nil {
+	if _, err := os.Stat(Path(activeWorkspace)); err != nil {
 		t.Fatalf("expected active lock kept: %v", err)
 	}
 }
@@ -291,10 +292,10 @@ func TestCleanupStaleRunLocksRecordsUnmirroredLeaseRelease(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
 	staleWorkspace := filepath.Join(root, "CAG-64")
-	lock := runLock{IssueIdentifier: "CAG-64", Owner: "agent", Workspace: staleWorkspace, StartedAt: now.Add(-5 * time.Hour), HeartbeatAt: now.Add(-runLockStaleAfter - time.Second)}
+	lock := domain.RunLock{IssueIdentifier: "CAG-64", Owner: "agent", Workspace: staleWorkspace, StartedAt: now.Add(-5 * time.Hour), HeartbeatAt: now.Add(-RunLockStaleAfter - time.Second)}
 	writeRunLockFixture(t, staleWorkspace, lock)
 
-	removed, err := cleanupStaleRunLocks(root, now)
+	removed, err := (LockManager{}).CleanupStale(root, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,20 +313,20 @@ func TestCleanupStaleRunLocksRemovesDeadOwnerLocksOnSameHost(t *testing.T) {
 	now := time.Now()
 	deadWorkspace := filepath.Join(root, "CAG-33")
 	activeWorkspace := filepath.Join(root, "CAG-34")
-	writeRunLockFixture(t, deadWorkspace, runLock{IssueIdentifier: "CAG-33", Workspace: deadWorkspace, Host: hostname(), PID: 99999999, HeartbeatAt: now})
-	writeRunLockFixture(t, activeWorkspace, runLock{IssueIdentifier: "CAG-34", Workspace: activeWorkspace, Host: hostname(), PID: os.Getpid(), HeartbeatAt: now})
+	writeRunLockFixture(t, deadWorkspace, domain.RunLock{IssueIdentifier: "CAG-33", Workspace: deadWorkspace, Host: Hostname(), PID: 99999999, HeartbeatAt: now})
+	writeRunLockFixture(t, activeWorkspace, domain.RunLock{IssueIdentifier: "CAG-34", Workspace: activeWorkspace, Host: Hostname(), PID: os.Getpid(), HeartbeatAt: now})
 
-	removed, err := cleanupStaleRunLocks(root, now)
+	removed, err := (LockManager{}).CleanupStale(root, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if removed != 1 {
 		t.Fatalf("removed=%d, want 1", removed)
 	}
-	if _, err := os.Stat(runLockPath(deadWorkspace)); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(Path(deadWorkspace)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected dead-owner lock removed, err=%v", err)
 	}
-	if _, err := os.Stat(runLockPath(activeWorkspace)); err != nil {
+	if _, err := os.Stat(Path(activeWorkspace)); err != nil {
 		t.Fatalf("expected active current-process lock kept: %v", err)
 	}
 	row := readLeaseFixture(t, root, "run:CAG-33")
@@ -337,28 +338,37 @@ func TestCleanupStaleRunLocksRemovesDeadOwnerLocksOnSameHost(t *testing.T) {
 func TestIsEmptyIgnoringRunLockAllowsBootstrap(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "CAG-1")
 	candidate := testIssue("CAG-1", "In Progress")
-	_, release, err := acquireRunLock(workspace, &candidate, "am/CAG-1", time.Now())
+	_, release, err := (LockManager{}).Acquire(workspace, &candidate, "am/CAG-1", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer release()
-	if !isEmptyIgnoringRunLock(workspace) {
+	if !IsEmptyIgnoringLock(workspace) {
 		t.Fatal("expected workspace with only lock to be bootstrap-eligible")
 	}
 	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("ready"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if isEmptyIgnoringRunLock(workspace) {
+	if IsEmptyIgnoringLock(workspace) {
 		t.Fatal("expected workspace with non-lock file to be non-empty")
 	}
 }
 
-func writeRunLockFixture(t *testing.T, workspace string, lock runLock) {
+func testIssue(identifier, state string) domain.Issue {
+	var out domain.Issue
+	out.ID = identifier + "-id"
+	out.Identifier = identifier
+	out.Title = identifier + " title"
+	out.State.Name = state
+	return out
+}
+
+func writeRunLockFixture(t *testing.T, workspace string, lock domain.RunLock) {
 	t.Helper()
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Dir(runLockPath(workspace)), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(Path(workspace)), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if lock.PID == 0 {
@@ -368,7 +378,7 @@ func writeRunLockFixture(t *testing.T, workspace string, lock runLock) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(runLockPath(workspace), data, 0o600); err != nil {
+	if err := os.WriteFile(Path(workspace), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

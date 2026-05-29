@@ -254,6 +254,62 @@ func TestClaimNextRunAttemptDispatchesRepairableReviewFailedPR(t *testing.T) {
 	}
 }
 
+func TestClaimNextRunAttemptDispatchesStateBackedFeedbackRetryDespiteNoRetryTerminal(t *testing.T) {
+	root := t.TempDir()
+	store := openCandidateTestStateStore(t)
+	candidate := testIssue("CAG-434", "Ready for Agent")
+	workspace := filepath.Join(root, candidate.Identifier)
+	prURL := "https://github.com/weskor/agent-machine/pull/434"
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, ".am-feedback.md"), []byte("merge conflict feedback"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertAttemptResult(context.Background(), state.AttemptResult{
+		IssueKey:       candidate.Identifier,
+		IssueID:        candidate.ID,
+		Attempt:        1,
+		WorkspacePath:  workspace,
+		BranchName:     expectedWorkspaceBranch(candidate.Identifier),
+		BaseBranch:     "develop",
+		Status:         runAttemptStatusSuccess,
+		Repository:     "weskor/agent-machine",
+		PRNumber:       434,
+		PRURL:          prURL,
+		ReviewStatus:   "passed",
+		ReviewPassed:   true,
+		RetryReason:    "stale prior review failure",
+		RetryNextState: repairReviewFindingsNextAction,
+		UpdatedAt:      time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pr := pullRequestSummary{Number: 434, URL: prURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch(candidate.Identifier), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "COMMENTED"}
+	original := openPRsByIssueForSelection
+	openPRsByIssueForSelection = func(runnerConfig) (map[string]*pullRequestSummary, error) {
+		return map[string]*pullRequestSummary{candidate.Identifier: &pr}, nil
+	}
+	t.Cleanup(func() { openPRsByIssueForSelection = original })
+	client := linearClientWithCandidates(t, []issue{candidate})
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	config.PiCommand = "sh"
+	proj := project{Prompt: "# Test project"}
+
+	claim, didWork, err := claimNextRunAttempt(client, proj, config, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didWork || claim == nil || claim.Candidate.Identifier != candidate.Identifier {
+		t.Fatalf("claim = %#v didWork=%t, want feedback repair claim for %s", claim, didWork, candidate.Identifier)
+	}
+	defer claim.ReleaseLock()
+	if claim.SelectedPR == nil || claim.SelectedPR.URL != pr.URL {
+		t.Fatalf("expected feedback repair claim to reuse PR %s, got %#v", pr.URL, claim.SelectedPR)
+	}
+}
+
 func seedRepairableReviewFailedPR(t *testing.T, root, identifier, prURL string) pullRequestSummary {
 	t.Helper()
 	writeRunRecordFixture(t, root, identifier, fmt.Sprintf(`{"status":"review_failed","review_status":"failed","review_classification":"%s","review_findings":"REVIEW_FAIL behavior mismatch","pr_url":%q}`, reviewClassificationBehaviorSpecBlocker, prURL))
@@ -280,6 +336,8 @@ func upsertRepairableReviewFailedAttempt(t *testing.T, store *state.Store, candi
 		PRURL:                prURL,
 		ReviewStatus:         "failed",
 		ReviewClassification: reviewClassificationBehaviorSpecBlocker,
+		RetryReason:          "out_of_scope_diff",
+		RetryNextState:       repairReviewFindingsNextAction,
 		UpdatedAt:            time.Now().UTC(),
 	}); err != nil {
 		t.Fatalf("UpsertAttemptResult(review_failed) error = %v", err)

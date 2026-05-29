@@ -30,6 +30,18 @@ func recordReviewPendingPayloadRefContext(ctx context.Context, store *state.Stor
 	})
 }
 
+func completeReviewPendingPayloadRef(ctx context.Context, store *state.Store, payload reviewPendingPayload, workerErr error) error {
+	if store == nil {
+		return nil
+	}
+	return completeWorkerPayloadRef(ctx, store, &state.WorkerPayloadRef{
+		Role:     reviewWorkerRole,
+		Phase:    runProgressPhaseReviewPending,
+		IssueKey: payload.IssueIdentifier,
+		Attempt:  1,
+	}, workerErr)
+}
+
 func recordPRHandoffPendingPayloadRef(store *state.Store, payload prHandoffPendingPayload, payloadPath string) error {
 	return recordPRHandoffPendingPayloadRefContext(context.Background(), store, payload, payloadPath)
 }

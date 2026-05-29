@@ -144,7 +144,7 @@ func prepareClaimedImplementationWorkerTask(ctx context.Context, client linearCl
 	}
 	decision := reconcileCandidateForSelectionContext(ctx, config, *candidate, selectedPR, stateStore)
 	retryDecision, retryDecisionFound := retryBackoffDecision(ctx, stateStore, *candidate, config, time.Now().UTC())
-	if retryDecisionFound && !retryDecision.runnable {
+	if retryDecisionFound && !retryDecision.runnable && !retryGateAllowsRepair(decision, retryDecision) {
 		completeErr := completeClaimedImplementationWorkerTask(ctx, stateStore, task, "completed", false, retryDecision.reason, "", started, time.Now().UTC())
 		return nil, true, completeErr
 	}

@@ -39,6 +39,55 @@ func TestReconcileIssueAllowsFeedbackRetryToSupersedeTerminalArtifact(t *testing
 	}
 }
 
+func TestReconcileIssueAllowsStateBackedFeedbackRetryWithOpenPR(t *testing.T) {
+	root := t.TempDir()
+	store := openTestStateStore(t, root)
+	defer store.Close()
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	config.HandoffState = "Human Review"
+	candidate := testIssue("CAG-434", "Ready for Agent")
+	workspace := filepath.Join(root, candidate.Identifier)
+	prURL := "https://github.com/weskor/agent-machine/pull/434"
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, ".am-feedback.md"), []byte("merge conflict feedback"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertAttemptResult(context.Background(), state.AttemptResult{
+		IssueKey:      candidate.Identifier,
+		IssueID:       candidate.ID,
+		Attempt:       1,
+		WorkspacePath: workspace,
+		BranchName:    expectedWorkspaceBranch(candidate.Identifier),
+		BaseBranch:    "develop",
+		Status:        runAttemptStatusSuccess,
+		Repository:    "weskor/agent-machine",
+		PRNumber:      434,
+		PRURL:         prURL,
+		ReviewStatus:  "passed",
+		ReviewPassed:  true,
+		UpdatedAt:     time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pr := pullRequestSummary{
+		Number:         434,
+		URL:            prURL,
+		BaseRefName:    "develop",
+		HeadRefName:    expectedWorkspaceBranch(candidate.Identifier),
+		Author:         prAuthor{Login: githubAppPRAuthorLogin},
+		ReviewDecision: "COMMENTED",
+	}
+
+	decision := newReconciliationModule(store).ReconcileIssue(config, candidate, &pr)
+
+	if !decision.CanRun || !decision.ShouldRetry || decision.Lifecycle != lifecycleFeedbackRetry || decision.NextAction != "retry_with_unresolved_pr_feedback" {
+		t.Fatalf("expected state-backed PR feedback retry, got %#v", decision)
+	}
+}
+
 func TestReconcileIssueBlocksTerminalArtifactWithoutNewFeedback(t *testing.T) {
 	root := t.TempDir()
 	writeRunRecordFixture(t, root, "CAG-34", `{"status":"success","pr_url":"https://github.com/weskor/agent-machine/pull/434"}`)

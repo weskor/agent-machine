@@ -256,6 +256,132 @@ func TestClaimNextImplementationAttemptClaimsQueuedTaskWithoutCandidateDiscovery
 	}
 }
 
+func TestClaimNextImplementationAttemptClaimsQueuedRepairableReviewFailedTask(t *testing.T) {
+	root := t.TempDir()
+	store := openCandidateTestStateStore(t)
+	candidate := testIssue("CAG-194", "Ready for Agent")
+	prURL := "https://github.com/weskor/agent-machine/pull/194"
+	pr := pullRequestSummary{Number: 194, URL: prURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch(candidate.Identifier), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "COMMENTED"}
+	workspace := filepath.Join(root, candidate.Identifier)
+	upsertRepairableReviewFailedAttempt(t, store, candidate, workspace, prURL)
+	taskKey := implementationWorkerTaskKey(candidate.Identifier, 1)
+	if err := store.UpsertWorkerTask(context.Background(), state.WorkerTask{
+		TaskKey:     taskKey,
+		Role:        implementationWorkerRole,
+		IssueKey:    candidate.Identifier,
+		IssueID:     candidate.ID,
+		Attempt:     1,
+		Status:      "queued",
+		AvailableAt: time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	original := openPRsByIssueForSelection
+	openPRsByIssueForSelection = func(runnerConfig) (map[string]*pullRequestSummary, error) {
+		return map[string]*pullRequestSummary{candidate.Identifier: &pr}, nil
+	}
+	t.Cleanup(func() { openPRsByIssueForSelection = original })
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issue": candidate}})
+	}))
+	t.Cleanup(server.Close)
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	config.PiCommand = "true"
+
+	claim, didWork, err := claimNextImplementationAttempt(linearClient{apiKey: "test-key", endpoint: server.URL}, project{}, config, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didWork || claim == nil || claim.Candidate.Identifier != candidate.Identifier {
+		t.Fatalf("claim = %#v didWork=%t; want repairable review-failed claim", claim, didWork)
+	}
+	defer claim.ReleaseLock()
+	results, err := store.WorkerResults(context.Background(), implementationWorkerRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("worker results = %+v; queued repair should not complete as terminal_or_no_retry", results)
+	}
+}
+
+func TestClaimNextImplementationAttemptClaimsQueuedStateBackedFeedbackRetryDespiteNoRetryTerminal(t *testing.T) {
+	root := t.TempDir()
+	store := openCandidateTestStateStore(t)
+	candidate := testIssue("CAG-434", "Ready for Agent")
+	workspace := filepath.Join(root, candidate.Identifier)
+	prURL := "https://github.com/weskor/agent-machine/pull/434"
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, ".am-feedback.md"), []byte("merge conflict feedback"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertAttemptResult(context.Background(), state.AttemptResult{
+		IssueKey:       candidate.Identifier,
+		IssueID:        candidate.ID,
+		Attempt:        1,
+		WorkspacePath:  workspace,
+		BranchName:     expectedWorkspaceBranch(candidate.Identifier),
+		BaseBranch:     "develop",
+		Status:         runAttemptStatusSuccess,
+		Repository:     "weskor/agent-machine",
+		PRNumber:       434,
+		PRURL:          prURL,
+		ReviewStatus:   "passed",
+		ReviewPassed:   true,
+		RetryReason:    "stale prior review failure",
+		RetryNextState: repairReviewFindingsNextAction,
+		UpdatedAt:      time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	taskKey := implementationWorkerTaskKey(candidate.Identifier, 1)
+	if err := store.UpsertWorkerTask(context.Background(), state.WorkerTask{
+		TaskKey:     taskKey,
+		Role:        implementationWorkerRole,
+		IssueKey:    candidate.Identifier,
+		IssueID:     candidate.ID,
+		Attempt:     1,
+		Status:      "queued",
+		AvailableAt: time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pr := pullRequestSummary{Number: 434, URL: prURL, BaseRefName: "develop", HeadRefName: expectedWorkspaceBranch(candidate.Identifier), Author: prAuthor{Login: githubAppPRAuthorLogin}, ReviewDecision: "COMMENTED"}
+	original := openPRsByIssueForSelection
+	openPRsByIssueForSelection = func(runnerConfig) (map[string]*pullRequestSummary, error) {
+		return map[string]*pullRequestSummary{candidate.Identifier: &pr}, nil
+	}
+	t.Cleanup(func() { openPRsByIssueForSelection = original })
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issue": candidate}})
+	}))
+	t.Cleanup(server.Close)
+	config := testRunnerConfig(root)
+	config.BaseBranch = "develop"
+	config.PiCommand = "true"
+
+	claim, didWork, err := claimNextImplementationAttempt(linearClient{apiKey: "test-key", endpoint: server.URL}, project{}, config, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didWork || claim == nil || claim.Candidate.Identifier != candidate.Identifier {
+		t.Fatalf("claim = %#v didWork=%t; want feedback repair claim", claim, didWork)
+	}
+	defer claim.ReleaseLock()
+	results, err := store.WorkerResults(context.Background(), implementationWorkerRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("worker results = %+v; queued feedback repair should not complete as terminal_or_no_retry", results)
+	}
+}
+
 func TestScheduleImplementationWorkerTasksEnqueuesDistinctCandidatesWithoutClaiming(t *testing.T) {
 	root := t.TempDir()
 	store := openCandidateTestStateStore(t)

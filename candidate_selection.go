@@ -53,7 +53,7 @@ func nextRunnableCandidateWithOptionsContext(ctx context.Context, client linearC
 		decision := reconcileCandidateForSelectionContext(ctx, config, candidates[i], pr, store)
 		retryDecision, retryDecisionFound := retryBackoffDecision(ctx, store, candidates[i], config, time.Now().UTC())
 		if store != nil {
-			if retryDecisionFound && !retryDecision.runnable {
+			if retryDecisionFound && !retryDecision.runnable && !retryGateAllowsRepair(decision, retryDecision) {
 				log("skipping %s: %s", candidates[i].Identifier, retryDecision.reason)
 				emitCandidateEventContext(ctx, store, state.EventCandidateSkipped, candidates[i], map[string]any{"reason": retryDecision.reason})
 				continue
@@ -87,7 +87,7 @@ func nextRunnableCandidateWithOptionsContext(ctx context.Context, client linearC
 		decision := reconcileCandidateForSelectionContext(ctx, config, candidates[i], pr, store)
 		retryDecision, retryDecisionFound := retryBackoffDecision(ctx, store, candidates[i], config, time.Now().UTC())
 		if store != nil {
-			if retryDecisionFound && !retryDecision.runnable {
+			if retryDecisionFound && !retryDecision.runnable && !retryGateAllowsRepair(decision, retryDecision) {
 				continue
 			}
 		}
@@ -159,8 +159,9 @@ func reconcileCandidateForSelectionContext(ctx context.Context, config runnerCon
 }
 
 type candidateRetryDecision struct {
-	runnable bool
-	reason   string
+	runnable  bool
+	reason    string
+	nextState string
 }
 
 func retryBackoffDecision(ctx context.Context, store *state.Store, candidate issue, config runnerConfig, now time.Time) (candidateRetryDecision, bool) {
@@ -178,16 +179,35 @@ func retryBackoffDecision(ctx context.Context, store *state.Store, candidate iss
 		return candidateRetryDecision{}, false
 	}
 	if facts.RetryNextState == "no_retry" {
-		return candidateRetryDecision{runnable: false, reason: "terminal_or_no_retry"}, true
+		return candidateRetryDecision{runnable: false, reason: "terminal_or_no_retry", nextState: facts.RetryNextState}, true
 	}
 	if facts.RetryNextState != "retry_after_backoff" {
-		return candidateRetryDecision{runnable: false, reason: "terminal_or_no_retry"}, true
+		return candidateRetryDecision{runnable: false, reason: "terminal_or_no_retry", nextState: facts.RetryNextState}, true
 	}
 	backoff := retryBackoffDuration(facts.RetryCount, configuredMaxRetryBackoff(config))
 	if backoff <= 0 || facts.RetryDecidedAt.IsZero() || !now.Before(facts.RetryDecidedAt.Add(backoff)) {
-		return candidateRetryDecision{runnable: true, reason: "retry_backoff_elapsed"}, true
+		return candidateRetryDecision{runnable: true, reason: "retry_backoff_elapsed", nextState: facts.RetryNextState}, true
 	}
-	return candidateRetryDecision{runnable: false, reason: fmt.Sprintf("retry_backoff_until_%s", facts.RetryDecidedAt.Add(backoff).Format(time.RFC3339))}, true
+	return candidateRetryDecision{runnable: false, reason: fmt.Sprintf("retry_backoff_until_%s", facts.RetryDecidedAt.Add(backoff).Format(time.RFC3339)), nextState: facts.RetryNextState}, true
+}
+
+func retryGateAllowsRepairableReviewFailedPR(decision reconciliationDecision, retryDecision candidateRetryDecision) bool {
+	return retryDecision.nextState == repairReviewFindingsNextAction &&
+		decision.CanRun &&
+		decision.ShouldRetry &&
+		decision.NextAction == repairReviewFindingsNextAction &&
+		!decision.ReconciliationNeeded
+}
+
+func retryGateAllowsRepair(decision reconciliationDecision, retryDecision candidateRetryDecision) bool {
+	if retryGateAllowsRepairableReviewFailedPR(decision, retryDecision) {
+		return true
+	}
+	return decision.CanRun &&
+		decision.ShouldRetry &&
+		decision.Lifecycle == lifecycleFeedbackRetry &&
+		decision.NextAction == "retry_with_unresolved_pr_feedback" &&
+		!decision.ReconciliationNeeded
 }
 
 func retryBackoffOverridesTerminalBlock(decision reconciliationDecision, retryDecision candidateRetryDecision, retryDecisionFound bool) bool {

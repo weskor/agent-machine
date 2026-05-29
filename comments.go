@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/weskor/agent-machine/internal/commenttext"
+	"github.com/weskor/agent-machine/internal/handoffcomment"
 	"github.com/weskor/agent-machine/internal/runclassification"
 )
 
@@ -27,135 +28,40 @@ type handoffSummary struct {
 }
 
 func renderPRHandoffBody(summary handoffSummary) string {
-	var builder strings.Builder
-	fmt.Fprintf(&builder, "## Agent Machine handoff\n\n")
-	fmt.Fprintf(&builder, "- Issue: %s — %s\n", markdownLink(summary.IssueIdentifier, summary.IssueURL), sanitizeMarkdownLine(summary.IssueTitle))
-	fmt.Fprintf(&builder, "- PR: %s\n", markdownLink(summary.PRURL, summary.PRURL))
-	fmt.Fprintf(&builder, "- Review: %s\n", sanitizeMarkdownLine(reviewSummary(summary.Review)))
-	fmt.Fprintf(&builder, "- Usage: %s\n", sanitizeMarkdownLine(usageSummary(summary.RuntimeUsage)))
-	fmt.Fprintf(&builder, "- Duration: %s\n\n", summary.Duration.Round(time.Second))
-
-	builder.WriteString("### Issue scope\n")
-	writeBoundedBullets(&builder, issueScopeNotes(summary), "Issue scope summary not recorded.", 6)
-
-	builder.WriteString("### Validation\n")
-	writeBoundedBullets(&builder, summary.Validation, "No validation commands detected in runner output.", 5)
-
-	builder.WriteString("\n### Tests and characterization\n")
-	writeBoundedBullets(&builder, testEvidenceNotes(summary), "No test or characterization evidence detected in runner output.", 5)
-
-	builder.WriteString("\n### Behavior Contract Evidence\n")
-	writeBoundedBullets(&builder, behaviorContractEvidenceNotes(summary), "No behavior-contract evidence recorded.", 8)
-
-	builder.WriteString("\n### Changed files\n")
-	writeBoundedBullets(&builder, changedFilesNotes(summary), "Changed file summary not recorded.", 3)
-
-	builder.WriteString("\n### Risks and out of scope\n")
-	writeBoundedBullets(&builder, riskAndScopeNotes(summary), "No known risks or out-of-scope follow-up recorded.", 5)
-
-	builder.WriteString("\n### Progress status\n")
-	writeBoundedBullets(&builder, progressStatusNotes(summary), "Progress snapshot not recorded.", 4)
-
-	builder.WriteString("\n### Remaining follow-up\n")
-	writeBoundedBullets(&builder, summary.FollowUps, "No follow-up recorded.", 4)
-
-	return truncateMarkdown(builder.String(), 12000)
-}
-
-func behaviorContractEvidenceNotes(summary handoffSummary) []string {
-	notes := []string{
-		"References: docs/specs/end-to-end-orchestration.md, docs/specs/harness-behavior.md, and docs/agents/review-policy.md.",
-		"Behavior inventory: runner-owned PR identity, branch/base validation, review classification, Linear handoff comments/state movement, and run/evaluation artifacts.",
-		"Preserved behavior: implementation agents still do not create, update, push, or comment on code-host PRs directly.",
-		"Handoff evidence source: runner-owned PR body; separate code-host PR summary comments are not used.",
-		"Spec compatibility: observable behavior is preserved unless the issue and docs/specs explicitly describe a change.",
-		"Complexity/LOC budget: changed-file counts and additions/deletions are recorded below when reported by the code host.",
-		"Review classification: " + reviewClassificationSummary(summary.Review),
-	}
-	if summary.Classification != nil {
-		notes = append(notes, "Run classification: outcome="+summary.Classification.Outcome+", root="+emptyAsNA(summary.Classification.RootCause)+", next="+emptyAsNA(summary.Classification.NextAction)+".")
-	}
-	return notes
-}
-
-func issueScopeNotes(summary handoffSummary) []string {
-	var notes []string
-	for _, line := range issueDescriptionSectionLines(summary.IssueDescription, "scope") {
-		notes = append(notes, "Scope: "+line)
-	}
-	scopeSummary := strings.TrimSpace(summary.ScopeResult.Summary())
-	if scopeSummary != "" {
-		notes = append(notes, "Scope guard: "+scopeSummary)
-	} else if summary.ScopeResult.Checked {
-		notes = append(notes, "Scope guard: changed files matched the Linear ticket path contract.")
-	}
-	if len(notes) == 0 && strings.TrimSpace(summary.IssueIdentifier) != "" {
-		notes = append(notes, "Issue identifier: "+summary.IssueIdentifier+".")
-	}
-	return uniqueStrings(notes)
-}
-
-func testEvidenceNotes(summary handoffSummary) []string {
-	var notes []string
-	for _, line := range summary.Validation {
-		lower := strings.ToLower(line)
-		if strings.Contains(lower, "test") || strings.Contains(lower, "characterization") || strings.Contains(lower, "make ci") || strings.Contains(lower, "go test") {
-			notes = append(notes, line)
-		}
-	}
-	return uniqueStrings(notes)
-}
-
-func changedFilesNotes(summary handoffSummary) []string {
-	if summary.PRDetails == nil {
-		return nil
-	}
-	details := summary.PRDetails
-	return []string{
-		fmt.Sprintf("Files changed: %d; additions: %d; deletions: %d.", details.ChangedFiles, details.Additions, details.Deletions),
-	}
-}
-
-func riskAndScopeNotes(summary handoffSummary) []string {
-	var notes []string
-	for _, line := range issueDescriptionSectionLines(summary.IssueDescription, "out of scope", "out-of-scope", "out of scope paths", "out-of-scope paths") {
-		notes = append(notes, "Out of scope: "+line)
-	}
-	if summary.PRDetails != nil && summary.PRDetails.ChangedFiles > 80 {
-		notes = append(notes, fmt.Sprintf("Risk: PR changes %d files, above the scoped-run warning threshold.", summary.PRDetails.ChangedFiles))
-	}
-	if summary.Review != nil && strings.TrimSpace(summary.Review.Status) != "" && summary.Review.Status != "passed" {
-		notes = append(notes, "Risk: review status is "+summary.Review.Status+"; see follow-up and review artifacts.")
-	}
-	return uniqueStrings(notes)
-}
-
-func progressStatusNotes(summary handoffSummary) []string {
-	if summary.Progress == nil {
-		return nil
-	}
-	progress := summary.Progress
-	notes := []string{
-		"Phase: " + emptyAsNA(progress.Phase) + "; status: " + emptyAsNA(progress.Status) + "; next: " + emptyAsNA(progress.NextAction) + ".",
-	}
-	if progress.PRURL != "" {
-		notes = append(notes, "Progress PR: "+progress.PRURL+".")
-	}
-	if progress.ProgressPath != "" {
-		notes = append(notes, "Progress artifact: "+progress.ProgressPath+".")
-	}
-	return notes
-}
-
-func reviewClassificationSummary(review *reviewResult) string {
-	if review == nil || strings.TrimSpace(review.Classification) == "" {
-		return "not recorded"
-	}
-	return review.Classification
+	return handoffcomment.RenderPRBody(handoffCommentSummary(summary))
 }
 
 func renderLinearHandoffComment(summary handoffSummary) string {
-	return truncateMarkdown(fmt.Sprintf("Runtime run completed.\n\nPR: %s\nUsage: %s\nReview: %s\nDuration: %s", summary.PRURL, usageSummary(summary.RuntimeUsage), reviewSummary(summary.Review), summary.Duration.Round(time.Second)), 1000)
+	return handoffcomment.RenderLinearComment(handoffCommentSummary(summary))
+}
+
+func handoffCommentSummary(summary handoffSummary) handoffcomment.Summary {
+	out := handoffcomment.Summary{
+		IssueIdentifier:   summary.IssueIdentifier,
+		IssueTitle:        summary.IssueTitle,
+		IssueURL:          summary.IssueURL,
+		IssueDescription:  summary.IssueDescription,
+		PRURL:             summary.PRURL,
+		RuntimeUsage:      usageSummary(summary.RuntimeUsage),
+		Review:            reviewSummary(summary.Review),
+		Duration:          summary.Duration,
+		Validation:        summary.Validation,
+		ScopeGuardSummary: strings.TrimSpace(summary.ScopeResult.Summary()),
+		ScopeGuardChecked: summary.ScopeResult.Checked,
+		FollowUps:         summary.FollowUps,
+		Classification:    summary.Classification,
+	}
+	if summary.Review != nil {
+		out.ReviewStatus = summary.Review.Status
+		out.ReviewClassification = summary.Review.Classification
+	}
+	if summary.PRDetails != nil {
+		out.PRDetails = &handoffcomment.PRDetails{ChangedFiles: summary.PRDetails.ChangedFiles, Additions: summary.PRDetails.Additions, Deletions: summary.PRDetails.Deletions}
+	}
+	if summary.Progress != nil {
+		out.Progress = &handoffcomment.Progress{Phase: summary.Progress.Phase, Status: summary.Progress.Status, NextAction: summary.Progress.NextAction, PRURL: summary.Progress.PRURL, ProgressPath: summary.Progress.ProgressPath}
+	}
+	return out
 }
 
 func updatePRHandoffBody(summary handoffSummary) error {

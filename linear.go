@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"time"
 
 	linearapi "github.com/weskor/agent-machine/internal/linear"
 	"github.com/weskor/agent-machine/internal/linearstatus"
+	"github.com/weskor/agent-machine/internal/state"
 )
 
 type linearClient struct {
@@ -78,6 +80,10 @@ func (c linearStatusClient) CreateCommentContext(ctx context.Context, issueID, b
 	return createCommentForLinearStatusWorker(ctx, c.client, issueID, body)
 }
 
+func (c linearStatusClient) WorkflowStatesContext(ctx context.Context, teamID string) ([]workflowState, error) {
+	return workflowStatesForLinearStatusWorker(ctx, c.client, teamID)
+}
+
 func newLinearStatusWorker(client linearClient, candidate *issue, states []workflowState) linearstatus.Worker {
 	return linearstatus.Worker{Client: linearStatusClient{client: client}, Candidate: candidate, States: states, Logf: log}
 }
@@ -88,6 +94,38 @@ var updateIssueStateForLinearStatusWorker = func(ctx context.Context, client lin
 
 var createCommentForLinearStatusWorker = func(ctx context.Context, client linearClient, issueID, body string) error {
 	return client.createCommentContext(ctx, issueID, body)
+}
+
+var workflowStatesForLinearStatusWorker = func(ctx context.Context, client linearClient, teamID string) ([]workflowState, error) {
+	return client.workflowStatesContext(ctx, teamID)
+}
+
+const linearStatusTaskKindTransition = linearstatus.TaskKindTransition
+
+type linearStatusTransitionPayload = linearstatus.TransitionPayload
+
+func queueLinearStatusTransitionTask(ctx context.Context, store *state.Store, payload linearStatusTransitionPayload, priority int, availableAt time.Time) error {
+	return linearstatus.QueueTransitionTask(ctx, store, payload, priority, availableAt)
+}
+
+func runLinearStatusTransitionTask(client linearClient, config runnerConfig, store *state.Store) (bool, error) {
+	return runLinearStatusTransitionTaskContext(context.Background(), client, config, store)
+}
+
+func runLinearStatusTransitionTaskContext(ctx context.Context, client linearClient, config runnerConfig, store *state.Store) (bool, error) {
+	return linearstatus.RunTransitionTaskContext(ctx, linearStatusClient{client: client}, config.WorkspaceRoot, store, log)
+}
+
+func claimNextLinearStatusTransitionTask(ctx context.Context, store *state.Store) (state.WorkerTask, bool, error) {
+	return linearstatus.ClaimNextTransitionTask(ctx, store)
+}
+
+func executeLinearStatusTransitionTask(ctx context.Context, client linearClient, store *state.Store, task state.WorkerTask) (bool, error) {
+	return linearstatus.ExecuteTransitionTask(ctx, linearStatusClient{client: client}, store, task, log)
+}
+
+func completeLinearStatusTask(ctx context.Context, store *state.Store, taskKey, status string, primaryErr error) error {
+	return linearstatus.CompleteTransitionTask(ctx, store, taskKey, status, primaryErr)
 }
 
 func resetLinearStatusWorkerHooks() {

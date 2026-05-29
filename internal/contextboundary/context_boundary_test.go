@@ -107,12 +107,12 @@ func TestWorkerContextBoundariesDoNotUseBackgroundContext(t *testing.T) {
 			"MoveToContext",
 			"CommentContext",
 		},
-		"linear_status_worker_process.go": {
-			"queueLinearStatusTransitionTask",
-			"runLinearStatusTransitionTaskContext",
-			"claimNextLinearStatusTransitionTask",
-			"executeLinearStatusTransitionTask",
-			"completeLinearStatusTask",
+		"internal/linearstatus/transition_task.go": {
+			"QueueTransitionTask",
+			"RunTransitionTaskContext",
+			"ClaimNextTransitionTask",
+			"ExecuteTransitionTask",
+			"CompleteTransitionTask",
 		},
 		"merge.go": {
 			"mergeApprovedPRsWithStoreContext",

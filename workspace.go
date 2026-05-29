@@ -205,6 +205,39 @@ func artifactManager() artifactio.Manager {
 	}
 }
 
+func repairArtifacts(workspaceRoot string) error {
+	log("mode=repair-artifacts; workspace_root=%s", workspaceRoot)
+	removedLocks, err := cleanupStaleRunLocks(workspaceRoot, time.Now())
+	if err != nil {
+		return err
+	}
+	paths, err := filepath.Glob(filepath.Join(workspaceRoot, "*", artifactio.RunRecordName))
+	if err != nil {
+		return err
+	}
+	repaired := 0
+	for _, path := range paths {
+		changed, err := repairArtifact(path)
+		if err != nil {
+			return err
+		}
+		if changed {
+			repaired++
+		}
+	}
+	log("repaired %d artifact(s); removed %d stale lock(s)", repaired, removedLocks)
+	return nil
+}
+
+func repairArtifact(path string) (bool, error) {
+	changed, record, err := artifactManager().Repair(path)
+	if err != nil || !changed {
+		return changed, err
+	}
+	log("repaired %s status=%s pr_url=%s manual_repair=%s", path, record.Status, record.PRURL, record.ManualRepair)
+	return true, nil
+}
+
 func logRunArtifactSummary(runRecordPath, evaluationPath string, record runRecord, evaluation evaluationArtifact) {
 	log("run summary: issue=%s status=%s outcome=%s pr=%s review=%s checks=%s next_action=%s duration_ms=%d run_record=%s evaluation=%s", emptyAsUnknown(record.IssueIdentifier), emptyAsUnknown(record.Status), emptyAsUnknown(evaluation.Outcome), emptyAsUnknown(record.PRURL), emptyAsUnknown(record.ReviewStatus), emptyAsUnknown(evaluation.ChecksStatus), emptyAsUnknown(evaluation.NextAction), record.DurationMS, runRecordPath, evaluationPath)
 }

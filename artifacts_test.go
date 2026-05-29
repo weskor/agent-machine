@@ -10,11 +10,12 @@ import (
 	"testing"
 	"time"
 
+	artifactio "github.com/weskor/agent-machine/internal/artifacts"
 	_ "modernc.org/sqlite"
 )
 
 func TestCorrectedPRURLFromReviewFindings(t *testing.T) {
-	got := correctedPRURL(
+	got := artifactio.CorrectedPRURL(
 		"https://github.com/weskor/agent-machine/pull/2",
 		"REVIEW_PASS\n\nFindings:\n- Actual CAG-11 branch PR is #400, not prompt-listed #2.",
 	)
@@ -25,7 +26,7 @@ func TestCorrectedPRURLFromReviewFindings(t *testing.T) {
 }
 
 func TestCorrectedPRURLNoFinding(t *testing.T) {
-	if got := correctedPRURL("https://github.com/example/repo/pull/2", "REVIEW_PASS"); got != "" {
+	if got := artifactio.CorrectedPRURL("https://github.com/example/repo/pull/2", "REVIEW_PASS"); got != "" {
 		t.Fatalf("correctedPRURL() = %q, want empty", got)
 	}
 }
@@ -274,23 +275,5 @@ func TestRepairArtifactMarksClosedPRSuperseded(t *testing.T) {
 	}
 	if repaired.Status != "superseded" || repaired.OriginalStatus != "review_failed" || repaired.ManualRepair != "pr_closed_unmerged" {
 		t.Fatalf("unexpected repaired record: %#v", repaired)
-	}
-}
-
-func TestParseGitHubPRStateUsesSupportedMergedAtField(t *testing.T) {
-	state, merged, err := parseGitHubPRState(`{"state":"MERGED","mergedAt":"2026-05-18T12:00:00Z"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if state != "MERGED" || !merged {
-		t.Fatalf("parseGitHubPRState() = %q, %v", state, merged)
-	}
-
-	state, merged, err = parseGitHubPRState(`{"state":"CLOSED","mergedAt":null}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if state != "CLOSED" || merged {
-		t.Fatalf("parseGitHubPRState() = %q, %v", state, merged)
 	}
 }

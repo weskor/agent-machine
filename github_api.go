@@ -31,6 +31,7 @@ const githubAppBotEmail = ghapi.AppBotEmail
 
 var newGitHubAPI = func() (githubAPI, error) { return ghapi.NewClient() }
 var newGitLabAPI = gitlabapi.NewClient
+var prStateForURL = githubPRStateForURL
 
 func currentGitHubRepo() (string, string, error) { return ghapi.CurrentRepository() }
 
@@ -48,6 +49,22 @@ func githubAppIdentityFromConfig(config runnerConfig) ghapi.AppIdentity {
 
 func commitAuthorInvariantBlockReason(config runnerConfig, pr pullRequestSummary) string {
 	return ghapi.CommitAuthorInvariantBlockReason(githubAppIdentityFromConfig(config), pr)
+}
+
+func githubPRStateForURL(prURL string) (string, bool, error) {
+	if strings.TrimSpace(prURL) == "" {
+		return "", false, nil
+	}
+	github, ctx, cancel, err := codeHostClientForPRURLWithTimeout(prURL, defaultGitHubCommandTimeout)
+	if err != nil {
+		return "", false, err
+	}
+	defer cancel()
+	state, merged, err := github.PullRequestState(ctx, prURL)
+	if err != nil {
+		return "", false, fmt.Errorf("code-host API PR state lookup failed for %s: %w", prURL, err)
+	}
+	return state, merged, nil
 }
 
 func configureGitHubAppCommitIdentity(config runnerConfig, workspace string, timeout time.Duration) error {

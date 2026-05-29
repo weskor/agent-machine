@@ -43,7 +43,7 @@ budgets:
   merge_timeout: 10m
   github_timeout: 2m
 github:
-  app_slug: pi-symphony-bot
+  app_slug: agent-machine-bot
 workflow:
   handoff_state: Human Review
   running_state: In Progress

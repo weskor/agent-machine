@@ -41,10 +41,78 @@ func AppEnvFromEnvironment() (map[string]string, string, error) {
 	return map[string]string{"GH_TOKEN": token, "GITHUB_TOKEN": token}, "github_app_installation", nil
 }
 
-const AppPRAuthorLogin = "app/agent-machine-bot"
-const AppRESTPRAuthorLogin = "agent-machine-bot[bot]"
-const AppBotName = "agent-machine-bot[bot]"
-const AppBotEmail = "agent-machine-bot[bot]@users.noreply.github.com"
+const defaultAppSlug = "agent-machine-bot"
+
+var DefaultAppIdentity = AppIdentity{Slug: defaultAppSlug, Source: "default GitHub App slug"}
+
+const (
+	AppPRAuthorLogin     = "app/agent-machine-bot"
+	AppRESTPRAuthorLogin = "agent-machine-bot[bot]"
+	AppBotName           = "agent-machine-bot[bot]"
+	AppBotEmail          = "agent-machine-bot[bot]@users.noreply.github.com"
+)
+
+type AppIdentity struct {
+	Slug   string
+	Source string
+}
+
+func NewAppIdentity(slug, source string) (AppIdentity, bool) {
+	trimmed := strings.TrimSpace(slug)
+	if trimmed == "" {
+		return AppIdentity{Source: strings.TrimSpace(source)}, false
+	}
+	return AppIdentity{Slug: trimmed, Source: strings.TrimSpace(source)}, true
+}
+
+func AppIdentityFromEnvironment() (AppIdentity, bool) {
+	return NewAppIdentity(os.Getenv("GITHUB_APP_SLUG"), "GITHUB_APP_SLUG")
+}
+
+func (i AppIdentity) AppPRAuthorLogin() string {
+	if strings.TrimSpace(i.Slug) == "" {
+		return ""
+	}
+	return "app/" + strings.TrimSpace(i.Slug)
+}
+
+func (i AppIdentity) AppRESTPRAuthorLogin() string {
+	if strings.TrimSpace(i.Slug) == "" {
+		return ""
+	}
+	return strings.TrimSpace(i.Slug) + "[bot]"
+}
+
+func (i AppIdentity) BotName() string {
+	return i.AppRESTPRAuthorLogin()
+}
+
+func (i AppIdentity) BotEmail() string {
+	name := i.BotName()
+	if name == "" {
+		return ""
+	}
+	return name + "@users.noreply.github.com"
+}
+
+func (i AppIdentity) ExpectedPRAuthorLogins() []string {
+	if strings.TrimSpace(i.Slug) == "" {
+		return nil
+	}
+	return []string{i.AppPRAuthorLogin(), i.AppRESTPRAuthorLogin()}
+}
+
+func (i AppIdentity) ExpectedPRAuthorSource() string {
+	logins := i.ExpectedPRAuthorLogins()
+	source := strings.TrimSpace(i.Source)
+	if source == "" {
+		source = "GitHub App slug"
+	}
+	if len(logins) == 0 {
+		return "no expected GitHub App author could be derived from " + source
+	}
+	return fmt.Sprintf("%s or %s (from %s)", logins[0], logins[1], source)
+}
 
 func IsExpectedAppPRAuthor(login string) bool {
 	switch strings.TrimSpace(login) {
@@ -62,28 +130,38 @@ func ExpectedAppPRAuthorLogins() string {
 }
 
 func IsExpectedAppCommitAuthor(author PRCommitAuthor) bool {
-	return strings.TrimSpace(author.Name) == AppBotName && strings.TrimSpace(author.Email) == AppBotEmail
+	return DefaultAppIdentity.IsExpectedCommitAuthor(author)
 }
 
-func CommitAuthorInvariantBlockReason(pr PullRequestSummary) string {
+func (i AppIdentity) IsExpectedCommitAuthor(author PRCommitAuthor) bool {
+	return strings.TrimSpace(author.Name) == i.BotName() && strings.TrimSpace(author.Email) == i.BotEmail()
+}
+
+func CommitAuthorInvariantBlockReason(identity AppIdentity, pr PullRequestSummary) string {
 	for _, commit := range pr.Commits {
-		if IsExpectedAppCommitAuthor(commit.Author) {
+		if strings.TrimSpace(identity.Slug) == "" {
+			return identity.ExpectedPRAuthorSource()
+		}
+		if identity.IsExpectedCommitAuthor(commit.Author) {
 			continue
 		}
 		name := EmptyAsUnknown(strings.TrimSpace(commit.Author.Name))
 		email := EmptyAsUnknown(strings.TrimSpace(commit.Author.Email))
 		oid := strings.TrimSpace(commit.OID)
 		if oid != "" {
-			return fmt.Sprintf("commit author for %s is %s <%s>; expected %s <%s>", oid, name, email, AppBotName, AppBotEmail)
+			return fmt.Sprintf("commit author for %s is %s <%s>; expected %s <%s>", oid, name, email, identity.BotName(), identity.BotEmail())
 		}
-		return fmt.Sprintf("commit author is %s <%s>; expected %s <%s>", name, email, AppBotName, AppBotEmail)
+		return fmt.Sprintf("commit author is %s <%s>; expected %s <%s>", name, email, identity.BotName(), identity.BotEmail())
 	}
 	return ""
 }
 
-func ConfigureAppCommitIdentity(workspace string, timeout time.Duration) error {
+func ConfigureAppCommitIdentity(identity AppIdentity, workspace string, timeout time.Duration) error {
+	if strings.TrimSpace(identity.Slug) == "" {
+		return errors.New(identity.ExpectedPRAuthorSource())
+	}
 	return sh.RunWithTimeout(
-		"git config user.name "+sh.Quote(AppBotName)+" && git config user.email "+sh.Quote(AppBotEmail),
+		"git config user.name "+sh.Quote(identity.BotName())+" && git config user.email "+sh.Quote(identity.BotEmail()),
 		workspace,
 		timeout,
 	)

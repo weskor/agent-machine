@@ -20,18 +20,14 @@ func newGitHubOwnershipPolicy(config runnerConfig) githubOwnershipPolicy {
 	if override := splitAuthorLogins(config.GitHubPRAuthorOverride); len(override) > 0 {
 		return githubAppOwnershipPolicy{logins: override, source: "config github.pr_author_override"}
 	}
-	slug := strings.TrimSpace(config.GitHubAppSlug)
-	source := "config github.app_slug"
-	if slug == "" {
-		slug = strings.TrimSpace(os.Getenv("GITHUB_APP_SLUG"))
-		source = "GITHUB_APP_SLUG"
-	}
-	if slug == "" {
-		return githubAppOwnershipPolicy{source: "missing config github.app_slug or GITHUB_APP_SLUG"}
+	identity := githubAppIdentityFromConfig(config)
+	logins := identity.ExpectedPRAuthorLogins()
+	if len(logins) == 0 {
+		return githubAppOwnershipPolicy{source: "config github.app_slug or GITHUB_APP_SLUG"}
 	}
 	return githubAppOwnershipPolicy{
-		logins: []string{fmt.Sprintf("app/%s", slug), fmt.Sprintf("%s[bot]", slug)},
-		source: source,
+		logins: logins,
+		source: identity.Source,
 	}
 
 }

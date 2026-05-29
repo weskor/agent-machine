@@ -147,7 +147,7 @@ func executeClaimedRunAttempt(ctx context.Context, client linearClient, proj pro
 		log("github auth: %s", githubAuth)
 	}
 	if githubAuth == "github_app_installation" {
-		if err := configureGitHubAppCommitIdentity(workspace, config.Budget.CommandTimeout); err != nil {
+		if err := configureGitHubAppCommitIdentity(config, workspace, config.Budget.CommandTimeout); err != nil {
 			return true, err
 		}
 	}

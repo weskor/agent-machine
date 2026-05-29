@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -81,14 +82,15 @@ type Dependencies[Client any] struct {
 }
 
 type parsedArgs struct {
-	configPath    string
-	envFiles      []string
-	mode          string
-	cleanupApply  bool
-	maxCycles     int
-	runStatusID   string
-	workerRole    string
-	repairTaskKey string
+	configPath         string
+	configPathExplicit bool
+	envFiles           []string
+	mode               string
+	cleanupApply       bool
+	maxCycles          int
+	runStatusID        string
+	workerRole         string
+	repairTaskKey      string
 }
 
 const (
@@ -121,6 +123,11 @@ func Run[Client any](args []string, deps Dependencies[Client]) error {
 		fmt.Printf("am %s\n", Version)
 		return nil
 	}
+	configPath, err := resolveSelectedConfigPath(parsed.configPath, parsed.configPathExplicit)
+	if err != nil {
+		return err
+	}
+	parsed.configPath = configPath
 	for _, envFile := range parsed.envFiles {
 		loadDotEnvLocal(envFile)
 	}
@@ -326,6 +333,7 @@ func parseArgs(args []string) parsedArgs {
 		case "--config", "-c":
 			if i+1 < len(args) {
 				parsed.configPath = args[i+1]
+				parsed.configPathExplicit = true
 				i++
 			}
 		case "--env-file":
@@ -338,6 +346,7 @@ func parseArgs(args []string) parsedArgs {
 				fmt.Sscanf(value, "%d", &parsed.maxCycles)
 			} else if value, ok := strings.CutPrefix(arg, "--config="); ok {
 				parsed.configPath = value
+				parsed.configPathExplicit = true
 			} else if value, ok := strings.CutPrefix(arg, "--env-file="); ok {
 				parsed.envFiles = append(parsed.envFiles, value)
 			} else if value, ok := strings.CutPrefix(arg, "--run-status="); ok {
@@ -354,10 +363,38 @@ func parseArgs(args []string) parsedArgs {
 				parsed.repairTaskKey = value
 			} else {
 				parsed.configPath = arg
+				parsed.configPathExplicit = true
 			}
 		}
 	}
 	return parsed
+}
+
+func resolveSelectedConfigPath(path string, explicit bool) (string, error) {
+	if explicit || path != cfg.DefaultConfigPath {
+		return path, nil
+	}
+	if _, err := os.Stat(path); err == nil {
+		return path, nil
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for dir := filepath.Dir(wd); ; dir = filepath.Dir(dir) {
+		candidate := filepath.Join(dir, cfg.DefaultConfigPath)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		if parent := filepath.Dir(dir); parent == dir {
+			break
+		}
+	}
+	return path, nil
 }
 
 func looksLikeIssueIdentifier(value string) bool {

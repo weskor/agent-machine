@@ -1,5 +1,5 @@
 {
-  "name": "@pi-machine/tui",
+  "name": "@agent-machine/tui",
   "private": true,
   "type": "module",
   "scripts": {

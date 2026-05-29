@@ -8,8 +8,8 @@ Phase 1 inventory plus Phase 2/3 parity notes for replacing core `gh` CLI behavi
 - [x] Open PR metadata uses GitHub App-compatible REST endpoints instead of GraphQL `statusCheckRollup` fields so status and merge lanes can run with installation tokens.
 - [x] Agent Machine-owned PRs are selected by CAG issue IDs in `headRefName`.
 - [x] Branch/base sanity requires base `develop` (or configured base) and head `am/<issue>-workspace`.
-- [x] App-authored PR invariant accepts both valid GitHub API shapes for the same installed app: GraphQL/gh-style `app/agent-machine-bot` and REST/go-github `agent-machine-bot[bot]`.
-- [x] Bot commit identity is separate: commit author name/email must be `agent-machine-bot[bot] <agent-machine-bot[bot]@users.noreply.github.com>` when commit evidence is available.
+- [x] App-authored PR invariant accepts both valid GitHub API shapes for the configured installed app: GraphQL/gh-style `app/<github.app_slug>` and REST/go-github `<github.app_slug>[bot]`. The default `agent-machine-bot` setup still accepts `app/agent-machine-bot` and `agent-machine-bot[bot]`.
+- [x] Bot commit identity is derived from the same configured GitHub App slug: commit author name/email must be `<github.app_slug>[bot] <<github.app_slug>[bot]@users.noreply.github.com>` when commit evidence is available. The default `agent-machine-bot` setup still expects `agent-machine-bot[bot] <agent-machine-bot[bot]@users.noreply.github.com>`.
 - [x] Human-authored PRs are quarantined before merge.
 - [x] Green checks allow merge only when every `CheckRun` is completed/success and every `StatusContext` is success.
 - [x] Pending, failed, cancelled, timed-out, action-required, neutral, missing, and unknown check shapes block merge.

@@ -1,34 +1,29 @@
-package main
+package evaluation
 
 import (
 	"strings"
 
 	artifactio "github.com/weskor/agent-machine/internal/artifacts"
+	"github.com/weskor/agent-machine/internal/domain"
 	"github.com/weskor/agent-machine/internal/runclassification"
 )
 
-const evaluationArtifactName = artifactio.EvaluationName
-
-type evaluationArtifact = artifactio.EvaluationArtifact
-
-func writeEvaluationArtifact(workspace string, record runRecord) (string, evaluationArtifact) {
-	path, evaluation, _ := writeEvaluationArtifactResult(workspace, record)
-	return path, evaluation
+type MergeGate struct {
+	ReasonText string
+	CodeValues []string
 }
 
-func writeEvaluationArtifactResult(workspace string, record runRecord) (string, evaluationArtifact, error) {
-	path, evaluation, err := artifactManager().WriteEvaluation(workspace, record)
-	if err != nil {
-		log("failed to write evaluation artifact: %v", err)
-		return "", evaluation, err
-	}
-	log("wrote evaluation artifact: %s", path)
-	return path, evaluation, nil
+type Builder struct {
+	MergeGate          func(domain.RunRecord) MergeGate
+	FeedbackRetryCount func(string) int
+	TerminalStatus     func(string) bool
+	RuntimeUsage       func(domain.RunRecord) *domain.Usage
 }
 
-func evaluationForRun(workspace string, record runRecord) evaluationArtifact {
-	mergeGate := evaluateRunRecordMergeGate(record)
-	evaluation := evaluationArtifact{
+func (b Builder) ForRun(workspace string, record domain.RunRecord) artifactio.EvaluationArtifact {
+	mergeGate := b.mergeGate(record)
+	feedbackRetryCount := b.feedbackRetryCount(workspace)
+	evaluation := artifactio.EvaluationArtifact{
 		IssueIdentifier:          record.IssueIdentifier,
 		IssueID:                  record.IssueID,
 		PRURL:                    record.PRURL,
@@ -37,13 +32,13 @@ func evaluationForRun(workspace string, record runRecord) evaluationArtifact {
 		ChecksStatus:             checksStatusForRun(record),
 		ReviewStatus:             record.ReviewStatus,
 		ReviewClassification:     record.ReviewClassification,
-		FeedbackRetryCount:       feedbackRetryCount(workspace),
+		FeedbackRetryCount:       feedbackRetryCount,
 		NeedsInfoUsed:            strings.HasPrefix(record.Status, "needs_info"),
-		MergeBlockReason:         mergeGate.Reason(),
-		MergeBlockerCodes:        mergeGate.Codes(),
-		WorkspaceCleanupEligible: terminalRunStatus(record.Status),
+		MergeBlockReason:         mergeGate.ReasonText,
+		MergeBlockerCodes:        mergeGate.CodeValues,
+		WorkspaceCleanupEligible: b.terminalStatus(record.Status),
 	}
-	if usage := recordRuntimeUsage(record); usage != nil {
+	if usage := b.runtimeUsage(record); usage != nil {
 		evaluation.ImplementationTotalTokens = usage.TotalTokens
 		evaluation.ImplementationTotalCost = usage.TotalCost()
 		evaluation.TotalTokens += usage.TotalTokens
@@ -59,7 +54,7 @@ func evaluationForRun(workspace string, record runRecord) evaluationArtifact {
 		passed := record.ReviewStatus == "passed"
 		evaluation.ReviewPassed = &passed
 	}
-	classification := classifyRunRecord(workspace, record)
+	classification := b.Classify(workspace, record)
 	evaluation.BehaviorContractEvidence = classification.BehaviorContractEvidence
 	evaluation.TicketContractEvidence = classification.TicketContractEvidence
 	evaluation.FrictionSignals = classification.FrictionSignals
@@ -74,19 +69,19 @@ func evaluationForRun(workspace string, record runRecord) evaluationArtifact {
 	return evaluation
 }
 
-func classifyRunRecord(workspace string, record runRecord) runclassification.Classification {
+func (b Builder) Classify(workspace string, record domain.RunRecord) runclassification.Classification {
 	return runclassification.Classify(runclassification.Input{
 		Record:             record,
-		FeedbackRetryCount: feedbackRetryCount(workspace),
+		FeedbackRetryCount: b.feedbackRetryCount(workspace),
 		NeedsInfoUsed:      strings.HasPrefix(record.Status, "needs_info"),
-		MergeBlockReason:   mergeBlockReason(record),
-		TotalTokens:        runRecordTotalTokens(record),
+		MergeBlockReason:   b.mergeGate(record).ReasonText,
+		TotalTokens:        b.totalTokens(record),
 	})
 }
 
-func runRecordTotalTokens(record runRecord) float64 {
+func (b Builder) totalTokens(record domain.RunRecord) float64 {
 	var total float64
-	if usage := recordRuntimeUsage(record); usage != nil {
+	if usage := b.runtimeUsage(record); usage != nil {
 		total += usage.TotalTokens
 	}
 	if record.ReviewUsage != nil {
@@ -95,32 +90,36 @@ func runRecordTotalTokens(record runRecord) float64 {
 	return total
 }
 
-func hasString(values []string, needle string) bool {
-	for _, value := range values {
-		if value == needle {
-			return true
-		}
+func (b Builder) mergeGate(record domain.RunRecord) MergeGate {
+	if b.MergeGate == nil {
+		return MergeGate{}
 	}
-	return false
+	return b.MergeGate(record)
 }
 
-func checksStatusForRun(record runRecord) string {
+func (b Builder) feedbackRetryCount(workspace string) int {
+	if b.FeedbackRetryCount == nil {
+		return 0
+	}
+	return b.FeedbackRetryCount(workspace)
+}
+
+func (b Builder) terminalStatus(status string) bool {
+	return b.TerminalStatus != nil && b.TerminalStatus(status)
+}
+
+func (b Builder) runtimeUsage(record domain.RunRecord) *domain.Usage {
+	if b.RuntimeUsage == nil {
+		return nil
+	}
+	return b.RuntimeUsage(record)
+}
+
+func checksStatusForRun(record domain.RunRecord) string {
 	if record.PRURL == "" {
 		return "not_applicable"
 	}
 	// Post-run handoff happens before GitHub/Vercel checks are expected to settle.
 	// Merge-time blocking remains recorded separately when available.
 	return "unknown_post_run"
-}
-
-func feedbackRetryCount(workspace string) int {
-	feedback, err := readPRFeedback(workspace)
-	if err != nil || strings.TrimSpace(feedback) == "" {
-		return 0
-	}
-	return 1
-}
-
-func mergeBlockReason(record runRecord) string {
-	return evaluateRunRecordMergeGate(record).Reason()
 }

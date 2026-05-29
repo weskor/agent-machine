@@ -3,6 +3,7 @@ package main
 import (
 	"time"
 
+	artifactio "github.com/weskor/agent-machine/internal/artifacts"
 	"github.com/weskor/agent-machine/internal/attemptlifecycle"
 	"github.com/weskor/agent-machine/internal/attemptoutcome"
 	"github.com/weskor/agent-machine/internal/domain"
@@ -23,6 +24,8 @@ type reviewResult = domain.ReviewResult
 type usage = domain.Usage
 
 type usageCost = domain.UsageCost
+
+type evaluationArtifact = artifactio.EvaluationArtifact
 
 type issue = domain.Issue
 
@@ -52,6 +55,8 @@ const (
 	runtimeProviderClaudeCLI = runtimeadapter.ProviderClaudeCLI
 )
 
+const evaluationArtifactName = artifactio.EvaluationName
+
 type attemptLifecyclePhase = attemptlifecycle.Phase
 
 const (
@@ -77,4 +82,13 @@ func decideAttemptLifecycle(input attemptLifecycleInput) attemptLifecycleDecisio
 
 func runRecordFor(candidate *issue, workspace, runtimeCommand, githubAuth string, startedAt, endedAt time.Time, runtimeUsage *usage, review *reviewResult, prURL, status, errorMessage string, budget *runBudget, budgetExceeded string) runRecord {
 	return attemptoutcome.RecordFor(candidate, workspace, runtimeCommand, githubAuth, startedAt, endedAt, runtimeUsage, review, prURL, status, errorMessage, budget, budgetExceeded)
+}
+
+func hasString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
 }

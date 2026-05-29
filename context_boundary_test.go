@@ -135,7 +135,7 @@ func TestWorkerContextBoundariesDoNotUseBackgroundContext(t *testing.T) {
 			"collectReviewEvidenceContext",
 			"runReviewWithProviderContext",
 		},
-		"review_readiness.go": {
+		"review_worker.go": {
 			"resumeReviewReadyRunContext",
 		},
 		"review_worker_process.go": {

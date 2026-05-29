@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/weskor/agent-machine/internal/state"
+	"github.com/weskor/agent-machine/internal/statusreport"
 )
 
 type orchestrationSnapshot struct {
@@ -26,13 +27,7 @@ type orchestrationSnapshot struct {
 	SQLiteHealthError string
 }
 
-type eventSummary struct {
-	Sequence   int64
-	OccurredAt time.Time
-	IssueKey   string
-	Source     string
-	Type       string
-}
+type eventSummary = statusreport.EventSummary
 
 type snapshotIssue struct {
 	Issue     string
@@ -54,47 +49,11 @@ type snapshotLock struct {
 	RenewedAt time.Time
 }
 
-type snapshotLane struct {
-	Name                string
-	ProcessID           string
-	CycleNumber         int
-	LastSuccessAt       time.Time
-	LastError           string
-	RecoveryRequired    bool
-	ActiveTaskKey       string
-	ActiveTaskRole      string
-	ActiveLeaseName     string
-	ActiveTaskStartedAt time.Time
-	UpdatedAt           time.Time
-	Source              string
-}
+type snapshotLane = statusreport.Lane
 
-type snapshotWorkerTask struct {
-	TaskKey     string
-	Role        string
-	IssueKey    string
-	Attempt     int
-	Status      string
-	Priority    int
-	LeaseName   string
-	AvailableAt time.Time
-	UpdatedAt   time.Time
-}
+type snapshotWorkerTask = statusreport.WorkerTask
 
-type snapshotWorkerResult struct {
-	TaskKey    string
-	Role       string
-	LaneName   string
-	IssueKey   string
-	Attempt    int
-	Status     string
-	DidWork    bool
-	Reason     string
-	Error      string
-	StartedAt  time.Time
-	FinishedAt time.Time
-	UpdatedAt  time.Time
-}
+type snapshotWorkerResult = statusreport.WorkerResult
 
 const surfaceSnapshotSchemaVersion = 1
 
@@ -396,61 +355,8 @@ func snapshotRunLocks(workspaceRoot string, observedAt time.Time) ([]snapshotLoc
 	return locks, nil
 }
 
-type snapshotStateRow struct {
-	IssueKey, Status, ReviewStatus, PRURL, TerminalOutcome string
-	UpdatedAt                                              time.Time
-}
+type snapshotStateRow = statusreport.StateRow
 
 func loadSnapshotState(ctx context.Context, workspaceRoot string) ([]snapshotStateRow, []snapshotLane, []eventSummary, []snapshotWorkerTask, []snapshotWorkerResult, state.Health, error) {
-	path := state.DefaultDBPath(workspaceRoot)
-	health, err := state.InspectHealth(ctx, path)
-	if err != nil || !health.OK {
-		return nil, nil, nil, nil, nil, health, err
-	}
-	store, err := state.Open(ctx, path)
-	if err != nil {
-		return nil, nil, nil, nil, nil, health, err
-	}
-	defer store.Close()
-	rows, err := store.SnapshotAttempts(ctx)
-	if err != nil {
-		return nil, nil, nil, nil, nil, health, err
-	}
-	heartbeats, err := store.SnapshotHeartbeats(ctx)
-	if err != nil {
-		return nil, nil, nil, nil, nil, health, err
-	}
-	recent, err := store.RecentEvents(ctx, 5)
-	if err != nil {
-		return nil, nil, nil, nil, nil, health, err
-	}
-	workerTasks, err := store.WorkerTasks(ctx, "")
-	if err != nil {
-		return nil, nil, nil, nil, nil, health, err
-	}
-	workerResults, err := store.WorkerResults(ctx, "")
-	if err != nil {
-		return nil, nil, nil, nil, nil, health, err
-	}
-	out := make([]snapshotStateRow, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, snapshotStateRow{IssueKey: row.IssueKey, Status: row.Status, ReviewStatus: row.ReviewStatus, PRURL: row.PRURL, TerminalOutcome: row.TerminalOutcome, UpdatedAt: row.UpdatedAt})
-	}
-	lanes := make([]snapshotLane, 0, len(heartbeats))
-	for _, heartbeat := range heartbeats {
-		lanes = append(lanes, snapshotLane{Name: heartbeat.LaneName, ProcessID: heartbeat.ProcessID, CycleNumber: heartbeat.CycleNumber, LastSuccessAt: heartbeat.LastSuccessAt, LastError: heartbeat.LastError, RecoveryRequired: heartbeat.RecoveryRequired, ActiveTaskKey: heartbeat.ActiveTaskKey, ActiveTaskRole: heartbeat.ActiveTaskRole, ActiveLeaseName: heartbeat.ActiveLeaseName, ActiveTaskStartedAt: heartbeat.ActiveTaskStartedAt, UpdatedAt: heartbeat.UpdatedAt, Source: "sqlite"})
-	}
-	events := make([]eventSummary, 0, len(recent))
-	for _, event := range recent {
-		events = append(events, eventSummary{Sequence: event.Sequence, OccurredAt: event.OccurredAt, IssueKey: event.IssueKey, Source: event.Source, Type: event.Type})
-	}
-	tasks := make([]snapshotWorkerTask, 0, len(workerTasks))
-	for _, task := range workerTasks {
-		tasks = append(tasks, snapshotWorkerTask{TaskKey: task.TaskKey, Role: task.Role, IssueKey: task.IssueKey, Attempt: task.Attempt, Status: task.Status, Priority: task.Priority, LeaseName: task.LeaseName, AvailableAt: task.AvailableAt, UpdatedAt: task.UpdatedAt})
-	}
-	results := make([]snapshotWorkerResult, 0, len(workerResults))
-	for _, result := range workerResults {
-		results = append(results, snapshotWorkerResult{TaskKey: result.TaskKey, Role: result.Role, LaneName: result.LaneName, IssueKey: result.IssueKey, Attempt: result.Attempt, Status: result.Status, DidWork: result.DidWork, Reason: result.Reason, Error: result.Error, StartedAt: result.StartedAt, FinishedAt: result.FinishedAt, UpdatedAt: result.UpdatedAt})
-	}
-	return out, lanes, events, tasks, results, health, nil
+	return statusreport.LoadSnapshotState(ctx, workspaceRoot)
 }

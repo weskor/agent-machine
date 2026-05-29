@@ -11,6 +11,7 @@ import (
 
 	"github.com/weskor/agent-machine/internal/agentruntime"
 	"github.com/weskor/agent-machine/internal/behaviorcontract"
+	"github.com/weskor/agent-machine/internal/runbudget"
 	sh "github.com/weskor/agent-machine/internal/shell"
 	"github.com/weskor/agent-machine/internal/state"
 	"github.com/weskor/agent-machine/internal/ticketcontract"
@@ -59,7 +60,7 @@ func (w implementationWorker) Prepare(ctx context.Context) error {
 			if err := sh.RunWithContextTimeout(ctx, bootstrapCommand, w.workspace, w.config.Budget.CommandTimeout); err != nil {
 				if errors.Is(err, sh.ErrCommandTimeout) {
 					decision := commandFailureLifecycleDecision(attemptLifecyclePhaseWorkspace, err, true)
-					_ = linearStatus.CommentContext(ctx, renderBudgetFailureComment(err.Error()))
+					_ = linearStatus.CommentContext(ctx, runbudget.FailureComment(err.Error()))
 					writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), "", w.runStarted, time.Now(), nil, nil, "", decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
 				}
 				return err
@@ -73,7 +74,7 @@ func (w implementationWorker) Prepare(ctx context.Context) error {
 		if err := sh.RunWithContextTimeout(ctx, w.config.BeforeRun, w.workspace, w.config.Budget.CommandTimeout); err != nil {
 			if errors.Is(err, sh.ErrCommandTimeout) {
 				decision := commandFailureLifecycleDecision(attemptLifecyclePhaseWorkspace, err, true)
-				_ = linearStatus.CommentContext(ctx, renderBudgetFailureComment(err.Error()))
+				_ = linearStatus.CommentContext(ctx, runbudget.FailureComment(err.Error()))
 				writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), "", w.runStarted, time.Now(), nil, nil, "", decision.Status, err.Error(), w.config.Budget.Active(), err.Error()))
 			}
 			return err
@@ -128,7 +129,7 @@ func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]stri
 		timeout := piEnvelope.RuntimeOutcome == agentruntime.AttemptOutcomeTimeout || errors.Is(err, sh.ErrCommandTimeout)
 		decision := commandFailureLifecycleDecision(attemptLifecyclePhaseImplementation, err, timeout)
 		if timeout {
-			if commentErr := linearStatus.CommentContext(ctx, renderBudgetFailureComment(err.Error())); commentErr != nil {
+			if commentErr := linearStatus.CommentContext(ctx, runbudget.FailureComment(err.Error())); commentErr != nil {
 				log("failed to comment on %s: %v", w.candidate.Identifier, commentErr)
 			}
 		}
@@ -146,9 +147,9 @@ func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]stri
 	validating.PRURL = result.PRURL
 	writeRunProgress(w.config.WorkspaceRoot, validating)
 	log("runtime run duration: %s", piEnded.Sub(piStart).Round(time.Second))
-	if exceeded := budgetExceeded(w.config.Budget, piStart, result.Usage); exceeded != "" {
+	if exceeded := runbudget.Exceeded(w.config.Budget, piStart, result.Usage); exceeded != "" {
 		decision := budgetLifecycleDecision(attemptLifecyclePhaseImplementation, result.PRURL, exceeded)
-		if err := linearStatus.CommentContext(ctx, renderBudgetFailureComment(exceeded)); err != nil {
+		if err := linearStatus.CommentContext(ctx, runbudget.FailureComment(exceeded)); err != nil {
 			log("failed to comment on %s: %v", w.candidate.Identifier, err)
 		}
 		writeRunRecordWithCommandStateContext(ctx, w.stateStore, w.workspace, runRecordFor(w.candidate, w.workspace, w.config.RuntimeImplementationCommand(), githubAuth, piStart, time.Now(), result.Usage, nil, result.PRURL, decision.Status, exceeded, w.config.Budget.Active(), exceeded))
@@ -184,7 +185,7 @@ func (w implementationWorker) Run(ctx context.Context, githubEnv map[string]stri
 			timeout := errors.Is(err, sh.ErrCommandTimeout)
 			decision := commandFailureLifecycleDecision(attemptLifecyclePhaseValidation, err, timeout)
 			if timeout {
-				if commentErr := linearStatus.CommentContext(ctx, renderBudgetFailureComment(err.Error())); commentErr != nil {
+				if commentErr := linearStatus.CommentContext(ctx, runbudget.FailureComment(err.Error())); commentErr != nil {
 					log("failed to comment on %s: %v", w.candidate.Identifier, commentErr)
 				}
 			}

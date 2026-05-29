@@ -504,7 +504,11 @@ func validateAdvisoryPRForHandoff(ctx context.Context, github githubAPI, config 
 
 func handoffPRTitleBody(candidate *issue) (string, string) {
 	title := strings.TrimSpace(candidate.Identifier + ": " + candidate.Title)
-	body := "Runner-owned handoff PR for " + candidate.Identifier + ".\n\nThe implementation agent owns the scoped diff and validation notes; Agent Machine created or updated this PR deterministically."
+	body := renderPRHandoffBody(handoffSummary{
+		IssueIdentifier: candidate.Identifier,
+		IssueTitle:      candidate.Title,
+		IssueURL:        candidate.URL,
+	})
 	return title, body
 }
 

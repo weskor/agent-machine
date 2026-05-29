@@ -21,7 +21,8 @@ func TestEnsureRunnerPRHandoffCreatesPRWhenAgentEmitsNoURL(t *testing.T) {
 	}
 	config := testRunnerConfig(filepath.Dir(workspace))
 	config.BaseBranch = "main"
-	withFakeGitHubAPI(t, fakeGitHubAPI{})
+	updatedBodies := map[int]string{}
+	withFakeGitHubAPI(t, fakeGitHubAPI{updatedPRBodies: updatedBodies})
 
 	prURL, err := ensureRunnerPRHandoff(config, &candidate, workspace, "", nil)
 	if err != nil {
@@ -29,6 +30,15 @@ func TestEnsureRunnerPRHandoffCreatesPRWhenAgentEmitsNoURL(t *testing.T) {
 	}
 	if prURL != "https://github.com/weskor/agent-machine/pull/900" {
 		t.Fatalf("unexpected PR URL %q", prURL)
+	}
+	body := updatedBodies[900]
+	for _, want := range []string{"## Agent Machine handoff", "CAG-118", "### Behavior Contract Evidence", "Handoff evidence source: runner-owned PR body"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("created PR body missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "<!-- am-summary -->") {
+		t.Fatalf("created PR body should not contain retired comment marker:\n%s", body)
 	}
 }
 
@@ -187,14 +197,29 @@ func TestEnsureRunnerPRHandoffUpdatesExistingRetryBranch(t *testing.T) {
 	}
 	config := testRunnerConfig(filepath.Dir(workspace))
 	config.BaseBranch = "main"
-	withFakeGitHubAPI(t, fakeGitHubAPI{})
+	prURL := "https://github.com/weskor/agent-machine/pull/130"
+	updatedBodies := map[int]string{}
+	updatedPRs := map[int]bool{}
+	withFakeGitHubAPI(t, fakeGitHubAPI{
+		prs: []pullRequestSummary{
+			{Number: 130, URL: prURL, BaseRefName: "main", HeadRefName: branch, Author: prAuthor{Login: "app/agent-machine-bot"}},
+		},
+		handoffDetailsByURL: map[string]prHandoffDetails{
+			prURL: {Number: 130, URL: prURL, BaseRefName: "main", HeadRefName: branch, Author: prAuthor{Login: "app/agent-machine-bot"}},
+		},
+		updatedPRs:      updatedPRs,
+		updatedPRBodies: updatedBodies,
+	})
 
-	prURL, err := ensureRunnerPRHandoff(config, &candidate, workspace, "", nil)
+	gotPRURL, err := ensureRunnerPRHandoff(config, &candidate, workspace, "", nil)
 	if err != nil {
 		t.Fatalf("ensureRunnerPRHandoff returned error: %v", err)
 	}
-	if prURL != "https://github.com/weskor/agent-machine/pull/900" {
-		t.Fatalf("expected runner-created PR URL, got %q", prURL)
+	if gotPRURL != prURL {
+		t.Fatalf("expected runner-updated PR URL %q, got %q", prURL, gotPRURL)
+	}
+	if !updatedPRs[130] {
+		t.Fatal("expected existing PR to be updated")
 	}
 	remoteHead, err := sh.CaptureQuiet("git rev-parse origin/"+sh.Quote(branch), workspace)
 	if err != nil {
@@ -206,6 +231,9 @@ func TestEnsureRunnerPRHandoffUpdatesExistingRetryBranch(t *testing.T) {
 	}
 	if strings.TrimSpace(remoteHead) != strings.TrimSpace(localHead) {
 		t.Fatalf("remote retry branch was not updated: remote=%s local=%s", remoteHead, localHead)
+	}
+	if body := updatedBodies[130]; !strings.Contains(body, "## Agent Machine handoff") || !strings.Contains(body, "### Behavior Contract Evidence") {
+		t.Fatalf("updated PR body should preserve structured handoff evidence, got:\n%s", body)
 	}
 }
 

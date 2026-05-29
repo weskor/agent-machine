@@ -13,3 +13,7 @@ func main() {
 		os.Exit(1)
 	}
 }
+
+func log(format string, args ...any) {
+	fmt.Printf("[am] "+format+"\n", args...)
+}

@@ -126,9 +126,6 @@ type reviewPromptStateReader interface {
 }
 
 func repairReviewFailedPromptFeedback(reader reviewPromptStateReader, issueKey, existingFeedback string) string {
-	if strings.TrimSpace(existingFeedback) != "" {
-		return existingFeedback
-	}
 	if reader == nil {
 		return existingFeedback
 	}
@@ -137,6 +134,11 @@ func repairReviewFailedPromptFeedback(reader reviewPromptStateReader, issueKey, 
 		return existingFeedback
 	}
 	var builder strings.Builder
+	if strings.TrimSpace(existingFeedback) != "" {
+		builder.WriteString(strings.TrimSpace(existingFeedback))
+		fmt.Fprintln(&builder)
+		fmt.Fprintln(&builder)
+	}
 	fmt.Fprintln(&builder, "# Prior review state")
 	fmt.Fprintln(&builder)
 	if strings.TrimSpace(facts.ReviewStatus) != "" {

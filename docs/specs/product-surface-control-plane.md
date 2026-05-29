@@ -29,24 +29,24 @@ The OpenTUI Adapter renders the snapshot into an operator dashboard:
   errors.
 - Summary: counts for issues, active locks, lanes, worker tasks, and
   reconciliation-needed worker tasks.
-- Views rail: Issues, Overview, Lanes, Tasks, and Logs. Issues is the
-  issue-centric default view.
-- List pane: a flat prioritized issue work queue for the Issues view, or rows
-  for the active secondary view.
-- Details pane: stable key/value fields for the selected row. In the Issues
-  view this is the selected-issue evidence pane.
-- Logs view: typed worker results and recent orchestration events from the
-  snapshot. It must not stream raw Agent output or daemon stdout directly.
+- Default view: a flat prioritized issue work queue. Older source-oriented
+  Overview, Lanes, Tasks, and Logs views may remain as secondary diagnostics,
+  but they are not part of the default operator path.
+- List pane: the flat prioritized issue work queue from the snapshot.
+- Details pane: the selected-issue evidence pane.
+- Diagnostic log surfaces, when exposed, use typed worker results and recent
+  orchestration events from the snapshot. They must not stream raw Agent output
+  or daemon stdout directly.
 
-The Adapter owns only presentation state: active view, selected row, local
-refresh state, and terminal key handling. It must not infer scheduler,
-handoff, retry, cleanup, merge, or repair decisions from presentation state.
+The Adapter owns only presentation state: selected row, optional local view or
+filter state, local refresh state, and terminal key handling. It must not infer
+scheduler, handoff, retry, cleanup, merge, or repair decisions from
+presentation state.
 
-Keyboard controls are local UI controls only:
+Keyboard controls are local UI controls only. The issue-centric default view
+must show the controls it actually implements:
 
-- `tab`, `h`/`l`, or left/right arrows switch views.
 - `j`/`k` or up/down arrows move the selected row.
-- `1`-`5` jump to Issues, Overview, Lanes, Tasks, or Logs.
 - `r` refreshes the snapshot.
 - `q` exits.
 

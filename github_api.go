@@ -14,6 +14,11 @@ import (
 
 type githubAPI = codehost.Client
 
+const githubAppPRAuthorLogin = ghapi.AppPRAuthorLogin
+const githubAppRESTPRAuthorLogin = ghapi.AppRESTPRAuthorLogin
+const githubAppBotName = ghapi.AppBotName
+const githubAppBotEmail = ghapi.AppBotEmail
+
 var newGitHubAPI = func() (githubAPI, error) { return ghapi.NewClient() }
 var newGitLabAPI = gitlabapi.NewClient
 
@@ -21,6 +26,22 @@ func currentGitHubRepo() (string, string, error) { return ghapi.CurrentRepositor
 
 func configureGitHubRepositoryFromConfig(configPath string) {
 	ghapi.ConfigureRepositoryFromConfig(configPath)
+}
+
+func githubAppEnvFromEnvironment() (map[string]string, string, error) {
+	return ghapi.AppEnvFromEnvironment()
+}
+
+func githubAppIdentityFromConfig(config runnerConfig) ghapi.AppIdentity {
+	return ghapi.AppIdentityFromConfigSlug(config.GitHubAppSlug)
+}
+
+func commitAuthorInvariantBlockReason(config runnerConfig, pr pullRequestSummary) string {
+	return ghapi.CommitAuthorInvariantBlockReason(githubAppIdentityFromConfig(config), pr)
+}
+
+func configureGitHubAppCommitIdentity(config runnerConfig, workspace string, timeout time.Duration) error {
+	return ghapi.ConfigureAppCommitIdentity(githubAppIdentityFromConfig(config), workspace, timeout)
 }
 
 func githubClientWithTimeout(timeout time.Duration) (githubAPI, context.Context, context.CancelFunc, error) {

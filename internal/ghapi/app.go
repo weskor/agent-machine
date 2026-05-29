@@ -69,6 +69,16 @@ func AppIdentityFromEnvironment() (AppIdentity, bool) {
 	return NewAppIdentity(os.Getenv("GITHUB_APP_SLUG"), "GITHUB_APP_SLUG")
 }
 
+func AppIdentityFromConfigSlug(slug string) AppIdentity {
+	if identity, ok := NewAppIdentity(slug, "config github.app_slug"); ok {
+		return identity
+	}
+	if identity, ok := AppIdentityFromEnvironment(); ok {
+		return identity
+	}
+	return AppIdentity{Source: "config github.app_slug or GITHUB_APP_SLUG"}
+}
+
 func (i AppIdentity) AppPRAuthorLogin() string {
 	if strings.TrimSpace(i.Slug) == "" {
 		return ""

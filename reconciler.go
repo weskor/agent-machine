@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
 
+	"github.com/weskor/agent-machine/internal/codeownership"
 	"github.com/weskor/agent-machine/internal/state"
 )
 
@@ -508,7 +510,15 @@ func prInvariantBlockReason(config runnerConfig, candidate issue, pr pullRequest
 	if pr.HeadRefName != expectedWorkspaceBranch(candidate.Identifier) {
 		reasons = append(reasons, fmt.Sprintf("PR head branch is %q; expected %q", emptyAsUnknown(pr.HeadRefName), expectedWorkspaceBranch(candidate.Identifier)))
 	}
-	ownership := newCodeHostOwnershipPolicy(config)
+	appIdentity := githubAppIdentityFromConfig(config)
+	ownership := codeownership.NewPolicy(codeownership.Input{
+		Provider:                  codeHostProvider(config),
+		GitHubPRAuthorOverride:    config.GitHubPRAuthorOverride,
+		GitHubAppExpectedLogins:   appIdentity.ExpectedPRAuthorLogins(),
+		GitHubAppSource:           appIdentity.Source,
+		GitLabPRAuthorOverride:    config.GitLabPRAuthorOverride,
+		GitLabEnvPRAuthorOverride: os.Getenv("GITLAB_PR_AUTHOR_OVERRIDE"),
+	})
 	if !ownership.AllowsPRAuthor(pr.AuthorLogin()) {
 		reasons = append(reasons, fmt.Sprintf("PR author is %q; expected %s", emptyAsUnknown(pr.AuthorLogin()), ownership.ExpectedPRAuthorSource()))
 	}

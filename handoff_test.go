@@ -237,6 +237,31 @@ func TestEnsureRunnerPRHandoffUpdatesExistingRetryBranch(t *testing.T) {
 	}
 }
 
+func TestExecuteRunnerPRHandoffStopsBeforePushWhenAdvisoryPRAlreadyMerged(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
+	workspace := runnerHandoffGitWorkspace(t, "main")
+	candidate := testIssue("CAG-199", "In Progress")
+	branch := expectedWorkspaceBranch(candidate.Identifier)
+	if err := sh.Run("git switch -q -C "+sh.Quote(branch)+" && echo stale > handoff.go", workspace); err != nil {
+		t.Fatal(err)
+	}
+	config := testRunnerConfig(filepath.Dir(workspace))
+	config.BaseBranch = "main"
+	prURL := "https://github.com/weskor/agent-machine/pull/176"
+	withFakeGitHubAPI(t, fakeGitHubAPI{state: "MERGED", merged: true})
+
+	gotPRURL, err := executeRunnerPRHandoffContext(context.Background(), config, &candidate, workspace, prURL, nil)
+	if !errors.Is(err, errTerminalPullRequest) {
+		t.Fatalf("executeRunnerPRHandoffContext() error = %v; want terminal PR", err)
+	}
+	if gotPRURL != prURL {
+		t.Fatalf("PR URL = %q, want %q", gotPRURL, prURL)
+	}
+	if err := sh.Run("git rev-parse --verify origin/"+sh.Quote(branch), workspace); err == nil {
+		t.Fatal("stale handoff recreated/pushed the already merged branch")
+	}
+}
+
 func TestEnsureRunnerPRHandoffBlocksUnownedExistingBranchPRBeforeUpdate(t *testing.T) {
 	t.Setenv("GITHUB_REPOSITORY", "weskor/agent-machine")
 	workspace := runnerHandoffGitWorkspace(t, "main")

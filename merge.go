@@ -148,6 +148,14 @@ func runQueuedMergeWorkerTaskContext(parent context.Context, client linearClient
 	pr, ok := findMergeTaskPullRequest(amPRs(prs), task, taskPayload)
 	if !ok {
 		finishedAt := time.Now().UTC()
+		handled, reason, handleErr := handleAlreadyMergedMissingMergeTaskPR(ctx, client, config, store, github, task, taskPayload)
+		if handleErr != nil {
+			recordMergeErrorContext(ctx, store, task.IssueKey, task.IssueID, taskPayload.PRNumber, handleErr)
+			return true, errors.Join(handleErr, completeClaimedMergeWorkerTask(ctx, store, task, "failed", true, "already_merged_convergence_failed", handleErr.Error(), startedAt, finishedAt))
+		}
+		if handled {
+			return true, completeClaimedMergeWorkerTask(ctx, store, task, "completed", true, reason, "", startedAt, finishedAt)
+		}
 		return true, completeClaimedMergeWorkerTask(ctx, store, task, "completed", true, "pull_request_not_open", "", startedAt, finishedAt)
 	}
 	worker := mergeWorker{client: client, config: config, store: store, github: github}

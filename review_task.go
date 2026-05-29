@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/weskor/agent-machine/internal/state"
+	"github.com/weskor/agent-machine/internal/workertask"
 )
 
 func reviewReadyWorkerTaskKey(issueKey string, attempt int) string {
@@ -38,7 +39,7 @@ func enqueueReviewReadyWorkerTask(ctx context.Context, store *state.Store, candi
 		}
 		break
 	}
-	availableAt, err := workerTaskAvailableAtAfterLatestFailure(ctx, store, taskKey, reviewWorkerRole, now)
+	availableAt, err := workertask.AvailableAtAfterLatestFailure(ctx, store, taskKey, reviewWorkerRole, now)
 	if err != nil {
 		return state.WorkerTask{}, false, err
 	}

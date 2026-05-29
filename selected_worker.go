@@ -7,19 +7,20 @@ import (
 	"time"
 
 	"github.com/weskor/agent-machine/internal/state"
+	"github.com/weskor/agent-machine/internal/workertask"
 )
 
-const statusWorkerRole = "status"
-const planWorkerRole = "plan"
-const schedulerWorkerRole = "scheduler"
-const cleanupWorkerRole = "cleanup"
-const mergeWorkerRole = "merge"
-const reconciliationWorkerRole = "reconciliation"
-const reviewWorkerRole = "review"
-const implementationWorkerRole = "implementation"
-const handoffWorkerRole = "handoff"
-const linearStatusWorkerRole = "linear-status"
-const workWorkerRole = "work"
+const statusWorkerRole = workertask.RoleStatus
+const planWorkerRole = workertask.RolePlan
+const schedulerWorkerRole = workertask.RoleScheduler
+const cleanupWorkerRole = workertask.RoleCleanup
+const mergeWorkerRole = workertask.RoleMerge
+const reconciliationWorkerRole = workertask.RoleReconciliation
+const reviewWorkerRole = workertask.RoleReview
+const implementationWorkerRole = workertask.RoleImplementation
+const handoffWorkerRole = workertask.RoleHandoff
+const linearStatusWorkerRole = workertask.RoleLinearStatus
+const workWorkerRole = workertask.RoleWork
 
 func runSelectedWorker(client linearClient, proj project, config runnerConfig, role string) error {
 	return runSelectedWorkerContext(context.Background(), client, proj, config, role)

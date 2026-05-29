@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/weskor/agent-machine/internal/state"
+	"github.com/weskor/agent-machine/internal/workertask"
 )
 
 type mergeWorkerTaskPayload struct {
@@ -44,7 +45,7 @@ func enqueueMergeWorkerTask(ctx context.Context, store *state.Store, candidate i
 		}
 		break
 	}
-	availableAt, err := workerTaskAvailableAtAfterLatestFailure(ctx, store, taskKey, mergeWorkerRole, now)
+	availableAt, err := workertask.AvailableAtAfterLatestFailure(ctx, store, taskKey, mergeWorkerRole, now)
 	if err != nil {
 		return state.WorkerTask{}, false, err
 	}

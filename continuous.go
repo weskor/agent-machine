@@ -12,6 +12,7 @@ import (
 
 	cfg "github.com/weskor/agent-machine/internal/config"
 	"github.com/weskor/agent-machine/internal/state"
+	"github.com/weskor/agent-machine/internal/workertask"
 )
 
 func runContinuous(client linearClient, proj project, config runnerConfig, maxCycles int) error {
@@ -248,7 +249,7 @@ func runContinuousWorkerTask(ctx context.Context, store *state.Store, task conti
 	}
 	availableAt := now
 	if hasExisting {
-		availableAt, err = workerTaskAvailableAtAfterLatestFailure(ctx, store, existing.TaskKey, task.Role, now)
+		availableAt, err = workertask.AvailableAtAfterLatestFailure(ctx, store, existing.TaskKey, task.Role, now)
 		if err != nil {
 			return false, err
 		}

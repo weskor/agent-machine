@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/weskor/agent-machine/internal/state"
+	"github.com/weskor/agent-machine/internal/workertask"
 )
 
 const linearStatusTaskKindTransition = "transition"
@@ -36,7 +37,7 @@ func queueLinearStatusTransitionTask(ctx context.Context, store *state.Store, pa
 		return err
 	}
 	taskKey := linearStatusTransitionTaskKey(normalized)
-	availableAt, err = workerTaskAvailableAtAfterLatestFailure(ctx, store, taskKey, linearStatusWorkerRole, availableAt)
+	availableAt, err = workertask.AvailableAtAfterLatestFailure(ctx, store, taskKey, linearStatusWorkerRole, availableAt)
 	if err != nil {
 		return err
 	}

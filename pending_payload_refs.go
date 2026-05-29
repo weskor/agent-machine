@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/weskor/agent-machine/internal/state"
+	"github.com/weskor/agent-machine/internal/terminalpr"
 )
 
 func recordReviewPendingPayloadRef(store *state.Store, payload reviewPendingPayload, payloadPath string) error {
@@ -112,7 +113,7 @@ func completeWorkerPayloadRef(ctx context.Context, store *state.Store, ref *stat
 		completeCtx = context.WithoutCancel(ctx)
 	}
 	status := "completed"
-	if workerErr != nil && !errors.Is(workerErr, errTerminalPullRequest) {
+	if workerErr != nil && !errors.Is(workerErr, terminalpr.ErrTerminalPullRequest) {
 		status = "failed"
 	}
 	return store.CompleteWorkerPayloadRef(completeCtx, *ref, status, time.Now().UTC())
@@ -128,7 +129,7 @@ func completePRHandoffIntent(ctx context.Context, store *state.Store, payload pr
 	}
 	status := state.PRHandoffIntentStatusCompleted
 	errorText := ""
-	if workerErr != nil && !errors.Is(workerErr, errTerminalPullRequest) {
+	if workerErr != nil && !errors.Is(workerErr, terminalpr.ErrTerminalPullRequest) {
 		status = state.PRHandoffIntentStatusFailed
 		errorText = workerErr.Error()
 	}

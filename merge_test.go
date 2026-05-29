@@ -14,6 +14,7 @@ import (
 
 	sh "github.com/weskor/agent-machine/internal/shell"
 	"github.com/weskor/agent-machine/internal/state"
+	"github.com/weskor/agent-machine/internal/terminalpr"
 )
 
 func TestIssueIdentifierFromBranch(t *testing.T) {
@@ -648,8 +649,8 @@ func TestRunQueuedMergeWorkerTaskConvergesAlreadyMergedMissingOpenPR(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 || results[0].Reason != terminalPRReasonAlreadyMerged || results[0].Status != "completed" {
-		t.Fatalf("merge results = %+v; want completed %s", results, terminalPRReasonAlreadyMerged)
+	if len(results) != 1 || results[0].Reason != terminalpr.ReasonAlreadyMerged || results[0].Status != "completed" {
+		t.Fatalf("merge results = %+v; want completed %s", results, terminalpr.ReasonAlreadyMerged)
 	}
 }
 
